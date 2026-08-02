@@ -1,0 +1,733 @@
+.main-menu-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 560px;
+    overflow: hidden;
+    isolation: isolate;
+    background:
+        radial-gradient(circle at 50% 42%, rgba(255, 253, 247, 0.96) 0 18%, rgba(248, 243, 233, 0.72) 46%, transparent 72%),
+        linear-gradient(180deg, #f8f4ec 0%, #f2ede2 58%, #e9e2d4 100%);
+    color: #171717;
+}
+
+.main-menu-paper-grain {
+    position: absolute;
+    inset: 0;
+    z-index: -8;
+    opacity: 0.5;
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='paper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.65' numOctaves='4' seed='12'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23paper)' opacity='.085'/%3E%3C/svg%3E"),
+        repeating-linear-gradient(91deg, transparent 0 21px, rgba(85, 66, 39, 0.012) 22px);
+    mix-blend-mode: multiply;
+}
+
+.main-menu-sun {
+    position: absolute;
+    z-index: -6;
+    top: clamp(54px, 9vh, 110px);
+    right: clamp(70px, 13vw, 220px);
+    width: clamp(76px, 8vw, 116px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 40% 34%, rgba(216, 83, 65, 0.94), rgba(176, 47, 36, 0.88) 58%, rgba(133, 31, 25, 0.8));
+    box-shadow: 0 0 38px rgba(192, 57, 43, 0.14);
+    opacity: 0.82;
+}
+
+.main-menu-sun::after {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    border-radius: 50%;
+    border: 1px solid rgba(192, 57, 43, 0.09);
+}
+
+.main-menu-landscape {
+    position: absolute;
+    z-index: -5;
+    left: 0;
+    width: 100%;
+    pointer-events: none;
+}
+
+.main-menu-landscape path {
+    vector-effect: non-scaling-stroke;
+}
+
+.main-menu-landscape-far {
+    bottom: 18%;
+    height: 58%;
+    color: #718177;
+    opacity: 0.16;
+    filter: blur(0.5px);
+}
+
+.main-menu-landscape-far path:first-child {
+    fill: currentColor;
+    stroke: rgba(42, 55, 48, 0.28);
+    stroke-width: 1.2;
+}
+
+.main-menu-landscape-far path:not(:first-child) {
+    fill: none;
+    stroke: rgba(39, 52, 45, 0.42);
+    stroke-width: 1.1;
+}
+
+.main-menu-landscape-mid {
+    bottom: 3%;
+    height: 48%;
+    color: #46584d;
+    opacity: 0.16;
+}
+
+.main-menu-landscape-mid path:first-child {
+    fill: currentColor;
+    stroke: rgba(30, 39, 34, 0.36);
+    stroke-width: 1.2;
+}
+
+.main-menu-landscape-mid path:last-child {
+    fill: none;
+    stroke: rgba(26, 34, 29, 0.42);
+    stroke-width: 1;
+}
+
+.main-menu-landscape-near {
+    z-index: -3;
+    bottom: -1px;
+    height: 31%;
+    color: #26372f;
+    opacity: 0.19;
+}
+
+.main-menu-landscape-near path {
+    fill: currentColor;
+    stroke: rgba(17, 24, 20, 0.45);
+    stroke-width: 1.4;
+}
+
+.main-menu-mist {
+    position: absolute;
+    z-index: -2;
+    left: -12%;
+    width: 124%;
+    height: 15%;
+    border-radius: 50%;
+    background: rgba(249, 246, 239, 0.82);
+    filter: blur(19px);
+}
+
+.main-menu-mist-one {
+    bottom: 24%;
+    transform: rotate(-2deg);
+}
+
+.main-menu-mist-two {
+    bottom: 8%;
+    opacity: 0.7;
+    transform: rotate(1.5deg);
+}
+
+.main-menu-cloud {
+    position: absolute;
+    z-index: -1;
+    color: rgba(30, 38, 33, 0.3);
+    pointer-events: none;
+}
+
+.main-menu-cloud path {
+    stroke: currentColor;
+    stroke-width: 1.25;
+    stroke-linecap: round;
+}
+
+.main-menu-cloud-left {
+    top: 19%;
+    left: 9%;
+    width: clamp(150px, 18vw, 250px);
+    animation: main-menu-drift 18s ease-in-out infinite;
+}
+
+.main-menu-cloud-right {
+    top: 29%;
+    right: 7%;
+    width: clamp(130px, 15vw, 220px);
+    opacity: 0.72;
+    animation: main-menu-drift 23s ease-in-out infinite reverse;
+}
+
+.main-menu-bamboo {
+    position: absolute;
+    z-index: -1;
+    left: -28px;
+    bottom: -72px;
+    height: min(78vh, 690px);
+    color: rgba(23, 39, 30, 0.26);
+    filter: drop-shadow(12px 8px 15px rgba(28, 39, 33, 0.05));
+    pointer-events: none;
+}
+
+.main-menu-bamboo path:not(:first-child):not(:nth-child(2)) {
+    fill: rgba(26, 45, 34, 0.1);
+}
+
+.main-menu-cranes {
+    position: absolute;
+    z-index: -1;
+    top: 17%;
+    right: 25%;
+    width: clamp(110px, 13vw, 190px);
+    opacity: 0.38;
+}
+
+.main-menu-cranes path {
+    stroke: #28372f;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+}
+
+.main-menu-side-inscription {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: clamp(28px, 5vw, 92px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transform: translateY(-50%);
+    color: rgba(29, 35, 31, 0.55);
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: clamp(17px, 1.45vw, 22px);
+    letter-spacing: 0.22em;
+    writing-mode: vertical-rl;
+}
+
+.main-menu-side-inscription i {
+    display: grid;
+    width: 31px;
+    height: 31px;
+    margin-top: 8px;
+    border: 1.5px solid rgba(192, 57, 43, 0.7);
+    border-radius: 2px;
+    place-items: center;
+    color: rgba(192, 57, 43, 0.82);
+    font-size: 19px;
+    font-style: normal;
+    letter-spacing: 0;
+    writing-mode: horizontal-tb;
+    transform: rotate(-4deg);
+}
+
+.main-menu-center {
+    position: absolute;
+    z-index: 3;
+    inset: 0;
+    display: flex;
+    width: min(500px, calc(100% - 42px));
+    height: max-content;
+    max-height: calc(100% - 32px);
+    margin: auto;
+    padding: 12px 20px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    animation: main-menu-reveal 0.72s cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+.main-menu-center::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -45px -70px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(250, 247, 239, 0.96) 0 37%, rgba(250, 247, 239, 0.72) 57%, transparent 76%);
+    filter: blur(6px);
+}
+
+.main-menu-title-block {
+    width: 100%;
+}
+
+.main-menu-kicker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 13px;
+    margin-bottom: 7px;
+}
+
+.main-menu-kicker span {
+    width: 38px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(35, 40, 36, 0.35));
+}
+
+.main-menu-kicker span:last-child {
+    transform: rotate(180deg);
+}
+
+.main-menu-kicker p {
+    color: #6b665c;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.28em;
+}
+
+.main-menu-title-row {
+    position: relative;
+    display: inline-flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.main-menu-title-row h1 {
+    margin: 0;
+    color: #171817;
+    font-family: "Ma Shan Zheng", "ZCOOL KuaiLe", cursive;
+    font-size: clamp(54px, 5.4vw, 78px);
+    font-weight: 400;
+    line-height: 1.12;
+    letter-spacing: 0.13em;
+    text-shadow: 1px 2px 0 rgba(28, 34, 30, 0.04);
+}
+
+.main-menu-title-seal {
+    position: absolute;
+    right: -29px;
+    bottom: 6px;
+    display: grid;
+    width: 25px;
+    height: 25px;
+    border: 1.5px solid #b43b30;
+    border-radius: 2px;
+    place-items: center;
+    color: #b43b30;
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: 16px;
+    line-height: 1;
+    transform: rotate(-5deg);
+}
+
+.main-menu-tagline {
+    margin-top: 5px;
+    color: #544f47;
+    font-family: "Noto Sans SC", sans-serif;
+    font-size: 12px;
+    font-weight: 300;
+    letter-spacing: 0.3em;
+}
+
+.main-menu-brush-divider {
+    display: block;
+    width: min(360px, 86%);
+    height: 18px;
+    margin: 11px auto 13px;
+    overflow: visible;
+}
+
+.main-menu-brush-divider path {
+    fill: none;
+    stroke: rgba(30, 35, 31, 0.3);
+    stroke-width: 1.1;
+    stroke-linecap: round;
+}
+
+.main-menu-brush-divider path:last-child {
+    opacity: 0.32;
+}
+
+.main-menu-actions {
+    display: grid;
+    width: min(352px, 100%);
+    gap: 8px;
+}
+
+.main-menu-choice {
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-height: 58px;
+    padding: 8px 42px 8px 46px;
+    overflow: hidden;
+    border: 1px solid rgba(31, 35, 31, 0.13);
+    border-radius: 4px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    background: rgba(250, 247, 240, 0.68);
+    box-shadow:
+        0 5px 18px rgba(53, 45, 34, 0.045),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+    color: #22231f;
+    cursor: pointer;
+    transition:
+        transform 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        background 180ms ease,
+        color 180ms ease;
+}
+
+.main-menu-choice::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background: linear-gradient(108deg, transparent 5%, rgba(255, 255, 255, 0.18) 45%, transparent 83%);
+    transform: translateX(-80%);
+    transition: opacity 180ms ease, transform 420ms ease;
+}
+
+.main-menu-choice:hover:not(:disabled) {
+    border-color: rgba(35, 42, 36, 0.32);
+    background: rgba(255, 253, 248, 0.92);
+    box-shadow: 0 8px 22px rgba(44, 37, 29, 0.09);
+    transform: translateY(-2px);
+}
+
+.main-menu-choice:hover:not(:disabled)::before {
+    opacity: 1;
+    transform: translateX(75%);
+}
+
+.main-menu-choice:active:not(:disabled) {
+    transform: translateY(0) scale(0.99);
+}
+
+.main-menu-choice:focus-visible {
+    outline: 2px solid rgba(192, 57, 43, 0.48);
+    outline-offset: 3px;
+}
+
+.main-menu-choice:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+    filter: grayscale(0.55);
+}
+
+.main-menu-choice-primary {
+    border-color: #202b25;
+    background:
+        linear-gradient(100deg, rgba(255, 255, 255, 0.025), transparent 48%),
+        #26342d;
+    box-shadow: 0 9px 25px rgba(30, 43, 36, 0.18);
+    color: #faf6ec;
+}
+
+.main-menu-choice-primary:hover:not(:disabled) {
+    border-color: #263b30;
+    background: #31443a;
+    box-shadow: 0 11px 29px rgba(30, 43, 36, 0.22);
+}
+
+.main-menu-choice-quiet {
+    min-height: 51px;
+    border-color: transparent;
+    background: rgba(250, 247, 240, 0.28);
+    box-shadow: none;
+}
+
+.main-menu-choice-quiet:hover:not(:disabled) {
+    border-color: rgba(31, 35, 31, 0.12);
+    background: rgba(250, 247, 240, 0.72);
+    box-shadow: 0 5px 16px rgba(44, 37, 29, 0.045);
+}
+
+.main-menu-choice-index {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    color: #a4382e;
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: 14px;
+    transform: translateY(-50%);
+}
+
+.main-menu-choice-primary .main-menu-choice-index {
+    color: #df8d7e;
+}
+
+.main-menu-choice-copy {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.main-menu-choice-title {
+    font-family: "Ma Shan Zheng", "Noto Sans SC", sans-serif;
+    font-size: 20px;
+    line-height: 1.2;
+    letter-spacing: 0.16em;
+}
+
+.main-menu-choice-subtitle {
+    margin-top: 2px;
+    color: #777167;
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.15em;
+}
+
+.main-menu-choice-primary .main-menu-choice-subtitle {
+    color: rgba(250, 246, 236, 0.62);
+}
+
+.main-menu-choice-arrow {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    color: rgba(34, 35, 31, 0.35);
+    font-family: serif;
+    font-size: 23px;
+    line-height: 1;
+    transform: translateY(-52%);
+    transition: transform 180ms ease, color 180ms ease;
+}
+
+.main-menu-choice-primary .main-menu-choice-arrow {
+    color: rgba(250, 246, 236, 0.52);
+}
+
+.main-menu-choice:hover:not(:disabled) .main-menu-choice-arrow {
+    color: #a4382e;
+    transform: translate(3px, -52%);
+}
+
+.main-menu-choice-primary:hover:not(:disabled) .main-menu-choice-arrow {
+    color: #f1b2a5;
+}
+
+.main-menu-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    gap: 8px;
+    margin-top: 14px;
+    color: #827c72;
+    font-size: 8px;
+    letter-spacing: 0.12em;
+}
+
+.main-menu-footer b {
+    color: rgba(130, 124, 114, 0.55);
+    font-weight: 400;
+}
+
+.main-menu-footer-line {
+    width: 30px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(72, 68, 61, 0.22));
+}
+
+.main-menu-footer-line:last-child {
+    transform: rotate(180deg);
+}
+
+.main-menu-mini-seal {
+    display: grid;
+    width: 20px;
+    height: 20px;
+    border: 1px solid rgba(180, 59, 48, 0.72);
+    border-radius: 2px;
+    place-items: center;
+    color: #b43b30;
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: 12px;
+    letter-spacing: 0;
+    transform: rotate(-4deg);
+}
+
+@keyframes main-menu-reveal {
+    from {
+        opacity: 0;
+        filter: blur(5px);
+        transform: translateY(15px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        filter: blur(0);
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes main-menu-drift {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50% { transform: translate3d(24px, -4px, 0); }
+}
+
+@media (max-width: 780px) {
+    .main-menu-stage {
+        min-height: 520px;
+    }
+
+    .main-menu-sun {
+        top: 9%;
+        right: 9%;
+        opacity: 0.65;
+    }
+
+    .main-menu-side-inscription {
+        display: none;
+    }
+
+    .main-menu-bamboo {
+        left: -82px;
+        opacity: 0.72;
+    }
+
+    .main-menu-cranes {
+        top: 13%;
+        right: 31%;
+    }
+
+    .main-menu-cloud-left {
+        top: 15%;
+        left: -4%;
+    }
+
+    .main-menu-cloud-right {
+        top: 28%;
+        right: -8%;
+    }
+
+    .main-menu-center {
+        width: min(440px, calc(100% - 28px));
+        max-height: calc(100% - 18px);
+        padding-inline: 14px;
+    }
+
+    .main-menu-title-row h1 {
+        font-size: clamp(52px, 16vw, 68px);
+    }
+}
+
+@media (max-width: 480px) {
+    .main-menu-center {
+        width: calc(100% - 24px);
+        padding-inline: 10px;
+    }
+
+    .main-menu-kicker {
+        gap: 9px;
+    }
+
+    .main-menu-kicker span {
+        width: 26px;
+    }
+
+    .main-menu-kicker p {
+        font-size: 9px;
+        letter-spacing: 0.2em;
+    }
+
+    .main-menu-title-row h1 {
+        font-size: clamp(46px, 13.5vw, 54px);
+        letter-spacing: 0.075em;
+    }
+
+    .main-menu-title-seal {
+        right: -22px;
+        bottom: 4px;
+        width: 21px;
+        height: 21px;
+        font-size: 13px;
+    }
+
+    .main-menu-tagline {
+        max-width: 100%;
+        font-size: 10px;
+        letter-spacing: 0.16em;
+    }
+
+    .main-menu-brush-divider {
+        width: 90%;
+    }
+
+    .main-menu-actions {
+        width: min(352px, calc(100% - 4px));
+    }
+}
+
+@media (max-height: 720px) {
+    .main-menu-center {
+        max-height: calc(100% - 12px);
+        padding-block: 5px;
+    }
+
+    .main-menu-kicker {
+        margin-bottom: 3px;
+    }
+
+    .main-menu-title-row h1 {
+        font-size: clamp(48px, 8.5vh, 66px);
+    }
+
+    .main-menu-tagline {
+        margin-top: 2px;
+    }
+
+    .main-menu-brush-divider {
+        margin-block: 6px 8px;
+    }
+
+    .main-menu-actions {
+        gap: 6px;
+    }
+
+    .main-menu-choice {
+        min-height: 51px;
+    }
+
+    .main-menu-choice-quiet {
+        min-height: 45px;
+    }
+
+    .main-menu-footer {
+        margin-top: 8px;
+    }
+}
+
+@media (max-height: 590px) {
+    .main-menu-kicker,
+    .main-menu-tagline,
+    .main-menu-brush-divider,
+    .main-menu-choice-subtitle,
+    .main-menu-footer {
+        display: none;
+    }
+
+    .main-menu-title-block {
+        margin-bottom: 9px;
+    }
+
+    .main-menu-title-row h1 {
+        font-size: 50px;
+    }
+
+    .main-menu-actions {
+        gap: 5px;
+    }
+
+    .main-menu-choice,
+    .main-menu-choice-quiet {
+        min-height: 43px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .main-menu-center,
+    .main-menu-cloud {
+        animation: none;
+    }
+
+    .main-menu-choice {
+        transition: none;
+    }
+}

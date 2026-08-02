@@ -1,0 +1,23 @@
+{
+    "name": "six-chess-battle-server",
+    "version": "1.0.0",
+    "description": "Backend server for Six Chess Battle multiplayer mode",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node --watch server.js"
+    },
+    "keywords": [
+        "websocket",
+        "game",
+        "multiplayer"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "express": "^4.18.2",
+        "socket.io": "^4.6.1",
+        "cors": "^2.8.5"
+    }
+}

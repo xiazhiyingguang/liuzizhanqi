@@ -1,0 +1,807 @@
+import { GameState, Hero, HeroState, BattleLogEntry, Player } from '../types/game';
+import { MovementSystem } from './movement-system';
+import { EffectManager } from './effect-manager';
+import { findSoulLampBeneficiary, placeBounties } from '../data/extended-heroes';
+
+/**
+ * 游戏引擎 - 主控制器
+ */
+export class GameEngine {
+    static reviveDeadHero(
+        hero: Hero,
+        hpPercent: number,
+        near: Hero | null,
+        gameState: GameState
+    ): boolean {
+        if (hero.state !== HeroState.DEAD) return false;
+
+        const start = near?.position ?? hero.position ?? [0, 0];
+        const emptyPos = MovementSystem.findNearestEmptyPosition(start, gameState);
+        if (!emptyPos) return false;
+
+        return this.reviveHeroAtPosition(hero, emptyPos, hpPercent, gameState);
+    }
+
+    /**
+     * 在指定位置复活英雄
+     */
+    static reviveHeroAtPosition(
+        hero: Hero,
+        position: [number, number],
+        hpPercent: number,
+        gameState: GameState
+    ): boolean {
+        if (hero.state !== HeroState.DEAD) return false;
+        
+        const [row, col] = position;
+        if (row < 0 || row >= 6 || col < 0 || col >= 6) return false;
+        if (gameState.board[row][col] !== null) return false;
+
+        const reviveHp = Math.max(1, Math.min(hero.maxHp, Math.floor(hero.maxHp * hpPercent)));
+        
+        hero.currentHp = reviveHp;
+        hero.state = HeroState.ALIVE;
+        hero.position = position;
+        hero.hasActedThisTurn = false;
+        hero.hasMovedThisTurn = false;
+
+        gameState.board[row][col] = hero;
+        this.recordResurrection(hero, gameState);
+
+        this.addLog(gameState, {
+            type: 'system',
+            player: hero.owner,
+            message: `${hero.name}复活了！生命值：${hero.currentHp}`
+        });
+
+        return true;
+    }
+
+    /**
+     * 开始新回合
+     */
+    static startNewTurn(gameState: GameState): void {
+        const scheduledRevives = [...gameState.player1Heroes, ...gameState.player2Heroes]
+            .filter(hero =>
+                hero.state === HeroState.TEMP_DEAD &&
+                (hero.counters['soul_lamp_revive_round'] ?? Infinity) <= gameState.roundNumber
+            );
+        for (const hero of scheduledRevives) {
+            const soulCount = [...gameState.player1Heroes, ...gameState.player2Heroes]
+                .filter(candidate => candidate.state !== HeroState.ALIVE).length;
+            const missingHealRate = Math.min(1, soulCount * 0.2);
+            if (this.resurrectHero(hero, 0.01, gameState)) {
+                // 在暂时阵亡时的生命值基础上，额外恢复（亡灵之魂×20% × 最大生命），上限为最大生命
+                hero.currentHp = Math.max(1, Math.min(hero.maxHp, hero.currentHp + Math.floor(hero.maxHp * missingHealRate)));
+            }
+        }
+
+        // 重置所有英雄的行动标记
+        const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
+        gameState.actionsRequiredThisTurn = allHeroes.filter(hero => hero.state === HeroState.ALIVE).length;
+        for (const hero of allHeroes) {
+            if (hero.state !== HeroState.DEAD) {
+                hero.hasActedThisTurn = false;
+                hero.hasMovedThisTurn = false;
+                if (hero.counters['tianwei_uses']) {
+                    hero.counters['tianwei_uses'] = 0;
+                }
+                if (hero.counters['stealth_damage_taken']) {
+                    hero.counters['stealth_damage_taken'] = 0;
+                }
+                if (hero.passiveId === 'schrodinger_passive') {
+                    hero.counters['schrodinger_extra_used'] = 0;
+                }
+                if (hero.passiveId === 'yinyang_passive') {
+                    // 被动：阳线/阴线的攻防加成每回合+5%（上限50%），并同步到已生效的链接效果上
+                    hero.counters['yinyang_yang_rate'] = Math.min(0.5, (hero.counters['yinyang_yang_rate'] ?? 0.2) + 0.05);
+                    hero.counters['yinyang_yin_rate'] = Math.min(0.5, (hero.counters['yinyang_yin_rate'] ?? 0.2) + 0.05);
+                    const all = [...gameState.player1Heroes, ...gameState.player2Heroes];
+                    for (const target of all) {
+                        for (const effect of target.effects) {
+                            if (effect.sourceHeroId !== hero.id) continue;
+                            if (effect.name.startsWith('阳线')) effect.value = hero.counters['yinyang_yang_rate'];
+                            if (effect.name.startsWith('阴线')) effect.value = hero.counters['yinyang_yin_rate'];
+                        }
+                    }
+                }
+                if (hero.counters['mowen_skill1_cd']) {
+                    // 冷却按回合推进：使用技能1后必须间隔一个完整回合才能再次使用，
+                    // 额外行动/再动不会提前结束冷却。
+                    hero.counters['mowen_skill1_cd'] = Math.max(0, hero.counters['mowen_skill1_cd'] - 1);
+                }
+            }
+        }
+
+        // 行动计数归零
+        gameState.actionsThisTurn = 0;
+        
+        // 默认 Player1 先手，或者根据游戏规则决定
+        gameState.currentPlayer = 'player1';
+        gameState.activeHero = null;  // 重置锁定状态
+
+        // 更新效果持续时间
+        EffectManager.updateEffectDurations(gameState);
+        gameState.boardEffects = (gameState.boardEffects ?? [])
+            .map(effect => ({ ...effect, duration: effect.duration - 1 }))
+            .filter(effect => effect.duration > 0);
+
+        // 触发回合开始效果
+        this.triggerTurnStartEffects(gameState);
+
+        // 添加日志
+        this.addLog(gameState, {
+            type: 'system',
+            player: 'player1',
+            message: `第${gameState.roundNumber}轮开始`
+        });
+
+        // 回合开始兑底：如果轮到的一方没有可行动英雄（全队被冰冻/眩晕），
+        // 自动切给有行动能力的一方；双方都无法行动时直接推进下一轮，让控制效果递减。
+        const p1Available = this.getAvailableHeroesForPlayer(gameState, 'player1');
+        const p2Available = this.getAvailableHeroesForPlayer(gameState, 'player2');
+        if (p1Available.length === 0 && p2Available.length === 0) {
+            if (gameState.roundNumber < 50) {
+                this.endTurn(gameState);
+                return;
+            }
+            gameState.currentPlayer = 'player1';
+        } else if (p1Available.length === 0) {
+            gameState.currentPlayer = 'player2';
+            this.addLog(gameState, {
+                type: 'system',
+                player: 'player1',
+                message: '玩家1的英雄均被控制，跳过其行动'
+            });
+        } else {
+            gameState.currentPlayer = 'player1';
+        }
+    }
+
+    /**
+     * 获取指定玩家可操作的英雄
+     */
+    static getAvailableHeroesForPlayer(gameState: GameState, player: Player): Hero[] {
+        const heroes = player === 'player1'
+            ? gameState.player1Heroes
+            : gameState.player2Heroes;
+
+        return heroes.filter(
+            h => h.state === HeroState.ALIVE &&
+                !h.hasActedThisTurn &&
+                !EffectManager.isStunned(h)
+        );
+    }
+
+    /**
+     * 结束英雄行动
+     */
+    static endHeroAction(hero: Hero, gameState: GameState): void {
+        const isFinishingExtraActionHero =
+            gameState.performingExtraAction && gameState.activeHero?.id === hero.id;
+
+        if (!isFinishingExtraActionHero) {
+            hero.hasActedThisTurn = true;
+        }
+
+        const nextActionSerial = (hero.counters['__actionSerial'] ?? 0) + 1;
+        hero.counters['__actionSerial'] = nextActionSerial;
+        hero.effects = hero.effects.filter(e => e.expireAtActionSerial === undefined || e.expireAtActionSerial > nextActionSerial);
+
+        // 触发回合结束相关效果
+        this.triggerActionEndEffects(hero, gameState);
+
+        if (hero.passiveId === 'mowen_passive' && hero.state === HeroState.ALIVE) {
+            hero.counters['mowen_prev_hp'] = hero.currentHp;
+        }
+
+        if (!gameState.performingExtraAction) {
+            gameState.actionsThisTurn++;
+        }
+
+        // 胜负必须先于换边、额外行动和进入下一轮结算。
+        // TEMP_DEAD 不算场上存活单位，因此最后一个单位暂时阵亡会在这里立即失败。
+        this.checkWinCondition(gameState);
+        if (gameState.phase === 'ended') {
+            gameState.activeHero = null;
+            gameState.pendingExtraActionHeroIds = undefined;
+            gameState.performingExtraAction = false;
+            gameState.resumePlayer = undefined;
+            return;
+        }
+
+        // 1. 检查是否有待执行的额外行动（如墨阑的天威或被动触发）
+        const pendingExtra = gameState.pendingExtraActionHeroIds;
+        const currentOwner = hero.owner;
+        const otherOwner = currentOwner === 'player1' ? 'player2' : 'player1';
+        const preferredExtraId = pendingExtra?.[currentOwner] ?? pendingExtra?.[otherOwner];
+        const preferredExtraOwner: Player | undefined =
+            pendingExtra?.[currentOwner] ? currentOwner : (pendingExtra?.[otherOwner] ? otherOwner : undefined);
+
+        if (preferredExtraId && preferredExtraOwner) {
+            const extraActionHeroId = preferredExtraId;
+            if (gameState.pendingExtraActionHeroIds) {
+                gameState.pendingExtraActionHeroIds[preferredExtraOwner] = undefined;
+                const p = gameState.pendingExtraActionHeroIds;
+                if (!p.player1 && !p.player2) {
+                    gameState.pendingExtraActionHeroIds = undefined;
+                }
+            }
+
+            // 查找英雄
+            const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
+            const extraHero = allHeroes.find(h => h.id === extraActionHeroId);
+
+            if (extraHero && extraHero.state === HeroState.ALIVE && !EffectManager.isStunned(extraHero)) {
+                // 允许该英雄再次行动
+                extraHero.hasActedThisTurn = false;
+                extraHero.hasMovedThisTurn = false;
+
+                // 记录原本应该轮到的玩家（如果还没记录过，且当前不是已经在额外行动中）
+                // 逻辑：如果当前是 P1 正常行动 -> 触发额外 -> 应该在额外结束后切给 P2
+                // 如果当前是 P1 额外行动 -> 又触发额外 -> 保持 resumePlayer 不变
+                if (!gameState.performingExtraAction) {
+                    const originalPlayer = gameState.currentPlayer;
+                    const otherPlayer = originalPlayer === 'player1' ? 'player2' : 'player1';
+                    gameState.resumePlayer = extraHero.owner === originalPlayer ? otherPlayer : extraHero.owner;
+                }
+
+                // 标记正在执行额外行动
+                gameState.performingExtraAction = true;
+
+                // 切换控制权给该英雄的拥有者
+                gameState.currentPlayer = extraHero.owner;
+                gameState.activeHero = extraHero;
+
+                // 添加日志
+                this.addLog(gameState, {
+                    type: 'system',
+                    player: extraHero.owner,
+                    message: `${extraHero.name}触发再次行动！`
+                });
+
+                // 直接返回，让该玩家继续行动
+                return;
+            }
+        }
+
+        // 2. 如果当前是额外行动结束
+        if (gameState.performingExtraAction) {
+            if (isFinishingExtraActionHero) {
+                const preActed = hero.counters['__extra_preActed'];
+                const preMoved = hero.counters['__extra_preMoved'];
+                if (preActed !== undefined || preMoved !== undefined) {
+                    hero.hasActedThisTurn = preActed === 1;
+                    hero.hasMovedThisTurn = preMoved === 1;
+                    delete hero.counters['__extra_preActed'];
+                    delete hero.counters['__extra_preMoved'];
+                } else {
+                    hero.hasActedThisTurn = true;
+                }
+            }
+            gameState.performingExtraAction = false;
+            gameState.activeHero = null;
+
+            // 恢复原本应该行动的玩家
+            if (gameState.resumePlayer) {
+                gameState.currentPlayer = gameState.resumePlayer;
+                gameState.resumePlayer = undefined;
+            } else {
+                // 如果没有记录 resumePlayer（异常情况），默认切给对方
+                 gameState.currentPlayer = gameState.currentPlayer === 'player1' ? 'player2' : 'player1';
+            }
+        } else {
+            // 正常行动结束，准备切换给对方
+            gameState.currentPlayer = gameState.currentPlayer === 'player1' ? 'player2' : 'player1';
+        }
+
+        // 3. 智能切换逻辑：检查当前确定的 currentPlayer 是否有行动能力
+        // 此时 gameState.currentPlayer 已经是理论上的下一个玩家
+        
+        let p1Available = this.getAvailableHeroesForPlayer(gameState, 'player1');
+        let p2Available = this.getAvailableHeroesForPlayer(gameState, 'player2');
+
+        // 如果双方都没得动了，结束回合
+        if (p1Available.length === 0 && p2Available.length === 0) {
+            this.endTurn(gameState);
+            return;
+        }
+
+        // 检查当前玩家是否有行动能力
+        const currentHasAction = gameState.currentPlayer === 'player1' ? p1Available.length > 0 : p2Available.length > 0;
+
+        if (!currentHasAction) {
+            // 当前玩家没得动，尝试切给对方
+            const otherPlayer = gameState.currentPlayer === 'player1' ? 'player2' : 'player1';
+            const otherHasAction = otherPlayer === 'player1' ? p1Available.length > 0 : p2Available.length > 0;
+
+            if (otherHasAction) {
+                // 对方有得动，切给对方
+                gameState.currentPlayer = otherPlayer;
+                this.addLog(gameState, {
+                    type: 'system',
+                    player: gameState.currentPlayer,
+                    message: `轮到 ${gameState.currentPlayer === 'player1' ? '玩家1' : '玩家2'} 行动`
+                });
+            } else {
+                // 对方也没得动？这应该被上面的 (p1=0 && p2=0) 拦截了
+                // 但为了保险，强制结束回合
+                this.endTurn(gameState);
+                return;
+            }
+        }
+        
+        // 如果 currentHasAction 为 true，则保持当前 currentPlayer 不变
+        
+        // 解除锁定
+        gameState.activeHero = null;
+
+        // 检查胜负
+        this.checkWinCondition(gameState);
+    }
+
+    /**
+     * 结束回合
+     */
+    private static endTurn(gameState: GameState): void {
+        // 触发回合结束效果
+        this.triggerTurnEndEffects(gameState);
+
+        // 进入下一轮
+        gameState.roundNumber++;
+
+        // 开始新回合
+        this.startNewTurn(gameState);
+    }
+
+    /**
+     * 检查胜利条件
+     */
+    static checkWinCondition(gameState: GameState): void {
+        if (gameState.phase === 'ended') return;
+        const isAliveOnBoard = (hero: Hero) => {
+            if (hero.state !== HeroState.ALIVE || !hero.position) return false;
+            const [row, col] = hero.position;
+            return gameState.board[row]?.[col] === hero;
+        };
+        const p1AllDead = !gameState.player1Heroes.some(isAliveOnBoard);
+        const p2AllDead = !gameState.player2Heroes.some(isAliveOnBoard);
+
+        if (p1AllDead) {
+            gameState.winner = 'player2';
+            gameState.phase = 'ended';
+            this.addLog(gameState, {
+                type: 'system',
+                player: 'player2',
+                message: '玩家1所有英雄阵亡，玩家2获胜！'
+            });
+        } else if (p2AllDead) {
+            gameState.winner = 'player1';
+            gameState.phase = 'ended';
+            this.addLog(gameState, {
+                type: 'system',
+                player: 'player1',
+                message: '玩家2所有英雄阵亡，玩家1获胜！'
+            });
+        }
+    }
+
+    /**
+     * 触发回合开始效果
+     */
+    private static triggerTurnStartEffects(gameState: GameState): void {
+        const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
+
+        for (const hero of allHeroes) {
+            if (hero.state !== HeroState.ALIVE) continue;
+
+            if (hero.passiveId === 'baize_passive') {
+                const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+                const aliveAllies = allies.filter(h => h.state === HeroState.ALIVE);
+                if (aliveAllies.length === 0) continue;
+
+                const shuffled = [...aliveAllies].sort(() => Math.random() - 0.5);
+                const picked = shuffled.slice(0, Math.min(2, shuffled.length));
+                for (const p of picked) {
+                    EffectManager.addCounter(p, '白泽之力', 1);
+                }
+
+                const names = picked.map(p => p.name).join('、');
+                this.addLog(gameState, {
+                    type: 'passive',
+                    player: hero.owner,
+                    message: `${hero.name}被动触发：${names}获得白泽之力+1`
+                });
+            }
+
+            if (hero.passiveId === 'mowen_passive') {
+                if (hero.counters['talent_1'] && !hero.counters['__mowen_talent1_applied']) {
+                    hero.counters['__mowen_talent1_applied'] = 1;
+                    hero.maxHp += 8;
+                    hero.currentHp += 8;
+                    hero.counters['mowen_prev_hp'] = hero.maxHp;
+                }
+            }
+
+            if (hero.passiveId === 'bounty_passive' && hero.counters['bounty_placed'] !== 1) {
+                // 被动：战斗开始（第一回合）向敌方全员随机发布一次悬赏
+                hero.counters['bounty_placed'] = 1;
+                const assignments = placeBounties(hero, gameState);
+                if (assignments.length > 0) {
+                    this.addLog(gameState, {
+                        type: 'passive',
+                        player: hero.owner,
+                        message: `${hero.name}被动触发，发布悬赏：${assignments.join('、')}`
+                    });
+                }
+            }
+        }
+    }
+
+    /**
+     * 触发行动结束效果
+     */
+    private static triggerActionEndEffects(hero: Hero, gameState: GameState): void {
+        if (hero.passiveId === 'pipa_passive' && hero.position) {
+            const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+            const count = allies.filter(item =>
+                item.state === HeroState.ALIVE && item.position &&
+                MovementSystem.getManhattanDistance(hero.position!, item.position) <= 1
+            ).length;
+            this.applyDirectHeal(hero, Math.min(5, count * 2));
+        }
+
+        for (const wangcai of (hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)
+            .filter(item => item.passiveId === 'wangcai_passive')) {
+            if (hero.effects.some(effect => effect.name === '来财' && effect.sourceHeroId === wangcai.id)) {
+                EffectManager.addCounter(wangcai, '财气', 1);
+                if (wangcai.counters['wangcai_transformed'] === 1) {
+                    wangcai.baseAttack = (wangcai.baseAttack ?? 0) + 1;
+                }
+                this.transformWangcaiIfReady(wangcai, gameState);
+            }
+        }
+    }
+
+    private static applyDirectHeal(hero: Hero, amount: number): void {
+        hero.currentHp = Math.min(hero.maxHp, hero.currentHp + Math.max(0, Math.floor(amount)));
+    }
+
+    static transformWangcaiIfReady(hero: Hero, gameState: GameState): void {
+        if (hero.counters['wangcai_transformed'] === 1 || (hero.counters['财气'] ?? 0) < 7) return;
+        hero.counters['wangcai_transformed'] = 1;
+        if (hero.state === HeroState.DEAD) {
+            const position = MovementSystem.findNearestEmptyPosition(hero.position ?? [0, 0], gameState);
+            if (!position) return;
+            hero.state = HeroState.ALIVE;
+            hero.position = position;
+            hero.currentHp = hero.maxHp;
+            gameState.board[position[0]][position[1]] = hero;
+            this.recordResurrection(hero, gameState);
+        } else {
+            this.applyDirectHeal(hero, hero.maxHp * 0.5);
+        }
+    }
+
+    /**
+     * 触发回合结束效果
+     */
+    private static triggerTurnEndEffects(gameState: GameState): void {
+        const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
+
+        for (const hero of allHeroes) {
+            if (hero.state !== HeroState.ALIVE) continue;
+
+            if (hero.passiveId === 'skeletonking_passive') {
+                const dead = allHeroes.filter(item => item.state !== HeroState.ALIVE).length;
+                if (dead > 0) {
+                    // 叠加式护盾：每名阵亡单位提供3点，没有致知时上限为10（致知可提高上限）
+                    const shieldCap = 10;
+                    const gained = Math.min(shieldCap, hero.shield + dead * 3) - hero.shield;
+                    hero.shield = Math.min(shieldCap, hero.shield + dead * 3);
+                    if (gained > 0) {
+                        this.addLog(gameState, {
+                            type: 'passive',
+                            player: hero.owner,
+                            message: `${hero.name}的亡灵之力凝聚，获得${gained}点护盾（当前${hero.shield}）`
+                        });
+                    }
+                }
+            }
+
+            if (hero.passiveId === 'hero_x_passive' && hero.position) {
+                const enemies = hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes;
+                for (const enemy of enemies) {
+                    if (enemy.state !== HeroState.ALIVE || !enemy.position) continue;
+                    if (MovementSystem.getManhattanDistance(hero.position, enemy.position) > 2) continue;
+                    EffectManager.addEffect(enemy, {
+                        type: 'debuff',
+                        name: '震怒',
+                        duration: -1,
+                        stackCount: 1,
+                        sourceHeroId: hero.id,
+                        description: '达到3层时眩晕',
+                    });
+                    const rage = enemy.effects.find(effect => effect.name === '震怒' && effect.sourceHeroId === hero.id);
+                    if ((rage?.stackCount ?? 0) >= 3) {
+                        enemy.effects = enemy.effects.filter(effect => effect !== rage);
+                        EffectManager.addEffect(enemy, {
+                            type: 'stun',
+                            name: '震怒眩晕',
+                            duration: 2,
+                            sourceHeroId: hero.id,
+                            description: '下一次行动被跳过',
+                        });
+                        this.addLog(gameState, {
+                            type: 'passive',
+                            player: enemy.owner,
+                            message: `${enemy.name}震怒叠加至3层，进入眩晕`
+                        });
+                    } else {
+                        this.addLog(gameState, {
+                            type: 'passive',
+                            player: enemy.owner,
+                            message: `${enemy.name}获得震怒+1（当前${rage?.stackCount ?? 1}层）`
+                        });
+                    }
+                }
+            }
+
+            if (hero.passiveId === 'hanjiangxue_passive') {
+                // 被动·雪誓：回合结束时，为生命百分比最低的友方（不含自己）附加冰甲（不可叠加）
+                const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+                let bestAlly: Hero | null = null;
+                let bestRatio = Infinity;
+                for (const ally of allies) {
+                    if (ally.id === hero.id || ally.state !== HeroState.ALIVE) continue;
+                    const ratio = ally.maxHp > 0 ? ally.currentHp / ally.maxHp : 1;
+                    if (ratio < bestRatio) {
+                        bestRatio = ratio;
+                        bestAlly = ally;
+                    }
+                }
+                if (bestAlly && EffectManager.addIceArmor(bestAlly, hero.id)) {
+                    this.addLog(gameState, {
+                        type: 'passive',
+                        player: hero.owner,
+                        message: `${hero.name}的雪誓保护${bestAlly.name}，为其附加冰甲`
+                    });
+                }
+            }
+        }
+    }
+
+    /**
+     * 复活英雄
+     */
+    static resurrectHero(
+        hero: Hero,
+        hpPercent: number,
+        gameState: GameState
+    ): boolean {
+        if (hero.state !== HeroState.TEMP_DEAD) return false;
+
+        let revivePosition: [number, number] | null = null;
+        if (!hero.position) {
+            revivePosition = MovementSystem.findNearestEmptyPosition([0, 0], gameState);
+        } else {
+            const [row, col] = hero.position;
+            const occupant = gameState.board[row][col];
+            if (occupant === null || occupant === hero) {
+                revivePosition = [row, col];
+            } else {
+                revivePosition = MovementSystem.findNearestEmptyPosition(hero.position, gameState);
+            }
+        }
+
+        // 必须先找到位置再改变状态，失败时保持 TEMP_DEAD、0 HP 和离场状态。
+        if (!revivePosition) return false;
+
+        // 优先恢复暂时阵亡时的生命值；无记录时按比例复活
+        const recordedHp = hero.counters['__temp_dead_hp'];
+        const reviveHp = typeof recordedHp === 'number' && recordedHp > 0
+            ? Math.max(1, Math.min(hero.maxHp, Math.floor(recordedHp)))
+            : Math.max(1, Math.min(hero.maxHp, Math.floor(hero.maxHp * hpPercent)));
+        delete hero.counters['__temp_dead_hp'];
+
+        hero.currentHp = reviveHp;
+        hero.state = HeroState.ALIVE;
+        hero.position = revivePosition;
+        // 复活后本回合可正常行动
+        hero.hasActedThisTurn = false;
+        hero.hasMovedThisTurn = false;
+        gameState.board[revivePosition[0]][revivePosition[1]] = hero;
+        delete hero.counters['soul_lamp_revive_round'];
+        this.recordResurrection(hero, gameState);
+
+        if (hero.passiveId === 'soul_lamp_passive') {
+            // 魂灯复活后，移除其提供的临时吸血（真实死亡留下的永久吸血不受影响）
+            const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+            for (const ally of allies) {
+                ally.effects = ally.effects.filter(effect =>
+                    !(effect.name === '缚魂吸血' && effect.sourceHeroId === hero.id)
+                );
+            }
+        }
+
+        this.addLog(gameState, {
+            type: 'system',
+            player: hero.owner,
+            message: `${hero.name}复活了！生命值：${hero.currentHp}`
+        });
+
+        return true;
+    }
+
+    private static recordResurrection(hero: Hero, gameState: GameState): void {
+        if (hero.owner === 'player1') {
+            gameState.deathCounters.player1Resurrections++;
+        } else {
+            gameState.deathCounters.player2Resurrections++;
+        }
+    }
+
+    /**
+     * 暂时死亡
+     */
+    static tempDeath(hero: Hero, gameState: GameState): void {
+        if (hero.state !== HeroState.ALIVE) return;
+
+        const oldPosition = hero.position ? [...hero.position] as [number, number] : null;
+        // 记录暂时阵亡时的生命值，供复活时恢复（如骸骨君王·亡灵唤回）
+        hero.counters['__temp_dead_hp'] = hero.currentHp;
+        hero.state = HeroState.TEMP_DEAD;
+        hero.currentHp = 0;
+        if (oldPosition && gameState.board[oldPosition[0]]?.[oldPosition[1]] === hero) {
+            gameState.board[oldPosition[0]][oldPosition[1]] = null;
+        }
+
+        if (hero.owner === 'player1') gameState.deathCounters.player1Dead++;
+        else gameState.deathCounters.player2Dead++;
+        gameState.deathCounters.totalDead++;
+
+        if (oldPosition) {
+            const inCircle = gameState.boardEffects?.some(effect =>
+                effect.type === 'dark-circle' &&
+                effect.owner === hero.owner &&
+                effect.sourceHeroId !== hero.id &&
+                Math.abs(effect.position[0] - oldPosition[0]) <= 1 &&
+                Math.abs(effect.position[1] - oldPosition[1]) <= 1
+            );
+            if (inCircle) {
+                if (hero.owner === 'player1') gameState.deathCounters.player1Dead++;
+                else gameState.deathCounters.player2Dead++;
+            }
+        }
+
+        if (hero.passiveId === 'jetzmi_passive') {
+            hero.counters['jetzmi_form'] = hero.counters['jetzmi_form'] === 1 ? 0 : 1;
+        }
+
+        if (hero.passiveId === 'soul_lamp_passive') {
+            // 暂时阵亡：给受益者临时吸血；若已有永久吸血则不覆盖
+            const beneficiary = findSoulLampBeneficiary(hero, gameState);
+            if (beneficiary) {
+                const permanent = beneficiary.effects.some(effect =>
+                    effect.name === '缚魂吸血·永驻' && effect.sourceHeroId === hero.id
+                );
+                if (!permanent) {
+                    beneficiary.effects = beneficiary.effects.filter(effect =>
+                        !(effect.name === '缚魂吸血' && effect.sourceHeroId === hero.id)
+                    );
+                    EffectManager.addEffect(beneficiary, {
+                        type: 'buff',
+                        name: '缚魂吸血',
+                        duration: -1,
+                        value: hero.counters['soul_lamp_vampire_rate'] ?? 0.3,
+                        sourceHeroId: hero.id,
+                        description: '缚魂灯暂时阵亡期间提供的吸血，魂灯复活后消失',
+                    });
+                }
+            }
+            // 每次死亡使吸血效果增强20%，上限90%
+            hero.counters['soul_lamp_vampire_rate'] = Math.min(
+                0.9,
+                (hero.counters['soul_lamp_vampire_rate'] ?? 0.3) + 0.2
+            );
+        }
+
+        if (oldPosition) {
+            const circles = gameState.boardEffects?.filter(effect =>
+                effect.type === 'dark-circle' &&
+                effect.owner === hero.owner &&
+                effect.sourceHeroId !== hero.id &&
+                Math.abs(effect.position[0] - oldPosition[0]) <= 1 &&
+                Math.abs(effect.position[1] - oldPosition[1]) <= 1
+            ) ?? [];
+            for (const circle of circles) {
+                const source = [...gameState.player1Heroes, ...gameState.player2Heroes]
+                    .find(candidate => candidate.id === circle.sourceHeroId);
+                if (source?.state === HeroState.TEMP_DEAD) {
+                    this.resurrectHero(source, 0.01, gameState);
+                }
+            }
+        }
+
+        this.addLog(gameState, {
+            type: 'system',
+            player: hero.owner,
+            message: `${hero.name}暂时阵亡`
+        });
+
+        this.checkWinCondition(gameState);
+    }
+
+    /**
+     * 杰茨米专属：使用技能导致的"暂时死亡"为原地形态切换。
+     * 保留在棋盘上（位置、生命不变），但仍计入一次死亡事件（亡灵共鸣）。
+     * 真实死亡仍走 handleDeath 离场。
+     */
+    static switchJetzmiFormInPlace(hero: Hero, gameState: GameState): void {
+        if (hero.state !== HeroState.ALIVE) return;
+
+        hero.counters['jetzmi_form'] = hero.counters['jetzmi_form'] === 1 ? 0 : 1;
+
+        // 计入一次死亡事件（亡灵共鸣）
+        if (hero.owner === 'player1') gameState.deathCounters.player1Dead++;
+        else gameState.deathCounters.player2Dead++;
+        gameState.deathCounters.totalDead++;
+
+        this.addLog(gameState, {
+            type: 'system',
+            player: hero.owner,
+            message: `${hero.name}切换为${hero.counters['jetzmi_form'] === 1 ? '终焉国王' : '亡灵城主'}形态`
+        });
+    }
+
+    /**
+     * 添加战斗日志
+     */
+    static addLog(gameState: GameState, entry: Omit<BattleLogEntry, 'id' | 'timestamp'>): void {
+        const newEntry: BattleLogEntry = {
+            ...entry,
+            id: `log-${Date.now()}-${Math.random()}`,
+            timestamp: Date.now()
+        };
+
+        gameState.battleLog.push(newEntry);
+
+        if (gameState.battleLog.length > 200) {
+            gameState.battleLog = gameState.battleLog.slice(-200);
+        }
+    }
+
+    /**
+     * 获取当前玩家可操作的英雄
+     */
+    static getAvailableHeroes(gameState: GameState): Hero[] {
+        const heroes = gameState.currentPlayer === 'player1'
+            ? gameState.player1Heroes
+            : gameState.player2Heroes;
+
+        return heroes.filter(
+            h => h.state === HeroState.ALIVE &&
+                !h.hasActedThisTurn &&
+                !EffectManager.isStunned(h)
+        );
+    }
+
+    /**
+     * 检查是否可以进行行动
+     */
+    static canPerformAction(hero: Hero, gameState: GameState): boolean {
+        // 检查是否是当前玩家的英雄
+        if (hero.owner !== gameState.currentPlayer) return false;
+
+        // 检查英雄状态
+        if (hero.state !== HeroState.ALIVE) return false;
+
+        // 检查是否已行动
+        if (hero.hasActedThisTurn) return false;
+
+        // 检查是否被眩晕
+        if (EffectManager.isStunned(hero)) return false;
+
+        return true;
+    }
+}

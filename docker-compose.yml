@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # 后端服务器（Socket.IO）
+  backend:
+    container_name: six-chess-battle-backend
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.six-chess-battle.description=Six Chess Battle Backend Server"
+      - "com.six-chess-battle.version=1.0.0"
+
+  # 前端应用
+  frontend:
+    container_name: six-chess-battle-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - VITE_SERVER_URL=http://backend:3000
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.six-chess-battle.description=Six Chess Battle Game"
+      - "com.six-chess-battle.version=1.0.0"

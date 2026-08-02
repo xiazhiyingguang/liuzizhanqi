@@ -1,0 +1,365 @@
+.hero-codex-intro {
+    position: relative;
+    display: grid;
+    min-height: 410px;
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 36%);
+    align-items: stretch;
+    gap: 18px;
+    overflow: hidden;
+    padding: 30px 30px 0;
+    border: 1px solid rgba(26, 26, 26, 0.07);
+    border-radius: 16px;
+}
+
+.hero-codex-intro-copy {
+    position: relative;
+    z-index: 2;
+    align-self: center;
+    padding-bottom: 30px;
+}
+
+.hero-codex-figure {
+    position: relative;
+    z-index: 1;
+    min-height: 380px;
+    margin: 0;
+    align-self: end;
+}
+
+.hero-codex-figure-halo {
+    position: absolute;
+    right: 7%;
+    bottom: 12%;
+    width: 86%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    filter: blur(26px);
+}
+
+.hero-codex-figure img {
+    position: absolute;
+    right: 0;
+    bottom: -8px;
+    width: 100%;
+    height: calc(100% + 22px);
+    object-fit: contain;
+    object-position: center bottom;
+    filter: drop-shadow(0 18px 22px rgba(26, 26, 26, 0.14));
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 88%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 88%, transparent 100%);
+}
+
+.hero-codex-figure figcaption {
+    position: absolute;
+    right: 6px;
+    bottom: 12px;
+    z-index: 2;
+    color: rgba(26, 26, 26, 0.36);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    writing-mode: vertical-rl;
+}
+
+.hero-codex-figure-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 14px;
+    opacity: 0.36;
+}
+
+.hero-codex-figure-fallback span {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+}
+
+.hero-ability-panel {
+    position: relative;
+    overflow: hidden;
+    padding: 20px;
+    border: 1px solid rgba(26, 26, 26, 0.07);
+    border-radius: 16px;
+    background:
+        radial-gradient(circle at 24% 44%, rgba(255, 255, 255, 0.72), transparent 36%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(245, 240, 232, 0.48));
+}
+
+.hero-ability-panel::after {
+    content: "势";
+    position: absolute;
+    z-index: 0;
+    right: 16px;
+    bottom: -48px;
+    color: rgba(26, 26, 26, 0.025);
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: 150px;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.hero-ability-heading {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(26, 26, 26, 0.06);
+}
+
+.hero-ability-title-mark {
+    width: 3px;
+    height: 24px;
+    border-radius: 3px;
+    box-shadow: 5px 0 12px currentColor;
+}
+
+.hero-ability-score {
+    flex: none;
+    padding: 5px 10px;
+    border: 1px solid;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+}
+
+.hero-ability-layout {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(290px, 0.9fr) minmax(280px, 1.1fr);
+    align-items: center;
+    gap: 20px;
+    margin-top: 12px;
+}
+
+.hero-radar-wrap {
+    position: relative;
+    display: grid;
+    min-height: 310px;
+    place-items: center;
+}
+
+.hero-radar-wrap::before {
+    content: "";
+    position: absolute;
+    width: 70%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.58), transparent 68%);
+    filter: blur(8px);
+}
+
+.hero-radar-chart {
+    position: relative;
+    display: block;
+    width: min(100%, 350px);
+    height: auto;
+    overflow: visible;
+}
+
+.hero-radar-label {
+    fill: #4f4b44;
+    font-family: "Noto Sans SC", system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: fill .18s ease, font-weight .18s ease;
+}
+
+.hero-radar-label.is-active {
+    fill: #1c1917;
+    font-weight: 700;
+}
+
+.hero-radar-value {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.hero-radar-area {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: hero-radar-reveal 0.48s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.hero-ability-summary {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.hero-ability-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.hero-ability-mini-card {
+    min-width: 0;
+    padding: 10px 11px;
+    border: 1px solid rgba(26, 26, 26, 0.065);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.42);
+}
+
+.hero-ability-mini-card span {
+    display: block;
+    color: #777168;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+}
+
+.hero-ability-mini-card strong {
+    display: block;
+    margin-top: 4px;
+    overflow: hidden;
+    color: #292a27;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+}
+
+.hero-ability-bars {
+    display: grid;
+    gap: 8px;
+}
+
+.hero-ability-bar-row {
+    display: grid;
+    grid-template-columns: 36px minmax(80px, 1fr) 22px;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 8px;
+    margin: 0 -8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color .18s ease, box-shadow .18s ease;
+}
+
+.hero-ability-bar-row.is-active {
+    background: rgba(255, 255, 255, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(26, 26, 26, 0.08);
+}
+
+.hero-ability-bar-row > span {
+    color: #57534c;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    transition: color .18s ease;
+}
+
+.hero-ability-bar-row.is-active > span {
+    color: #1c1917;
+    font-weight: 700;
+}
+
+.hero-ability-bar-row > b {
+    color: #777168;
+    font-family: "Ma Shan Zheng", "Noto Sans SC", sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    text-align: right;
+}
+
+.hero-ability-bar-track {
+    height: 5px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(26, 26, 26, 0.075);
+}
+
+.hero-ability-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    transform-origin: left center;
+    animation: hero-ability-bar-grow 0.55s ease-out both;
+}
+
+@keyframes hero-radar-reveal {
+    from {
+        opacity: 0;
+        transform: scale(0.25);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes hero-ability-bar-grow {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+}
+
+@media (max-width: 1120px) {
+    .hero-ability-layout {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .hero-radar-wrap {
+        min-height: 286px;
+    }
+}
+
+@media (max-width: 640px) {
+    .hero-codex-intro {
+        min-height: 0;
+        grid-template-columns: 1fr;
+        padding: 24px 20px 0;
+    }
+
+    .hero-codex-intro-copy {
+        padding-bottom: 0;
+    }
+
+    .hero-codex-figure {
+        width: min(100%, 310px);
+        min-height: 315px;
+        margin-inline: auto;
+    }
+
+    .hero-ability-panel {
+        padding: 16px 12px;
+    }
+
+    .hero-ability-heading {
+        align-items: flex-start;
+    }
+
+    .hero-ability-score {
+        padding-inline: 8px;
+        letter-spacing: 0.03em;
+    }
+
+    .hero-radar-wrap {
+        min-height: 270px;
+    }
+
+    .hero-radar-chart {
+        width: min(100%, 330px);
+    }
+
+    .hero-ability-cards {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .hero-ability-mini-card:first-child {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero-radar-area,
+    .hero-ability-bar-fill {
+        animation: none;
+    }
+}
