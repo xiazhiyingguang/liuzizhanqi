@@ -3,10 +3,6 @@ import { useGameStore } from '../../store/game-store';
 import type { AiDifficulty } from '../../types/game';
 import './main-menu.css';
 
-type MenuVisualMode = 'enhanced' | 'classic';
-
-const MENU_VISUAL_MODE_KEY = 'six-chess-menu-visual-mode';
-
 type MenuChoiceProps = {
     testId?: string;
     title: string;
@@ -46,20 +42,7 @@ function MenuChoice({
 
 export default function MainMenu() {
     const initGame = useGameStore(state => state.initGame);
-    const [visualMode, setVisualMode] = useState<MenuVisualMode>(() => {
-        if (typeof window === 'undefined') return 'enhanced';
-        return window.localStorage.getItem(MENU_VISUAL_MODE_KEY) === 'classic' ? 'classic' : 'enhanced';
-    });
-
     const [showDifficultyPicker, setShowDifficultyPicker] = useState(false);
-
-    const toggleVisualMode = () => {
-        setVisualMode(current => {
-            const next = current === 'enhanced' ? 'classic' : 'enhanced';
-            window.localStorage.setItem(MENU_VISUAL_MODE_KEY, next);
-            return next;
-        });
-    };
 
     const handleAiGame = () => setShowDifficultyPicker(true);
 
@@ -93,7 +76,7 @@ export default function MainMenu() {
     };
 
     return (
-        <main className={`main-menu-stage main-menu-stage-${visualMode}${visualMode === 'enhanced' ? ' main-menu-stage-cinematic' : ''}`}>
+        <main className="main-menu-stage main-menu-stage-enhanced main-menu-stage-cinematic">
             <div className="main-menu-paper-grain" aria-hidden="true" />
             <div className="main-menu-sun" aria-hidden="true" />
 
@@ -303,26 +286,12 @@ export default function MainMenu() {
                 <footer className="main-menu-footer">
                     <span className="main-menu-footer-line" />
                     <span className="main-menu-mini-seal">六</span>
-                    <span>{visualMode === 'enhanced' ? '原创水墨长卷' : '水墨策略对弈'}</span>
+                    <span>原创水墨长卷</span>
                     <b>·</b>
                     <span>VERSION 2.0.0</span>
                     <span className="main-menu-footer-line" />
                 </footer>
             </section>
-
-            <button
-                type="button"
-                className="main-menu-visual-toggle"
-                data-testid="menu-visual-toggle"
-                onClick={toggleVisualMode}
-                aria-label={visualMode === 'enhanced' ? '切换至原版首页' : '切换至新版首页'}
-            >
-                <span aria-hidden="true">{visualMode === 'enhanced' ? '素' : '新'}</span>
-                <span>
-                    <small>首页样式</small>
-                    <strong>{visualMode === 'enhanced' ? '切回原版' : '查看新境'}</strong>
-                </span>
-            </button>
         </main>
     );
 }
