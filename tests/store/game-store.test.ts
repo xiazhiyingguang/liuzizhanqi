@@ -22,21 +22,23 @@ describe('game store selection and deployment', () => {
         useGameStore.getState().resetGame();
     });
 
-    it('lets a player select up to four distinct hero templates', () => {
+    it('lets a player select up to six distinct hero templates', () => {
         useGameStore.getState().resetGame();
         useGameStore.setState({ phase: 'hero-select' });
         const store = useGameStore.getState();
 
-        for (const id of ['moran', 'zhenxiao', 'wukong', 'baize']) {
+        for (const id of ['moran', 'zhenxiao', 'wukong', 'baize', 'liuli', 'changli']) {
             expect(store.selectHeroForPlayer('player1', id)).toBe(true);
         }
 
-        expect(store.selectHeroForPlayer('player1', 'liuli')).toBe(false);
+        expect(store.selectHeroForPlayer('player1', 'mirror')).toBe(false);
         expect(useGameStore.getState().player1SelectedHeroIds).toEqual([
             'moran',
             'zhenxiao',
             'wukong',
             'baize',
+            'liuli',
+            'changli',
         ]);
     });
 
@@ -51,11 +53,11 @@ describe('game store selection and deployment', () => {
         expect(useGameStore.getState().selectHeroForPlayer('player1', 'moran')).toBe(false);
     });
 
-    it('does not confirm hero selection until exactly four heroes are selected', () => {
+    it('does not confirm hero selection until exactly six heroes are selected', () => {
         useGameStore.getState().resetGame();
         useGameStore.setState({
             phase: 'hero-select',
-            player1SelectedHeroIds: ['moran', 'zhenxiao', 'wukong'],
+            player1SelectedHeroIds: ['moran', 'zhenxiao', 'wukong', 'baize', 'liuli'],
         });
 
         expect(useGameStore.getState().confirmHeroSelectionForPlayer('player1')).toBe(false);
@@ -70,8 +72,8 @@ describe('game store selection and deployment', () => {
         useGameStore.getState().resetGame();
         useGameStore.setState({
             phase: 'hero-select',
-            player1SelectedHeroIds: ['moran', 'zhenxiao', 'wukong', 'baize'],
-            player2SelectedHeroIds: ['liuli', 'mirror', 'mowen', 'guying'],
+            player1SelectedHeroIds: ['moran', 'zhenxiao', 'wukong', 'baize', 'liuli', 'changli'],
+            player2SelectedHeroIds: ['liuli', 'mirror', 'mowen', 'guying', 'hanjiangxue', 'nightowl'],
         });
         const store = useGameStore.getState();
 
@@ -400,5 +402,74 @@ describe('game store battle interactions', () => {
         expect(chosenDead.state).toBe(HeroState.ALIVE);
         expect(firstDead.state).toBe(HeroState.DEAD);
         expect(useGameStore.getState().board[4][1]).toBe(chosenDead);
+    });
+});
+
+describe('game store reinforcement deployment', () => {
+    afterEach(() => {
+        useGameStore.getState().resetGame();
+    });
+
+    function loadReinforcementState() {
+        const state = makeGameState();
+        useGameStore.setState({
+            ...state,
+            moveRange: [],
+            skillRange: [],
+            wukongSkill2State: undefined,
+            suppressOnlineBroadcast: false,
+            player1BenchHeroIds: ['liuli', 'changli'],
+            player2BenchHeroIds: [],
+            reinforcingPlayer: 'player1',
+            reinforcementSelectableHeroId: null,
+        });
+        return state;
+    }
+
+    it('deploys reinforcements onto own-half empty cells until the bench is exhausted', () => {
+        const state = loadReinforcementState();
+        addHero(state, 'moran', 'player1', [0, 0]);
+        addHero(state, 'zhenxiao', 'player1', [0, 1]);
+        addHero(state, 'mirror', 'player2', [5, 5]);
+        addHero(state, 'mowen', 'player2', [5, 4]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+        });
+
+        // 只能点选替补席上的英雄
+        expect(useGameStore.getState().selectReinforcementHero('moran')).toBe(false);
+        expect(useGameStore.getState().selectReinforcementHero('liuli')).toBe(true);
+        expect(useGameStore.getState().reinforcementSelectableHeroId).toBe('liuli');
+
+        // 拒绝对方半场与占用格
+        expect(useGameStore.getState().deployReinforcement([5, 3])).toBe(false);
+        expect(useGameStore.getState().deployReinforcement([0, 0])).toBe(false);
+
+        // 本方半场空格成功上场，当轮即可行动
+        expect(useGameStore.getState().deployReinforcement([2, 1])).toBe(true);
+
+        let after = useGameStore.getState();
+        expect(after.player1BenchHeroIds).toEqual(['changli']);
+        const deployed = after.player1Heroes.find(hero => hero.id.startsWith('liuli-'))!;
+        expect(deployed.state).toBe(HeroState.ALIVE);
+        expect(deployed.position).toEqual([2, 1]);
+        expect(deployed.hasActedThisTurn).toBe(false);
+        expect(deployed.hasMovedThisTurn).toBe(false);
+        expect(after.board[2][1]).toBe(deployed);
+        expect(after.actionsRequiredThisTurn).toBe(9);
+        // 替补席仍有人且场上未满员：继续挂起等待下一次补员
+        expect(after.reinforcingPlayer).toBe('player1');
+        expect(after.reinforcementSelectableHeroId).toBeNull();
+
+        // 第二名替补上场后满员，挂起解除
+        expect(useGameStore.getState().selectReinforcementHero('changli')).toBe(true);
+        expect(useGameStore.getState().deployReinforcement([4, 2])).toBe(true);
+
+        after = useGameStore.getState();
+        expect(after.player1BenchHeroIds).toEqual([]);
+        expect(after.reinforcingPlayer).toBeNull();
+        expect(after.player1Heroes.filter(hero => hero.state === HeroState.ALIVE)).toHaveLength(4);
     });
 });

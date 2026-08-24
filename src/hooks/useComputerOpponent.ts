@@ -5,6 +5,8 @@ import {
     chooseComputerHero,
     chooseComputerMove,
     chooseComputerPendingBoardPosition,
+    chooseComputerReinforcement,
+    chooseComputerReinforcementPosition,
     chooseComputerReviveTarget,
     chooseComputerSkillPlan,
     chooseComputerSupportTarget,
@@ -20,6 +22,7 @@ import {
 import { useGameStore } from '../store/game-store';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
+import { AVAILABLE_HERO_IDS } from '../data/heroes';
 
 const AI_PLAYER = 'player2' as const;
 const THINK_DELAY_MS = 430;
@@ -55,6 +58,9 @@ function stateSignature(state: ReturnType<typeof useGameStore.getState>): string
         state.wukongSkill2State
             ? `${state.wukongSkill2State.phase}:${state.wukongSkill2State.clonePickIndex}:${state.wukongSkill2State.wukongMoved ? 1 : 0}:${Object.keys(state.wukongSkill2State.cloneTargetsByCloneId).length}`
             : '-',
+        // 替补制补员挂起状态：挂起方与已点选替补的变化都会改变下一步决策
+        state.reinforcingPlayer ?? '-',
+        state.reinforcementSelectableHeroId ?? '-',
         state.player2Heroes.map(hero =>
             `${hero.id}:${hero.state}:${hero.currentHp}:${hero.shield}:${effectSignature(hero)}:${hero.position?.join(',') ?? '-'}`
         ).join(';'),
@@ -664,13 +670,14 @@ export function runComputerOpponentStep(repeatCount = 0): void {
         // 新对局首次选将时清空阵容缓存，让跨局记忆与温度采样重新生效
         if (state.player2SelectedHeroIds.length === 0) resetCachedComputerTeam();
         const desiredTeam = chooseComputerTeam(state.player1SelectedHeroIds);
-        for (const heroId of desiredTeam) {
-            if (useGameStore.getState().player2SelectedHeroIds.length >= 4) break;
+        // 策略队伍优先；若个别模板被玩家抢占导致选择失败，继续用全量英雄池兜底补足
+        for (const heroId of [...desiredTeam, ...AVAILABLE_HERO_IDS]) {
+            if (useGameStore.getState().player2SelectedHeroIds.length >= 6) break;
             if (!useGameStore.getState().player2SelectedHeroIds.includes(heroId)) {
                 useGameStore.getState().selectHeroForPlayer(AI_PLAYER, heroId);
             }
         }
-        if (useGameStore.getState().player2SelectedHeroIds.length === 4) {
+        if (useGameStore.getState().player2SelectedHeroIds.length === 6) {
             useGameStore.getState().confirmHeroSelectionForPlayer(AI_PLAYER);
             useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成选将` });
         }
@@ -694,7 +701,14 @@ export function runComputerOpponentStep(repeatCount = 0): void {
         return;
     }
 
-    if (state.phase !== 'battle' || state.currentPlayer !== AI_PLAYER) return;
+    if (state.phase !== 'battle') return;
+    // 替补制补员：挂起期间由补员方决策上场；非 AI 方补员时等待玩家操作
+    if (state.reinforcingPlayer) {
+        if (state.reinforcingPlayer !== AI_PLAYER) return;
+        deployComputerReinforcement(AI_PLAYER);
+        return;
+    }
+    if (state.currentPlayer !== AI_PLAYER) return;
     if (repeatCount >= 2) {
         // 任何未覆盖到的复杂技能都必须安全收束，不能让对局卡死。
         // selectedHero 为空（AI 全员眩晕/无可行动英雄）时同样收束，由 store 自动跳过。
@@ -710,12 +724,30 @@ export function runComputerOpponentStep(repeatCount = 0): void {
  */
 export function runComputerBattleStep(aiPlayer: Player, repeatCount = 0): void {
     const state = useGameStore.getState();
-    if (state.phase !== 'battle' || state.currentPlayer !== aiPlayer) return;
+    if (state.phase !== 'battle') return;
+    // 替补制补员：挂起期间由补员方决策上场；其他情况等待
+    if (state.reinforcingPlayer) {
+        if (state.reinforcingPlayer !== aiPlayer) return;
+        deployComputerReinforcement(aiPlayer);
+        return;
+    }
+    if (state.currentPlayer !== aiPlayer) return;
     if (repeatCount >= 2) {
         useGameStore.getState().endHeroAction();
         return;
     }
     executeBattleStep(state, aiPlayer);
+}
+
+/** 电脑补员：点选最优替补并部署到本方半场最安全的空格。 */
+function deployComputerReinforcement(aiPlayer: Player): void {
+    const state = useGameStore.getState();
+    const heroId = chooseComputerReinforcement(state, aiPlayer);
+    if (!heroId) return;
+    if (!useGameStore.getState().selectReinforcementHero(heroId)) return;
+    const position = chooseComputerReinforcementPosition(useGameStore.getState(), aiPlayer);
+    if (!position) return;
+    useGameStore.getState().deployReinforcement(position);
 }
 
 /** 驱动玩家2的选将、布阵和战斗。每一步之间保留短暂停顿，便于玩家观察电脑决策。 */
@@ -729,7 +761,11 @@ export function useComputerOpponent(): void {
         const shouldAct =
             (state.phase === 'hero-select' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyHeroSelect) ||
             (state.phase === 'deploy' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyDeploy) ||
-            (state.phase === 'battle' && state.currentPlayer === AI_PLAYER);
+            (state.phase === 'battle' && (
+                // 正常回合由当前行动方驱动；补员挂起期间由补员方驱动
+                (state.currentPlayer === AI_PLAYER && !state.reinforcingPlayer) ||
+                state.reinforcingPlayer === AI_PLAYER
+            ));
         if (!shouldAct) return;
 
         const timer = window.setTimeout(() => {

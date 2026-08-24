@@ -66,8 +66,11 @@ export default function Deploy() {
                     </h2>
                     <InkDivider variant="brush" className="max-w-[160px] mx-auto mb-2" />
                     <p className="text-ink-light text-sm font-body">
-                        {isP1 ? '左侧三列' : '右侧三列'}放置英雄
+                        {isP1 ? '左侧三列' : '右侧三列'}放置首发英雄
                         <span className="ml-2 font-bold text-ink">({deployedCount}/4)</span>
+                    </p>
+                    <p className="text-ink-faint text-xs font-body mt-0.5">
+                        其余 {Math.max(selectedHeroIds.length - 4, 0)} 位英雄作为替补，待己方英雄阵亡后立即上场
                     </p>
                     {!canDeploy && (
                         <p className="text-gold-dark text-sm font-body mt-1 animate-gentle-pulse">
@@ -118,6 +121,11 @@ export default function Deploy() {
                                     {isDeployed && (
                                         <div className="absolute inset-0 flex items-center justify-center">
                                             <span className="ink-seal-sm opacity-80">已阵</span>
+                                        </div>
+                                    )}
+                                    {!isDeployed && deployedCount >= 4 && (
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <span className="ink-seal-sm opacity-80">替补</span>
                                         </div>
                                     )}
                                 </div>
@@ -205,7 +213,7 @@ export default function Deploy() {
                         disabled={!isComplete || !canDeploy}
                         className="min-w-[200px]"
                     >
-                        确认部署 {!isComplete && `(${deployedCount}/4)`}
+                        确认部署 {!isComplete && `(首发 ${deployedCount}/4)`}
                     </InkButton>
                 </div>
             </div>

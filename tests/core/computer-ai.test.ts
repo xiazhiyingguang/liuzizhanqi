@@ -11,12 +11,12 @@ import {
 import { addHero, makeGameState } from '../helpers/game-state';
 
 describe('computer AI', () => {
-    it('针对玩家阵容选择四名有效且职责完整的英雄', () => {
+    it('针对玩家阵容选择六名有效且职责完整的英雄（四人首发加两人替补）', () => {
         const team = chooseComputerTeam(['moran', 'huifeng', 'mirror', 'nightowl']);
         const ratings = team.map(id => getHeroAbilityRatings(getHeroInfo(id).name)!);
 
-        expect(team).toHaveLength(4);
-        expect(new Set(team).size).toBe(4);
+        expect(team).toHaveLength(6);
+        expect(new Set(team).size).toBe(6);
         expect(team.every(id => AVAILABLE_HERO_IDS.includes(id))).toBe(true);
         expect(Math.max(...ratings.map(item => item.输出))).toBeGreaterThanOrEqual(8);
         expect(Math.max(...ratings.map(item => item.生存))).toBeGreaterThanOrEqual(8);

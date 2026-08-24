@@ -253,12 +253,12 @@ describe('extended heroes', () => {
         ally.currentHp = 10;
         yinyangSkill1.execute!(caster, [ally], state);   // 新建：不恢复，repeat=0.2
         expect(ally.currentHp).toBe(10);
-        yinyangSkill1.execute!(caster, [ally], state);   // 重复1：恢复 floor(30×0.2)=6，repeat=0.3
-        expect(ally.currentHp).toBe(16);
-        yinyangSkill1.execute!(caster, [ally], state);   // 重复2：恢复 floor(24×0.3)=7，repeat=0.4
-        expect(ally.currentHp).toBe(23);
-        yinyangSkill1.execute!(caster, [ally], state);   // 重复3：恢复 floor(17×0.4)=6，repeat=0.5
-        expect(ally.currentHp).toBe(29);
+        yinyangSkill1.execute!(caster, [ally], state);   // 重复1：恢复 floor(37×0.2)=7，repeat=0.3
+        expect(ally.currentHp).toBe(17);
+        yinyangSkill1.execute!(caster, [ally], state);   // 重复2：恢复 floor(30×0.3)=9，repeat=0.4
+        expect(ally.currentHp).toBe(26);
+        yinyangSkill1.execute!(caster, [ally], state);   // 重复3：恢复 floor(21×0.4)=8，repeat=0.5
+        expect(ally.currentHp).toBe(34);
         expect(caster.counters['yinyang_yang_repeat']).toBe(0.5);
     });
 

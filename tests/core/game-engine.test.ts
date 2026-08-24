@@ -164,6 +164,28 @@ describe('GameEngine victory and revival', () => {
         expect(state.winner).toBe('player1');
     });
 
+    it('keeps the battle going when the wiped side still has bench reinforcements', () => {
+        const state = makeGameState();
+        const moran = addHero(state, 'moran', 'player1', [0, 0]);
+        addHero(state, 'baize', 'player2', [0, 5]);
+        moran.state = HeroState.DEAD;
+        state.board[0][0] = null;
+        // 替补席仍有英雄：六人全灭才负
+        state.player1BenchHeroIds = ['changli'];
+
+        GameEngine.checkWinCondition(state);
+
+        expect(state.phase).toBe('battle');
+        expect(state.winner).toBeUndefined();
+
+        // 清空替补席后场上全灭即告负
+        state.player1BenchHeroIds = [];
+        GameEngine.checkWinCondition(state);
+
+        expect(state.phase).toBe('ended');
+        expect(state.winner).toBe('player2');
+    });
+
     it('revives a chosen dead hero at an explicitly chosen empty position', () => {
         const state = makeGameState();
         const dead = addHero(state, 'moran', 'player1', [0, 0]);
@@ -173,7 +195,7 @@ describe('GameEngine victory and revival', () => {
 
         expect(GameEngine.reviveHeroAtPosition(dead, [3, 3], 0.5, state)).toBe(true);
         expect(dead.state).toBe(HeroState.ALIVE);
-        expect(dead.currentHp).toBe(20);
+        expect(dead.currentHp).toBe(23); // 墨阑最大生命47，半血 floor(47×0.5)
         expect(dead.position).toEqual([3, 3]);
         expect(state.board[3][3]).toBe(dead);
     });
@@ -253,8 +275,8 @@ describe('GameEngine victory and revival', () => {
         GameEngine.startNewTurn(state);
 
         expect(target.state).toBe(HeroState.ALIVE);
-        // 暂时阵亡时生命(10) + 亡灵之魂×20%最大生命(40×0.4=16) = 26
-        expect(target.currentHp).toBe(26);
+        // 暂时阵亡时生命(10) + 两层亡灵之魂×20%最大生命（47×0.2≈9，两层+18）= 28
+        expect(target.currentHp).toBe(28);
         expect(target.counters['soul_lamp_revive_round']).toBeUndefined();
         expect(state.deathCounters.player1Resurrections).toBe(1);
     });

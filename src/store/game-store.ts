@@ -181,6 +181,11 @@ interface GameStore extends GameState {
     confirmDeployment: () => void;
     confirmDeploymentForPlayer: (playerKey: Player) => boolean;
 
+    // 替补制补员：阵亡后从替补席立即上场（本方半场任选，当轮即可行动）
+    selectReinforcementHero: (heroId: string) => boolean;
+    deployReinforcement: (position: Position) => boolean;
+    clearReinforcementSelection: () => void;
+
     // 战斗操作
     selectHeroForAction: (hero: Hero | null) => void;
     showMoveRange: () => void;
@@ -243,6 +248,10 @@ export function createOnlineStateSnapshot(state: GameStore) {
         player2ReadyHeroSelect: state.player2ReadyHeroSelect,
         player1ReadyDeploy: state.player1ReadyDeploy,
         player2ReadyDeploy: state.player2ReadyDeploy,
+        player1BenchHeroIds: state.player1BenchHeroIds,
+        player2BenchHeroIds: state.player2BenchHeroIds,
+        reinforcingPlayer: state.reinforcingPlayer,
+        reinforceResumeContext: state.reinforceResumeContext,
         pendingExtraActionHeroIds: state.pendingExtraActionHeroIds,
         performingExtraAction: state.performingExtraAction,
         resumePlayer: state.resumePlayer,
@@ -319,6 +328,11 @@ const initialState: GameState = {
     player2ReadyHeroSelect: false,
     player1ReadyDeploy: false,
     player2ReadyDeploy: false,
+    player1BenchHeroIds: [],
+    player2BenchHeroIds: [],
+    reinforcingPlayer: null,
+    reinforcementSelectableHeroId: null,
+    reinforceResumeContext: undefined,
     pendingExtraActionHeroIds: {},
     boardEffects: [],
     isOnlineMode: false,
@@ -455,7 +469,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return true;
         }
 
-        if (selectedIds.length < 4) {
+        if (selectedIds.length < 6) {
             set({
                 [playerKey === 'player1' ? 'player1SelectedHeroIds' : 'player2SelectedHeroIds']: [...selectedIds, heroId]
             });
@@ -473,7 +487,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const selectedIds = playerKey === 'player1'
             ? state.player1SelectedHeroIds
             : state.player2SelectedHeroIds;
-        if (selectedIds.length !== 4) return false;
+        if (selectedIds.length !== 6) return false;
 
         const updates: Partial<GameStore> = {
             [readyKey]: true
@@ -543,6 +557,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
             updates.currentPlayer = 'player1';
             updates.roundNumber = 1;
             updates.actionsThisTurn = 0;
+            // 替补制：已选将但未上场的英雄进入替补席，阵亡后立即补员
+            updates.player1BenchHeroIds = state.player1SelectedHeroIds.filter(id =>
+                !state.player1Heroes.some(h => h.id.startsWith(`${id}-player1-`))
+            );
+            updates.player2BenchHeroIds = state.player2SelectedHeroIds.filter(id =>
+                !state.player2Heroes.some(h => h.id.startsWith(`${id}-player2-`))
+            );
         }
 
         set(updates);
@@ -556,6 +577,115 @@ export const useGameStore = create<GameStore>((set, get) => ({
             });
         }
 
+        return true;
+    },
+
+    // ===== 替补制补员：阵亡后立即上场（本方半场任选空位，当轮即可行动）=====
+
+    selectReinforcementHero: (heroId: string) => {
+        const state = get();
+        if (state.phase !== 'battle') return false;
+        const player = state.reinforcingPlayer;
+        if (!player) return false;
+        // 联机模式只允许补员方本人操作；热座/人机由当前交互方决定
+        if (state.isOnlineMode && getLocalPlayerKey(state) !== player) return false;
+
+        const bench = player === 'player1' ? state.player1BenchHeroIds : state.player2BenchHeroIds;
+        if (!bench?.includes(heroId)) return false;
+
+        set({ reinforcementSelectableHeroId: heroId });
+        return true;
+    },
+
+    clearReinforcementSelection: () => {
+        set({ reinforcementSelectableHeroId: null });
+    },
+
+    deployReinforcement: (position: Position) => {
+        const state = get();
+        if (state.phase !== 'battle' || !isValidBoardPosition(position)) return false;
+        const player = state.reinforcingPlayer;
+        if (!player) return false;
+        if (state.isOnlineMode && getLocalPlayerKey(state) !== player) return false;
+        const heroId = state.reinforcementSelectableHeroId;
+        if (!heroId) return false;
+
+        const [row, col] = position;
+        if (state.board[row][col] !== null) return false;
+        // 上场位置限本方半场
+        if (player === 'player1' && col >= 3) return false;
+        if (player === 'player2' && col < 3) return false;
+
+        const bench = player === 'player1' ? state.player1BenchHeroIds : state.player2BenchHeroIds;
+        if (!bench?.includes(heroId)) return false;
+
+        // 补员前再次校验仍需补员（防止竞态下重复上场）
+        if (GameEngine.countRealAliveOnBoard(state, player) >= 4) return false;
+
+        const hero = createHero(heroId, player, position);
+        hero.hasActedThisTurn = false;  // 当轮即可行动
+        hero.hasMovedThisTurn = false;
+
+        const newBoard = state.board.map(r => [...r]);
+        newBoard[row][col] = hero;
+
+        const isPlayer1 = player === 'player1';
+        const heroListKey = isPlayer1 ? 'player1Heroes' : 'player2Heroes';
+        const currentHeroes = state[heroListKey];
+        const newBench = bench.filter(id => id !== heroId);
+
+        const after: Partial<GameStore> = {
+            board: newBoard,
+            [heroListKey]: [...currentHeroes, hero],
+            [isPlayer1 ? 'player1BenchHeroIds' : 'player2BenchHeroIds']: newBench,
+            reinforcementSelectableHeroId: null,
+            // 场上战力回归，本回合所需行动数同步+1（保持4v4每轮8动的节奏）
+            actionsRequiredThisTurn: state.actionsRequiredThisTurn + 1,
+        };
+        set(after);
+
+        get().addLog({
+            type: 'system',
+            player,
+            message: `${hero.name}从替补席上场！`
+        });
+
+        // 用最新状态驱动引擎续跑：可能还有其他待补员方，或恢复被挂起的回合流程
+        const latest = get();
+        GameEngine.afterReinforcementDeployed(latest);
+
+        // 引擎续跑会直接修改状态对象（切换控制权/继续额外行动链/结束对局），显式同步以触发渲染
+        const finalState = get();
+        set({
+            currentPlayer: finalState.currentPlayer,
+            actionsThisTurn: finalState.actionsThisTurn,
+            roundNumber: finalState.roundNumber,
+            phase: finalState.phase,
+            winner: finalState.winner,
+            activeHero: finalState.activeHero,
+            selectedHero: finalState.selectedHero,
+            highlightedPositions: [],
+            selectedSkill: null,
+            moveRange: [],
+            skillRange: [],
+            reinforcingPlayer: finalState.reinforcingPlayer,
+            reinforcementSelectableHeroId: finalState.reinforcementSelectableHeroId,
+            reinforceResumeContext: finalState.reinforceResumeContext,
+            pendingForcedActionHeroId: finalState.pendingForcedActionHeroId,
+            performingForcedAction: finalState.performingForcedAction,
+            forcedActionResumePlayer: finalState.forcedActionResumePlayer,
+            pendingExtraActionHeroIds: finalState.pendingExtraActionHeroIds,
+            performingExtraAction: finalState.performingExtraAction,
+            resumePlayer: finalState.resumePlayer,
+            board: [...finalState.board],
+            player1Heroes: [...finalState.player1Heroes],
+            player2Heroes: [...finalState.player2Heroes],
+        });
+
+        sendOnlineActionIfNeeded(get(), {
+            type: 'reinforce-deploy',
+            data: { heroId, position }
+        });
         return true;
     },
 
@@ -1113,6 +1243,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const allies = caster.owner === 'player1' ? state.player1Heroes : state.player2Heroes;
         const target = allies.find(hero => hero.id === heroId && hero.state === HeroState.DEAD);
         if (!target) return;
+
+        // 替补制：复活会让阵亡英雄重新上场，若本方场上真实存活已达4人上限则不允许复活
+        if (GameEngine.countRealAliveOnBoard(state, caster.owner) >= 4) {
+            get().addLog({
+                type: 'system',
+                player: caster.owner,
+                message: '场上已有四名英雄，无法复活（替补制上限）'
+            });
+            return;
+        }
 
         const emptyPositions: Position[] = [];
         for (let row = 0; row < 6; row++) {
@@ -2341,7 +2481,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const state = get();
         if (!state.selectedHero) {
             // 没有选中英雄时：若当前玩家无可行动英雄（全员眩晕/已行动），自动跳过该玩家
-            if (GameEngine.getAvailableHeroesForPlayer(state, state.currentPlayer).length === 0) {
+            // 替补制：存在待补员方时不自动跳过，等待其完成上场交互
+            if (!state.reinforcingPlayer && GameEngine.getAvailableHeroesForPlayer(state, state.currentPlayer).length === 0) {
                 GameEngine.advancePastBlockedPlayer(state);
                 set({
                     currentPlayer: state.currentPlayer,
@@ -2486,7 +2627,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
             baizeReviveTargetHeroId: undefined,
             moveRange: [],
             skillRange: [],
-            wukongSkill2State: undefined
+            wukongSkill2State: undefined,
+            // 替补制补员挂起状态（阵亡立即上场）
+            reinforcingPlayer: state.reinforcingPlayer,
+            reinforcementSelectableHeroId: null,
+            reinforceResumeContext: state.reinforceResumeContext,
+            player1BenchHeroIds: state.player1BenchHeroIds,
+            player2BenchHeroIds: state.player2BenchHeroIds
         });
         const after = get();
         sendOnlineActionIfNeeded(after, {

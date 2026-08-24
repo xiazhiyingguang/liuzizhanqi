@@ -28,6 +28,8 @@ const TEAM_MIN_DIFFERENCE = 2;
 const TEAM_MAX_HERO_USAGE = 8;
 /** 选将温度采样：分数每差 10 分，被选中权重降约 63%，兼顾强度与多样性。 */
 const TEAM_SOFTMAX_TEMPERATURE = 10;
+/** 替补制：每方替补席人数（六人选将，四人首发）。 */
+const BENCH_SIZE = 2;
 /** 最近一次使用过的技能会减分，促使 AI 轮换使用不同技能。 */
 const SKILL_REPEAT_PENALTY = 5;
 /** 斩杀优先奖励：模拟中确认击杀一名敌人时附加的评分，压过其他一切收益，让 AI 追着残血杀。 */
@@ -319,11 +321,21 @@ export function chooseComputerTeam(opponentHeroIds: string[]): string[] {
     const picked = pool.length > 0
         ? softmaxPick(pool, TEAM_SOFTMAX_TEMPERATURE)
         : (candidates[0] ?? null);
-    if (!picked) return AVAILABLE_HERO_IDS.slice(0, 4);
+    if (!picked) return AVAILABLE_HERO_IDS.slice(0, 4 + BENCH_SIZE);
 
-    cachedDesiredTeam = [...picked.team];
-    saveRecentHeroUsage(picked.team);
-    return [...picked.team];
+    // 替补制：在 4 人核心之外，从剩余英雄中按联合阵容得分贪心补足替补
+    const coreIds = new Set(picked.team);
+    const bench = AVAILABLE_HERO_IDS
+        .filter(id => !coreIds.has(id))
+        .sort((left, right) =>
+            teamScore([...picked.team, right], opponentHeroIds, recentHeroes) -
+            teamScore([...picked.team, left], opponentHeroIds, recentHeroes))
+        .slice(0, BENCH_SIZE);
+    const fullTeam = [...picked.team, ...bench];
+
+    cachedDesiredTeam = [...fullTeam];
+    saveRecentHeroUsage(fullTeam);
+    return [...fullTeam];
 }
 
 /** 当前对局已确定的电脑选将（逐拍选将期间保持稳定）。 */
@@ -369,6 +381,67 @@ export function chooseComputerDeployment(heroIds: string[], opponentHeroes: Hero
         { heroId: flex.id, position: [flexRow, 4] },
         { heroId: support.id, position: [supportRow, 5] },
     ];
+}
+
+/**
+ * 替补制补员：为电脑挑选最合适的替补上场。
+ * 以"当前存活阵容 + 候选替补"的联合得分排序，缺什么补什么。
+ */
+export function chooseComputerReinforcement(state: GameState, player: Player): string | null {
+    const bench = (player === 'player1' ? state.player1BenchHeroIds : state.player2BenchHeroIds) ?? [];
+    if (bench.length === 0) return null;
+    const opponentPlayer: Player = player === 'player1' ? 'player2' : 'player1';
+    // 英雄 id 形如 `${模板id}-player1-序号`，取前缀还原模板 id 参与评分；分身不计入
+    const templateIdOf = (hero: Hero) => hero.id.split('-')[0];
+    const isRealHero = (hero: Hero) =>
+        hero.counters?.['__isClone'] !== 1 &&
+        !hero.id.startsWith('wukong-clone|') &&
+        !hero.id.startsWith('mirror-clone|');
+    const aliveEnemyIds = heroesFor(state, opponentPlayer)
+        .filter(hero => hero.state === HeroState.ALIVE && isRealHero(hero))
+        .map(templateIdOf);
+    const aliveAllyIds = heroesFor(state, player)
+        .filter(hero => hero.state === HeroState.ALIVE && isRealHero(hero))
+        .map(templateIdOf);
+
+    let best: { id: string; score: number } | null = null;
+    for (const id of bench) {
+        const score = teamScore([...aliveAllyIds, id], aliveEnemyIds, new Set());
+        if (!best || score > best.score) best = { id, score };
+    }
+    return best?.id ?? bench[0];
+}
+
+/**
+ * 替补制补员：为上场英雄挑选本方半场的落位。
+ * 规则：到所有存活敌人的距离和越大越安全，优先远离火线的格子。
+ */
+export function chooseComputerReinforcementPosition(state: GameState, player: Player): Position | null {
+    const halfCols = player === 'player1' ? [0, 1, 2] : [3, 4, 5];
+    const enemies = heroesFor(state, player === 'player1' ? 'player2' : 'player1')
+        .filter(hero => hero.state === HeroState.ALIVE && hero.position);
+
+    let best: Position | null = null;
+    let bestScore = -Infinity;
+    for (let row = 0; row < BOARD_SIZE; row++) {
+        for (const col of halfCols) {
+            if (state.board[row][col]) continue;
+            let score = 0;
+            if (enemies.length > 0) {
+                for (const enemy of enemies) {
+                    score += Math.abs(enemy.position![0] - row) + Math.abs(enemy.position![1] - col);
+                }
+            } else {
+                // 无存活敌人（理论不出现）：倾向中后排
+                score = (player === 'player1' ? col >= 1 : col <= 4) ? 10 : 0;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = [row, col];
+            }
+        }
+    }
+    return best;
 }
 
 function allHeroes(state: GameState): Hero[] {
@@ -969,6 +1042,17 @@ export function chooseComputerPendingBoardPosition(state: GameState, hero: Hero)
 }
 
 export function chooseComputerReviveTarget(state: GameState, player: Player): Hero | null {
+    // 替补制：场上真实存活已达四人上限时复活会超编，直接放弃复活（与 store 校验一致）
+    const realAliveOnBoard = heroesFor(state, player)
+        .filter(hero =>
+            hero.state === HeroState.ALIVE &&
+            hero.position !== null &&
+            hero.counters?.['__isClone'] !== 1 &&
+            !hero.id.startsWith('wukong-clone|') &&
+            !hero.id.startsWith('mirror-clone|')
+        ).length;
+    if (realAliveOnBoard >= 4) return null;
+
     return heroesFor(state, player)
         .filter(hero => hero.state === HeroState.DEAD)
         .sort((left, right) => {

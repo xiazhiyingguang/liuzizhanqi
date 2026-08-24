@@ -9,6 +9,7 @@ import InkButton from '../ui/InkButton';
 import { getBattleOutcomePresentation, getLatestKillAnnouncement } from '../../core/battle-presentation';
 import TurnActionBanner from './TurnActionBanner';
 import BattleStatisticsModal from './BattleStatisticsModal';
+import ReinforcementPanel from './ReinforcementPanel';
 
 export default function BattleScene() {
     const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -124,6 +125,7 @@ export default function BattleScene() {
                         isAiMode={Boolean(isAiMode)}
                         aiPlayer={aiPlayer}
                     />
+                    <ReinforcementPanel />
                     <div className="flex min-h-0 w-full flex-1 items-center justify-center">
                         <Board />
                     </div>

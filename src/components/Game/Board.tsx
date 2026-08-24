@@ -30,7 +30,10 @@ export default function Board() {
         aiPlayer,
         currentPlayer,
         libaiChainState,
-        selectLibaiChainPosition
+        selectLibaiChainPosition,
+        reinforcingPlayer,
+        reinforcementSelectableHeroId,
+        deployReinforcement
     } = useGameStore();
 
     // 伤害飘字：订阅战斗日志增量，把新产生的伤害解析到对应格子
@@ -92,6 +95,13 @@ export default function Board() {
 
         const targetPos: Position = [row, col];
 
+        // 替补制补员模式：点击本方半场空格让替补英雄上场
+        if (reinforcingPlayer && reinforcementSelectableHeroId) {
+            if (!isReinforceTarget(row, col)) return;
+            deployReinforcement(targetPos);
+            return;
+        }
+
         if (pendingBoardAction) {
             resolvePendingBoardAction(targetPos);
             return;
@@ -121,6 +131,15 @@ export default function Board() {
 
     const isHighlighted = (row: number, col: number): boolean => {
         return highlightedPositions.some(([r, c]) => r === row && c === col);
+    };
+
+    // 补员落位判定：补员方本方半场的空格
+    const isReinforceTarget = (row: number, col: number): boolean => {
+        if (!reinforcingPlayer || !reinforcementSelectableHeroId) return false;
+        const isP1Half = col < 3;
+        if (reinforcingPlayer === 'player1' && !isP1Half) return false;
+        if (reinforcingPlayer === 'player2' && isP1Half) return false;
+        return board[row][col] === null;
     };
 
     const isMoveTarget = (row: number, col: number): boolean => {
@@ -176,6 +195,7 @@ export default function Board() {
                             if (isSelected) cellClass += ' cell-selected';
                             else if (moveTarget) cellClass += ' cell-move';
                             else if (skillTarget) cellClass += ' cell-attack';
+                            else if (isReinforceTarget(rowIndex, colIndex)) cellClass += ' cell-move';
 
                             return (
                                 <div
@@ -189,6 +209,14 @@ export default function Board() {
                                     {/* 移动目标点 */}
                                     {moveTarget && !cell && (
                                         <div className="w-3 h-3 rounded-full bg-jade/30 shadow-[0_0_6px_rgba(45,106,79,0.3)]" />
+                                    )}
+
+                                    {/* 补员落位点 */}
+                                    {!cell && !moveTarget && isReinforceTarget(rowIndex, colIndex) && (
+                                        <div
+                                            className="h-3 w-3 rotate-45 border border-gold/60 bg-gold/10 shadow-[0_0_6px_rgba(212,168,67,0.35)]"
+                                            title="替补上场位置"
+                                        />
                                     )}
 
                                     {bladeMark && (

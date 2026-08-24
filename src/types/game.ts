@@ -265,6 +265,17 @@ export interface GameState {
     player1ReadyDeploy: boolean;
     player2ReadyDeploy: boolean;
 
+    // 替补制：六人选将、四人上阵，阵亡后从替补席立即补员
+    player1BenchHeroIds?: string[];  // 玩家1替补席（已选将但尚未上场的英雄模板id）
+    player2BenchHeroIds?: string[];  // 玩家2替补席
+    reinforcingPlayer?: Player | null;          // 当前需要补员上场的一方（null=无）
+    reinforcementSelectableHeroId?: string | null; // 补员交互中已点选的替补英雄（UI用）
+    reinforceResumeContext?: {       // 补员完成后续跑回合流程所需上下文（endHeroAction 挂起时记录）
+        heroId: string;              // 刚结束行动的英雄
+        isFinishingExtraActionHero?: boolean;
+        isFinishingForcedActionHero?: boolean;
+    };
+
     // 联机模式
     isOnlineMode?: boolean;       // 是否为联机模式
     onlineRoomId?: string;        // 联机房间ID

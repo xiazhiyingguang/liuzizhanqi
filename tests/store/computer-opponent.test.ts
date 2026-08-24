@@ -4,6 +4,24 @@ import { useGameStore } from '../../src/store/game-store';
 import { HeroState } from '../../src/types/game';
 import { GameEngine } from '../../src/core/game-engine';
 
+/** 替补制：人类玩家补员辅助——点选替补席首位英雄并部署到本方半场第一个空格。 */
+function deployHumanReinforcement(): void {
+    const benchHead = useGameStore.getState().player1BenchHeroIds[0];
+    if (!benchHead) return;
+    let cell: [number, number] | null = null;
+    for (let row = 0; row < 6 && !cell; row++) {
+        for (let col = 0; col < 3; col++) {
+            if (!useGameStore.getState().board[row][col]) {
+                cell = [row, col];
+                break;
+            }
+        }
+    }
+    if (!cell) return;
+    useGameStore.getState().selectReinforcementHero(benchHead);
+    useGameStore.getState().deployReinforcement(cell);
+}
+
 describe('computer opponent integration', () => {
     beforeEach(() => {
         useGameStore.getState().resetGame();
@@ -17,7 +35,7 @@ describe('computer opponent integration', () => {
     });
 
     it('自动完成反制选将、右侧布阵，并能走完实际战斗行动', () => {
-        const humanTeam = ['moran', 'zhenxiao', 'huifeng', 'baize'];
+        const humanTeam = ['moran', 'zhenxiao', 'huifeng', 'baize', 'liuli', 'changli'];
         for (const heroId of humanTeam) {
             expect(useGameStore.getState().selectHeroForPlayer('player1', heroId)).toBe(true);
         }
@@ -26,11 +44,13 @@ describe('computer opponent integration', () => {
         runComputerOpponentStep();
         let state = useGameStore.getState();
         expect(state.phase).toBe('deploy');
-        expect(state.player2SelectedHeroIds).toHaveLength(4);
-        expect(new Set(state.player2SelectedHeroIds).size).toBe(4);
+        expect(state.player2SelectedHeroIds).toHaveLength(6);
+        expect(new Set(state.player2SelectedHeroIds).size).toBe(6);
 
+        // 替补制：布阵阶段只部署四名首发，其余两人留在替补席
+        const humanStarters = humanTeam.slice(0, 4);
         const humanPositions: [number, number][] = [[1, 0], [2, 0], [3, 1], [4, 1]];
-        humanTeam.forEach((heroId, index) => {
+        humanStarters.forEach((heroId, index) => {
             expect(useGameStore.getState().deployHeroForPlayer('player1', heroId, humanPositions[index])).toBe(true);
         });
         useGameStore.getState().confirmDeployment();
@@ -66,6 +86,12 @@ describe('computer opponent integration', () => {
         let previousAiSignature = '';
         let repeatedAiState = 0;
         while (useGameStore.getState().phase === 'battle' && useGameStore.getState().roundNumber === 1 && guard < 160) {
+            // 替补制：人类方待补员时优先完成上场交互，否则对局会一直挂起
+            if (useGameStore.getState().reinforcingPlayer === 'player1') {
+                deployHumanReinforcement();
+                guard++;
+                continue;
+            }
             state = useGameStore.getState();
             if (state.currentPlayer === 'player1') {
                 const hero = GameEngine.getAvailableHeroesForPlayer(state, 'player1')[0];
@@ -100,6 +126,12 @@ describe('computer opponent integration', () => {
         previousAiSignature = '';
         repeatedAiState = 0;
         while (useGameStore.getState().phase === 'battle' && useGameStore.getState().roundNumber < 6 && matchGuard < 900) {
+            // 替补制：人类方待补员时优先完成上场交互，否则对局会一直挂起
+            if (useGameStore.getState().reinforcingPlayer === 'player1') {
+                deployHumanReinforcement();
+                matchGuard++;
+                continue;
+            }
             state = useGameStore.getState();
             if (state.currentPlayer === 'player1') {
                 const hero = GameEngine.getAvailableHeroesForPlayer(state, 'player1')[0];

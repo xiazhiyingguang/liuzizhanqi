@@ -136,9 +136,9 @@ describe('绯雪', () => {
 
         const output = SkillSystem.executeSkill(caster, feixueSkill2, [[2, 3]], state);
 
-        // 普通段：(8 + 2x2) x 75% = 9；霜噬：40 x 5% x 2 = 4。
+        // 普通段：(8 + 2x2) x 75% = 9；霜噬：floor(47 x 5%) x 2 = 4。
         expect(output.damageDealt).toEqual([13]);
-        expect(target.currentHp).toBe(27);
+        expect(target.currentHp).toBe(34);
         expect(DamageCalculator.getHantianStackCount(target)).toBe(0);
         expect(caster.currentHp).toBe(34);
         expect(output.healingDone).toEqual([4]);
@@ -164,7 +164,7 @@ describe('绯雪', () => {
 
         // 必暴普通段：floor(12 x 1.5 x 75%) = 13；霜噬真实伤害4。
         expect(output.damageDealt).toEqual([17]);
-        expect(target.currentHp).toBe(23);
+        expect(target.currentHp).toBe(30);
         expect(EffectManager.hasEffect(target, '冰冻')).toBe(true);
         expect(DamageCalculator.getHantianStackCount(target)).toBe(2);
         expect(caster.currentHp).toBe(34);
@@ -181,9 +181,9 @@ describe('绯雪', () => {
 
         const output = SkillSystem.executeSkill(caster, feixueSkill2, [[2, 3]], state);
 
-        // 普通段12 + 40 x 10% x 2 = 8点霜噬。
-        expect(output.damageDealt).toEqual([20]);
-        expect(target.currentHp).toBe(20);
+        // 普通段12 + floor(47 x 10%) x 2 = 9点霜噬。
+        expect(output.damageDealt).toEqual([21]);
+        expect(target.currentHp).toBe(26);
     });
 
     it('致知一在开局生效一次，使生命45提升到53', () => {
@@ -234,7 +234,8 @@ describe('绯雪', () => {
         const state = makeGameState();
         const caster = addHero(state, 'feixue', 'player1', [2, 2]);
         const victim = addHero(state, 'baize', 'player2', [2, 3]);
-        const laterOnBoard = addHero(state, 'moran', 'player2', [4, 4]);
+        // 两名候选都取满血40的模板（夜枭/寒江雪），保证当前生命与最大生命比率完全相同
+        const laterOnBoard = addHero(state, 'nightowl', 'player2', [4, 4]);
         const earlierOnBoard = addHero(state, 'hanjiangxue', 'player2', [1, 3]);
         victim.currentHp = 1;
         laterOnBoard.currentHp = 20;

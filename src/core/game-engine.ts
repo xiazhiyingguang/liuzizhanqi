@@ -151,6 +151,11 @@ export class GameEngine {
 
         // 回合开始兑底：自动跳过全员无法行动的一方（全员眩晕/冰冻/已行动）。
         // 双方都无法行动时推进回合，让控制效果递减；长时间未解除则强制清除控制。
+        // 替补制：回合开始效果（如持续伤害）可能造成减员，先于跳过逻辑调度补员，
+        // 刚上场的新英雄 hasActed=false 必然可行动，不会触发跳过死锁。
+        if (this.beginPendingReinforcement(gameState)) {
+            return;
+        }
         this.advancePastBlockedPlayer(gameState);
     }
 
@@ -228,9 +233,9 @@ export class GameEngine {
      */
     static endHeroAction(hero: Hero, gameState: GameState): void {
         const isFinishingExtraActionHero =
-            gameState.performingExtraAction && gameState.activeHero?.id === hero.id;
+            !!gameState.performingExtraAction && gameState.activeHero?.id === hero.id;
         const isFinishingForcedActionHero =
-            gameState.performingForcedAction && gameState.activeHero?.id === hero.id;
+            !!gameState.performingForcedAction && gameState.activeHero?.id === hero.id;
 
         if (!isFinishingExtraActionHero) {
             hero.hasActedThisTurn = true;
@@ -270,6 +275,31 @@ export class GameEngine {
             return;
         }
 
+        // 替补制：英雄阵亡后立即从替补席补员。挂起回合流程，等待补员交互完成后再续跑
+        // （continueTurnFlow 会接着执行风铃强制行动、额外行动与换边逻辑）。
+        if (this.beginPendingReinforcement(gameState)) {
+            gameState.reinforceResumeContext = {
+                heroId: hero.id,
+                isFinishingExtraActionHero: !!isFinishingExtraActionHero,
+                isFinishingForcedActionHero: !!isFinishingForcedActionHero,
+            };
+            gameState.activeHero = null; // 解除锁定，允许补员方进行上场交互
+            return;
+        }
+
+        this.continueTurnFlow(hero, gameState, isFinishingExtraActionHero, isFinishingForcedActionHero);
+    }
+
+    /**
+     * endHeroAction 的后半段流程（胜负/补员检查之后）：风铃强制行动 → 额外行动发起 → 收尾切边 → 智能切换。
+     * 补员挂起恢复时也会从这里继续，保证被中断的回合流程语义不变。
+     */
+    private static continueTurnFlow(
+        hero: Hero,
+        gameState: GameState,
+        isFinishingExtraActionHero: boolean,
+        isFinishingForcedActionHero: boolean,
+    ): void {
         // 风铃的锁敌优先于额外行动：目标必须立刻完成并消耗自己的正常行动。
         const forcedActionHeroId = gameState.pendingForcedActionHeroId;
         gameState.pendingForcedActionHeroId = undefined;
@@ -467,7 +497,8 @@ export class GameEngine {
     }
 
     /**
-     * 检查胜利条件
+     * 检查胜利条件（替补制）：只有当一方"场上无存活单位且替补席已耗尽"（六人全灭）才判负。
+     * 替补席尚有英雄未上场时，即使场上暂时无人也视为可以继续（等待补员上场）。
      */
     static checkWinCondition(gameState: GameState): void {
         if (gameState.phase === 'ended') return;
@@ -476,10 +507,22 @@ export class GameEngine {
             const [row, col] = hero.position;
             return gameState.board[row]?.[col] === hero;
         };
-        const p1AllDead = !gameState.player1Heroes.some(isAliveOnBoard);
-        const p2AllDead = !gameState.player2Heroes.some(isAliveOnBoard);
+        // 替补席仍有英雄 = 该方尚未全灭（还有可上场战力）
+        const p1HasBench = (gameState.player1BenchHeroIds?.length ?? 0) > 0;
+        const p2HasBench = (gameState.player2BenchHeroIds?.length ?? 0) > 0;
+        const p1AllDead = !gameState.player1Heroes.some(isAliveOnBoard) && !p1HasBench;
+        const p2AllDead = !gameState.player2Heroes.some(isAliveOnBoard) && !p2HasBench;
 
-        if (p1AllDead) {
+        if (p1AllDead && p2AllDead) {
+            // 双方同时全灭（极罕见）：判平局处理为进攻方失败前的最后状态，这里按先手方判负
+            gameState.winner = 'player2';
+            gameState.phase = 'ended';
+            this.addLog(gameState, {
+                type: 'system',
+                player: 'player2',
+                message: '双方所有英雄阵亡，玩家1先手告负，玩家2获胜！'
+            });
+        } else if (p1AllDead) {
             gameState.winner = 'player2';
             gameState.phase = 'ended';
             this.addLog(gameState, {
@@ -496,6 +539,64 @@ export class GameEngine {
                 message: '玩家2所有英雄阵亡，玩家1获胜！'
             });
         }
+    }
+
+    /**
+     * 统计一方场上真实存活数：排除克隆体；TEMP_DEAD 不计入（与胜负判定口径一致）。
+     */
+    static countRealAliveOnBoard(gameState: GameState, player: Player): number {
+        return [...(player === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)]
+            .filter(hero =>
+                hero.state === HeroState.ALIVE &&
+                hero.counters?.['__isClone'] !== 1 &&
+                !hero.id.startsWith('wukong-clone|') &&
+                !hero.id.startsWith('mirror-clone|') &&
+                hero.position &&
+                (() => {
+                    const [row, col] = hero.position!;
+                    return gameState.board[row]?.[col] === hero;
+                })()
+            ).length;
+    }
+
+    /**
+     * 替补制补员调度：若存在"替补席非空且场上存活<4"的一方，将其设为 reinforcingPlayer 并返回 true（挂起当前流程等待补员交互）。
+     * 先检查 player1 后 player2；无待补员时清除标记并返回 false。
+     */
+    static beginPendingReinforcement(gameState: GameState): boolean {
+        if (gameState.phase === 'ended') return false;
+        for (const player of ['player1', 'player2'] as Player[]) {
+            const bench = player === 'player1' ? gameState.player1BenchHeroIds : gameState.player2BenchHeroIds;
+            if ((bench?.length ?? 0) > 0 && this.countRealAliveOnBoard(gameState, player) < 4) {
+                gameState.reinforcingPlayer = player;
+                gameState.reinforcementSelectableHeroId = null;
+                return true;
+            }
+        }
+        gameState.reinforcingPlayer = null;
+        return false;
+    }
+
+    /**
+     * 补员上场完成后由 store 调用：若仍存在待补员方（可能换边）则继续挂起；
+     * 否则清除挂起标记并按 endHeroAction 挂起时的上下文续跑回合流程。
+     */
+    static afterReinforcementDeployed(gameState: GameState): void {
+        if (this.beginPendingReinforcement(gameState)) return; // 还有待补员（可能是另一方）
+        gameState.reinforcingPlayer = null;
+        gameState.reinforcementSelectableHeroId = null;
+        const ctx = gameState.reinforceResumeContext;
+        gameState.reinforceResumeContext = undefined;
+        if (!ctx) return; // startNewTurn 型挂起：回合流程已就绪，无需续跑
+        const hero = [...gameState.player1Heroes, ...gameState.player2Heroes]
+            .find(candidate => candidate.id === ctx.heroId);
+        if (!hero || hero.state === HeroState.DEAD) {
+            // 防御：上下文英雄不可用时退化为正常切边，避免卡死
+            gameState.activeHero = null;
+            gameState.currentPlayer = gameState.currentPlayer === 'player1' ? 'player2' : 'player1';
+            return;
+        }
+        this.continueTurnFlow(hero, gameState, !!ctx.isFinishingExtraActionHero, !!ctx.isFinishingForcedActionHero);
     }
 
     /**

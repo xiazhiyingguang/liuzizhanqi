@@ -25,7 +25,7 @@ export default function HeroSelect() {
     const opponentReady = viewPlayer === 'player1' ? player2ReadyHeroSelect : player1ReadyHeroSelect;
     const canSelect = isAiMode ? !player1ReadyHeroSelect : (isOnlineMode ? !localReady : selectingPlayer === viewPlayer);
     const selectedIds = viewPlayer === 'player1' ? player1SelectedHeroIds : player2SelectedHeroIds;
-    const isComplete = selectedIds.length === 4;
+    const isComplete = selectedIds.length === 6;
 
     const playerColor = viewPlayer === 'player1' ? 'indigo-ink' : 'vermillion';
     const playerLabel = isAiMode ? '你' : (viewPlayer === 'player1' ? '玩家一' : '玩家二');
@@ -47,7 +47,7 @@ export default function HeroSelect() {
                     </h2>
                     <InkDivider variant="cloud" className="max-w-[180px] mx-auto mb-2" />
                     <p className="text-ink-light text-sm font-body">
-                        已选 <span className={`font-bold text-${playerColor}`}>{selectedIds.length}</span> / 4 位英雄
+                        已选 <span className={`font-bold text-${playerColor}`}>{selectedIds.length}</span> / 6 位英雄（首发 4 位，其余为替补）
                     </p>
                     {isOnlineMode && localReady && !opponentReady && (
                         <p className="text-gold text-sm font-body mt-1 animate-pulse">

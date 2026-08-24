@@ -63,7 +63,7 @@ describe('Moran', () => {
     beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
     afterEach(() => vi.restoreAllMocks());
 
-    it('skill 1 deals 8 and enters Weidao; skill 2 deals 12', () => {
+    it('skill 1 deals 10 and enters Weidao; skill 2 deals 15', () => {
         const state = makeGameState();
         const moran = addHero(state, 'moran', 'player1', [2, 2]);
         const enemy = addHero(state, 'baize', 'player2', [2, 3]);
@@ -71,10 +71,10 @@ describe('Moran', () => {
         const first = moranSkill1.execute!(moran, [enemy], state);
         const second = moranSkill2.execute!(moran, [enemy], state);
 
-        expect(first.damageDealt).toEqual([8]);
-        expect(second.damageDealt).toEqual([12]);
+        expect(first.damageDealt).toEqual([10]);
+        expect(second.damageDealt).toEqual([15]);
         expect(EffectManager.hasEffect(moran, '为道')).toBe(true);
-        expect(enemy.currentHp).toBe(enemy.maxHp - 20);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 25);
     });
 
     it('triggers one pending extra action after the second damaging hit', () => {
@@ -89,7 +89,8 @@ describe('Moran', () => {
         });
 
         for (let i = 0; i < 2; i++) {
-            const result = DamageCalculator.calculate(enemy, moran, 1);
+            // 基础伤害取 10：为道状态自带 30% 防御提升，1 点伤害会被减免为 0 而不触发受击
+            const result = DamageCalculator.calculate(enemy, moran, 10);
             DamageCalculator.applyDamage(moran, result, enemy, state);
         }
 

@@ -101,10 +101,18 @@ export default function SkillPanel() {
     const libaiChainWaiting = libaiChainActive && !!libaiChainState?.awaitingPosition;
     const deadAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
         .filter(hero => hero.state === 'dead');
+    // 替补制：场上真实存活已达4人上限时不可复活（复活会突破上场人数限制）
+    const boardFullForRevive = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
+        .filter(hero => hero.state === 'alive' &&
+            hero.counters?.['__isClone'] !== 1 &&
+            !hero.id.startsWith('wukong-clone|') &&
+            !hero.id.startsWith('mirror-clone|'))
+        .length >= 4;
     const choosingBaizeReviveTarget =
         selectedSkill?.id === 'baize_skill2' &&
         (selectedHero.counters['天禄'] ?? 0) >= 3 &&
-        deadAllies.length > 0;
+        deadAllies.length > 0 &&
+        !boardFullForRevive;
     const livingAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
         .filter(hero => hero.state === 'alive' && hero.id !== selectedHero.id);
     const temporarilyDeadAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
