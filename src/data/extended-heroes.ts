@@ -43,6 +43,7 @@ export const EXTENDED_HERO_IDS = [
     'fengling',
     'dilan',
     'shangguan',
+    'chenyuan',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -263,6 +264,17 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'shangguan_passive',
         // 天威暂未设计，留空
     },
+    chenyuan: {
+        name: '沉渊·镇岳',
+        class: '霸魁',
+        maxHp: 60,
+        moveRange: 1,
+        baseAttack: 0,
+        skill1Id: 'chenyuan_skill1',
+        skill2Id: 'chenyuan_skill2',
+        passiveId: 'chenyuan_passive',
+        tianweiId: 'chenyuan_tianwei',
+    },
 };
 
 export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; description: string }> = {
@@ -286,6 +298,7 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     fengling: { name: '风铃', class: '猎户', description: '强制锁敌、沙丘伏击与单体猎杀。生命45，移动力2' },
     dilan: { name: '帝兰', class: '天师', description: '操纵顺逆风、击退与羽化移动伤害。生命48，移动力3' },
     shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段连冲与墨意闪避。生命42，移动力3' },
+    chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力1' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {

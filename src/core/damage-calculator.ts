@@ -411,37 +411,67 @@ export class DamageCalculator {
              }
         }
 
-        // 0. 检查援护效果（琉璃的技能）
+        // 0. 检查援护效果（琉璃/沉渊的技能）
         const guardEffect = target.effects.find(e => e.name === '援护');
 
         if (!unavoidable && guardEffect && guardEffect.sourceHeroId) {
-            // 找到援护来源（琉璃）
+            // 找到援护来源（琉璃/沉渊）
             const guardianHero = this.findHeroById(guardEffect.sourceHeroId, gameState);
 
             if (guardianHero && guardianHero.state === HeroState.ALIVE && guardianHero.id !== target.id) {
-                // 将伤害转移给琉璃
-                actualTarget = guardianHero;
-                maxEffectiveDamageForKill = guardianHero.currentHp + guardianHero.shield;
+                // value 为承担比例：缺省视为1（琉璃全额承担）；沉渊为0.3（承担30%）
+                const guardShare = guardEffect.value ?? 1;
 
-                // 援护效果持续到琉璃下次行动，不在这里移除
-                // 会在skill-system.ts的removeGuardEffectsFromLiuli中移除
+                if (guardShare >= 1) {
+                    // 全额转移：将伤害转由援护者结算
+                    actualTarget = guardianHero;
+                    maxEffectiveDamageForKill = guardianHero.currentHp + guardianHero.shield;
 
-                // 触发琉璃的被动（增加禅定）
-                this.triggerPassiveSkill(guardianHero, 'onAllyDamaged', gameState, {
-                    isGuardTrigger: true,
-                    originalTarget: target
-                });
+                    // 援护效果持续到琉璃下次行动，不在这里移除
+                    // 会在skill-system.ts的removeGuardEffectsFromLiuli中移除
 
-                // 添加日志
-                if (gameState.battleLog) {
-                    const logEntry = {
-                        id: `log-${Date.now()}-${Math.random()}`,
-                        type: 'passive' as const,
-                        player: guardianHero.owner,
-                        message: `${guardianHero.name}援护${target.name}，承担了${remainingDamage}点伤害`,
-                        timestamp: Date.now()
-                    };
-                    gameState.battleLog.push(logEntry);
+                    // 触发琉璃的被动（增加禅定）
+                    this.triggerPassiveSkill(guardianHero, 'onAllyDamaged', gameState, {
+                        isGuardTrigger: true,
+                        originalTarget: target
+                    });
+
+                    // 添加日志
+                    if (gameState.battleLog) {
+                        const logEntry = {
+                            id: `log-${Date.now()}-${Math.random()}`,
+                            type: 'passive' as const,
+                            player: guardianHero.owner,
+                            message: `${guardianHero.name}援护${target.name}，承担了${remainingDamage}点伤害`,
+                            timestamp: Date.now()
+                        };
+                        gameState.battleLog.push(logEntry);
+                    }
+                } else if (remainingDamage > 0) {
+                    // 部分转移：援护者按比例承担一部分伤害，剩余仍由原目标承受
+                    const sharedAmount = Math.floor(remainingDamage * guardShare);
+                    if (sharedAmount > 0) {
+                        const sharedResult = this.calculate(attacker, guardianHero, sharedAmount, false, true);
+                        this.applyDamage(guardianHero, sharedResult, attacker, gameState, isAreaDamage);
+                        remainingDamage -= sharedResult.finalDamage;
+                        damageResult.finalDamage = remainingDamage;
+
+                        // 触发援护者的 onAllyDamaged 被动（与全额援护保持一致）
+                        this.triggerPassiveSkill(guardianHero, 'onAllyDamaged', gameState, {
+                            isGuardTrigger: true,
+                            originalTarget: target
+                        });
+
+                        if (gameState.battleLog) {
+                            gameState.battleLog.push({
+                                id: `log-${Date.now()}-${Math.random()}`,
+                                type: 'passive' as const,
+                                player: guardianHero.owner,
+                                message: `${guardianHero.name}援护${target.name}，承担了${sharedResult.finalDamage}点伤害`,
+                                timestamp: Date.now()
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -1382,6 +1412,27 @@ export class DamageCalculator {
                 effect.sourceHeroId === hero.id && effect.name.startsWith('阳线')
             ));
             if (linked?.tianweiId) this.triggerTianwei(linked, gameState);
+        } else if (hero.tianweiId === 'chenyuan_tianwei') {
+            // 天威·归渊：立即恢复场上寒天总层数×4的生命，至多超过最大生命值上限10点
+            const everyone = [...gameState.player1Heroes, ...gameState.player2Heroes];
+            const stacks = everyone.reduce((sum, item) =>
+                item.state === HeroState.ALIVE ? sum + this.getHantianStackCount(item) : sum, 0);
+            const heal = stacks * 4;
+            if (heal > 0) {
+                const before = hero.currentHp;
+                hero.currentHp = Math.min(hero.maxHp + 10, hero.currentHp + heal);
+                this.addBattleLog(gameState, {
+                    type: 'tianwei',
+                    player: hero.owner,
+                    message: `${hero.name}触发天威·归渊，汲取${stacks}层寒天恢复${hero.currentHp - before}点生命（当前${hero.currentHp}，上限${hero.maxHp + 10}）`
+                });
+            } else {
+                this.addBattleLog(gameState, {
+                    type: 'tianwei',
+                    player: hero.owner,
+                    message: `${hero.name}触发天威·归渊，但场上没有寒天可以汲取`
+                });
+            }
         } else if (hero.tianweiId === 't_painting_tianwei') {
             this.applyHeal(hero, 8, gameState, hero);
             for (const ally of hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes) {

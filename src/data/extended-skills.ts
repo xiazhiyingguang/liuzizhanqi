@@ -1957,6 +1957,112 @@ export const shangguanSkill2: Skill = {
     },
 };
 
+/**
+ * 沉渊·镇岳技能1「渊引」：
+ * 拖拽直线方向上3格内的一个敌人到自己周围一格范围内，
+ * 对其造成6点伤害，并施加1层寒天。
+ * 拉拽沿直线逐步进行，遇到障碍（棋盘边界或其他单位）即停下。
+ */
+export const chenyuanSkill1: Skill = {
+    id: 'chenyuan_skill1',
+    name: '渊引',
+    type: 'damage',
+    description: '拖拽直线方向上3格内的一个敌人到自己周围一格范围内，对其造成6点伤害并施加1层寒天',
+    rangeType: 'single',
+    range: 3,
+    targetType: 'enemy',
+    targetCount: 1,
+    baseDamage: 6,
+    canCrit: false,
+    execute: (caster, targets, gameState) => {
+        if (!caster.position) return fail('沉渊尚未部署');
+        const target = targets[0];
+        if (!target || target.state !== HeroState.ALIVE || !target.position) {
+            return fail('请选择直线方向上3格内的敌人');
+        }
+        const sameRow = target.position[0] === caster.position[0];
+        const sameCol = target.position[1] === caster.position[1];
+        const distance = MovementSystem.getManhattanDistance(caster.position, target.position);
+        if ((!sameRow && !sameCol) || distance > 3) {
+            return fail('目标必须与沉渊处于同一直线且距离不超过3格');
+        }
+
+        const output = result();
+
+        // 沿直线逐步拉近，直到与施法者相邻或被阻挡
+        let pulled = 0;
+        while (caster.position && target.position) {
+            if (MovementSystem.getManhattanDistance(caster.position, target.position) <= 1) break;
+            const [tr, tc] = target.position;
+            const stepRow = Math.sign(caster.position[0] - tr);
+            const stepCol = Math.sign(caster.position[1] - tc);
+            const next: Position = [tr + stepRow, tc + stepCol];
+            if (next[0] < 0 || next[0] >= 6 || next[1] < 0 || next[1] >= 6) break;
+            if (gameState.board[next[0]][next[1]] !== null) break;
+            gameState.board[tr][tc] = null;
+            gameState.board[next[0]][next[1]] = target;
+            target.position = next;
+            pulled++;
+        }
+
+        output.log.push(
+            pulled > 0
+                ? `${caster.name}将${target.name}拖拽${pulled}格至身旁`
+                : `${target.name}的拖拽路径受阻`
+        );
+
+        // 造成6点伤害并施加1层寒天
+        const damage = damageOne(caster, target, 6, gameState);
+        output.damageDealt?.push(damage.finalDamage);
+        DamageCalculator.applyHantianStacks(target, 1, caster.id, gameState);
+        output.log.push(
+            `${caster.name}对${target.name}造成${damage.finalDamage}点伤害${
+                target.state === HeroState.ALIVE
+                    ? `，获得1层寒天（当前${DamageCalculator.getHantianStackCount(target)}层）`
+                    : ''
+            }`
+        );
+        return output;
+    },
+};
+
+/**
+ * 沉渊·镇岳技能2「寒渊庇护」：
+ * 援护周围2格范围内的所有友方：友方受到伤害的30%由沉渊承担，持续两回合。
+ */
+export const chenyuanSkill2: Skill = {
+    id: 'chenyuan_skill2',
+    name: '寒渊庇护',
+    type: 'buff',
+    description: '援护周围2格范围内的所有友方：友方受到的伤害30%由自己承担，持续两回合',
+    rangeType: 'area',
+    range: 2,
+    areaSize: 5,
+    targetType: 'ally',
+    targetCount: 'all',
+    execute: (caster, targets, _gameState) => {
+        if (targets.length === 0) return fail('周围2格内没有可援护的友方');
+
+        const output = result();
+        for (const target of targets) {
+            // 先移除目标身上由自己施加的旧援护效果（如果有的话）
+            target.effects = target.effects.filter(effect =>
+                !(effect.name === '援护' && effect.sourceHeroId === caster.id)
+            );
+            EffectManager.addEffect(target, {
+                type: 'buff',
+                name: '援护',
+                duration: 2,
+                value: 0.3,
+                sourceHeroId: caster.id,
+                description: '受到伤害的30%由沉渊·镇岳承担，持续2回合',
+            });
+            output.log.push(`${target.name}获得沉渊的援护`);
+        }
+        return output;
+    },
+};
+
 export const EXTENDED_SKILLS: Record<string, Skill> = {
     skeletonking_skill1: skeletonkingSkill1,
     skeletonking_skill2: skeletonkingSkill2,
@@ -2000,4 +2106,6 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     dilan_skill2: dilanSkill2,
     shangguan_skill1: shangguanSkill1,
     shangguan_skill2: shangguanSkill2,
+    chenyuan_skill1: chenyuanSkill1,
+    chenyuan_skill2: chenyuanSkill2,
 };

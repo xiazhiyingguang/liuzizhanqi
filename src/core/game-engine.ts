@@ -865,6 +865,24 @@ export class GameEngine {
                     });
                 }
             }
+
+            // 沉渊·镇岳被动「极寒领域」：周围一格范围属于极寒领域，
+            // 每回合结束时领域内的敌人获得1层寒天
+            if (hero.passiveId === 'chenyuan_passive' && hero.position) {
+                const enemies = hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes;
+                for (const enemy of enemies) {
+                    if (enemy.state !== HeroState.ALIVE || !enemy.position) continue;
+                    if (MovementSystem.getManhattanDistance(hero.position, enemy.position) > 1) continue;
+                    DamageCalculator.applyHantianStacks(enemy, 1, hero.id, gameState);
+                    if (enemy.state === HeroState.ALIVE) {
+                        this.addLog(gameState, {
+                            type: 'passive',
+                            player: enemy.owner,
+                            message: `${enemy.name}陷入${hero.name}的极寒领域，获得1层寒天（当前${DamageCalculator.getHantianStackCount(enemy)}层）`
+                        });
+                    }
+                }
+            }
         }
     }
 
