@@ -3,6 +3,7 @@ import { useGameStore } from '../../store/game-store';
 import { HERO_CLASSES, HERO_CODEX, HeroCodexEntry, SKILL_TYPE_LABELS } from '../../data/hero-codex';
 import { HERO_ABILITY_KEYS, getAbilityHighlights, getHeroAbilityRatings, HeroAbilityKey } from '../../data/hero-ratings';
 import { getHeroFullBodyUrl } from '../../data/hero-assets';
+import HeroAvatar from '../ui/HeroAvatar';
 import HeroIcon from '../ui/HeroIcon';
 import HeroRadarChart from './HeroRadarChart';
 import './hero-codex.css';
@@ -399,10 +400,16 @@ export default function HeroCodex() {
                                             }`}
                                         >
                                             <div
-                                                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full"
-                                                style={{ color: theme.color, backgroundColor: theme.soft }}
+                                                className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-ink/[0.08]"
+                                                style={{ backgroundColor: theme.soft }}
                                             >
-                                                <HeroIcon heroId={hero.id} size={30} />
+                                                <HeroAvatar
+                                                    heroId={hero.id}
+                                                    heroName={hero.name}
+                                                    size={48}
+                                                    className="h-full w-full rounded-full object-cover"
+                                                    fallbackClassName="text-ink-light"
+                                                />
                                             </div>
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center justify-between gap-2">

@@ -86,6 +86,17 @@ export function useOnlineSync() {
                     break;
                 }
 
+                case 'undo-move': {
+                    if (action.data?.heroId) {
+                        const hero = [...store.player1Heroes, ...store.player2Heroes].find(h => h.id === action.data.heroId);
+                        if (hero) {
+                            store.selectHeroForAction(hero);
+                            store.undoMove();
+                        }
+                    }
+                    break;
+                }
+
                 case 'skill': {
                     if (action.data?.heroId && action.data?.skillId && action.data?.targetPos) {
                         const hero = [...store.player1Heroes, ...store.player2Heroes].find(h => h.id === action.data.heroId);

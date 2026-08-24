@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSkill } from '../../src/data/skills';
 import { useGameStore } from '../../src/store/game-store';
+import { EffectManager } from '../../src/core/effect-manager';
 import { HeroState } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
 
@@ -206,6 +207,74 @@ describe('game store battle interactions', () => {
 
         expect(useGameStore.getState().activeHero).toBe(first);
         expect(useGameStore.getState().selectedHero).toBe(first);
+    });
+
+    it('undoes a move, returns the hero to its origin, and reopens the move range', () => {
+        const state = loadBattleState();
+        const hero = addHero(state, 'moran', 'player1', [0, 0]);
+        addHero(state, 'baize', 'player2', [0, 5]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: hero,
+        });
+
+        useGameStore.getState().moveHero([0, 1]);
+        expect(hero.position).toEqual([0, 1]);
+        expect(hero.hasMovedThisTurn).toBe(true);
+
+        useGameStore.getState().undoMove();
+
+        expect(hero.position).toEqual([0, 0]);
+        expect(hero.hasMovedThisTurn).toBe(false);
+        expect(useGameStore.getState().moveRange.length).toBeGreaterThan(0);
+        expect(useGameStore.getState().selectedHero).toBe(hero);
+    });
+
+    it('refuses to undo a move after the hero has already acted', () => {
+        const state = loadBattleState();
+        const hero = addHero(state, 'moran', 'player1', [0, 0]);
+        addHero(state, 'baize', 'player2', [0, 5]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: hero,
+        });
+
+        useGameStore.getState().moveHero([0, 1]);
+        hero.hasActedThisTurn = true;
+        useGameStore.getState().undoMove();
+
+        expect(hero.position).toEqual([0, 1]);
+        expect(hero.hasMovedThisTurn).toBe(true);
+    });
+
+    it('凋零之主技能1需要两个对角位置，非对角点击会被拒绝', () => {
+        const state = loadBattleState();
+        const caster = addHero(state, 'wither_lord', 'player1', [2, 2]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 3]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: caster,
+        });
+
+        useGameStore.getState().selectSkill('wither_lord_skill1');
+        // 第一次点击：存入待选
+        useGameStore.getState().executeSkill([2, 4]);
+        expect(useGameStore.getState().pendingSkillTargetPositions).toEqual([[2, 4]]);
+        // 第二次点击 (3,4)：行差1列差0，非对角 → 拒绝且保留第一个点
+        useGameStore.getState().executeSkill([3, 4]);
+        expect(useGameStore.getState().pendingSkillTargetPositions).toEqual([[2, 4]]);
+        expect(enemy.currentHp).toBe(enemy.maxHp);
+        // 第三次点击 (3,3)：与 (2,4) 构成对角 → 释放，2x2 区域覆盖敌人 (2,3)
+        useGameStore.getState().executeSkill([3, 3]);
+        expect(useGameStore.getState().pendingSkillTargetPositions).toEqual([]);
+        expect(enemy.currentHp).toBeLessThan(enemy.maxHp);
+        expect(EffectManager.hasEffect(enemy, '凋零')).toBe(true);
     });
 
     it('summons a Wukong clone into the selected empty adjacent cell', () => {

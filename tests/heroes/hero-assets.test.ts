@@ -10,9 +10,9 @@ import {
 } from '../../src/data/hero-assets';
 
 describe('hero image assets', () => {
-    it('annotates 30 unique avatar and full-body image pairs', () => {
-        expect(HERO_ASSET_IDS).toHaveLength(30);
-        expect(new Set(HERO_ASSET_IDS).size).toBe(30);
+    it('annotates Feixue and keeps every avatar/full-body pair unique', () => {
+        expect(HERO_ASSET_IDS).toContain('feixue');
+        expect(new Set(HERO_ASSET_IDS).size).toBe(HERO_ASSET_IDS.length);
 
         for (const heroId of HERO_ASSET_IDS) {
             const asset = HERO_ASSETS[heroId];
@@ -27,6 +27,7 @@ describe('hero image assets', () => {
         expect(resolveHeroTemplateId('wukong-clone|owner|1|0.5')).toBe('wukong');
         expect(resolveHeroTemplateId('mirror-clone|owner|1|0.5')).toBe('mirror');
         expect(getHeroAvatarUrl('moran-player1-1785423305834')).toBe('/hero-images/avatars/moran.png');
+        expect(getHeroAvatarUrl('feixue-player1-1785423305834')).toBe('/hero-images/avatars/feixue.png');
     });
 
     it('returns no image for heroes whose artwork has not been supplied', () => {

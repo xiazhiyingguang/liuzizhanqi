@@ -29,6 +29,9 @@ export const HERO_ASSET_IDS = [
     'dale',
     'yaozhan',
     'hanjiangxue',
+    'libai',
+    'fengling',
+    'feixue',
 ] as const;
 
 export type HeroAssetId = typeof HERO_ASSET_IDS[number];
@@ -43,7 +46,10 @@ const HERO_ASSET_ID_SET = new Set<string>(HERO_ASSET_IDS);
 export const HERO_ASSETS: Record<HeroAssetId, HeroAsset> = Object.fromEntries(
     HERO_ASSET_IDS.map(heroId => [
         heroId,
-        {
+        heroId === 'fengling' ? {
+            avatar: '/others/full-body/shamozhinu.png',
+            fullBody: '/others/full-body/shamozhinu.png',
+        } : {
             avatar: `/hero-images/avatars/${heroId}.png`,
             fullBody: `/hero-images/full-body/${heroId}.png`,
         },

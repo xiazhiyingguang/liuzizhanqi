@@ -52,10 +52,10 @@ describe('computer AI', () => {
     it('带厚盾的低血量目标不会被当作可斩杀目标（有效血量计算护盾）', () => {
         const state = makeGameState({ currentPlayer: 'player2' });
         const caster = addHero(state, 'moran', 'player2', [2, 3]);
-        // 残血但带厚盾：1 血 + 12 盾，墨阑最大技能伤害 12 也打不死
+        // 残血但带厚盾：1 血 + 30 盾，墨阑技能2 基础 15 伤（暴击约 22）也无法击穿
         const shielded = addHero(state, 'baize', 'player1', [2, 2]);
         shielded.currentHp = 1;
-        shielded.shield = 12;
+        shielded.shield = 30;
         // 无盾残血：3 血，墨阑 8 伤必杀
         const killable = addHero(state, 'changli', 'player1', [2, 4]);
         killable.currentHp = 3;

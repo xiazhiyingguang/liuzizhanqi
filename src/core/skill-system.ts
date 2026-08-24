@@ -2,6 +2,7 @@ import { Hero, Skill, Position, GameState, SkillExecuteResult, HeroState } from 
 import { MovementSystem } from './movement-system';
 import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
+import { recordBattleSkillUse } from './battle-statistics';
 
 /**
  * 技能系统
@@ -234,8 +235,38 @@ export class SkillSystem {
                 shouldClearHuifengTarget = true;
             }
 
+            // 凋零之主技能1：两个对角位置展开为 2x2 区域
+            if (skill.id === 'wither_lord_skill1' && targetPositions.length === 2) {
+                const [first, second] = targetPositions;
+                const rowDiff = Math.abs(first[0] - second[0]);
+                const colDiff = Math.abs(first[1] - second[1]);
+                if (rowDiff === 1 && colDiff === 1) {
+                    const minRow = Math.min(first[0], second[0]);
+                    const maxRow = Math.max(first[0], second[0]);
+                    const minCol = Math.min(first[1], second[1]);
+                    const maxCol = Math.max(first[1], second[1]);
+                    finalTargetPositions = [
+                        [minRow, minCol],
+                        [minRow, maxCol],
+                        [maxRow, minCol],
+                        [maxRow, maxCol],
+                    ];
+                }
+            }
+
             if (skill.targetType === 'self') {
                 finalTargetPositions = caster.position ? [caster.position] : [];
+            } else if (
+                skill.targetCount === 'all' &&
+                skill.rangeType !== 'line' &&
+                skill.rangeType !== '全场'
+            ) {
+                // 群体技能：目标覆盖技能全范围，而不是玩家点击的单格。
+                // line/全场类型已在上面特判或由 execute 自行结算。
+                const fullRange = this.getValidTargetPositions(caster, skill);
+                if (fullRange.length > 0) {
+                    finalTargetPositions = fullRange;
+                }
             }
 
             const targets = this.getHeroesAtPositions(
@@ -245,6 +276,7 @@ export class SkillSystem {
                 gameState
             );
             const result = skill.execute(caster, targets, gameState);
+            if (result.success) recordBattleSkillUse(gameState, caster, skill.id);
             if (
                 result.success &&
                 caster.passiveId === 'schrodinger_passive' &&
@@ -269,7 +301,9 @@ export class SkillSystem {
         }
 
         // 否则使用默认逻辑
-        return this.executeDefaultSkill(caster, skill, targetPositions, gameState);
+        const result = this.executeDefaultSkill(caster, skill, targetPositions, gameState);
+        if (result.success) recordBattleSkillUse(gameState, caster, skill.id);
+        return result;
     }
 
     /**
@@ -352,7 +386,7 @@ export class SkillSystem {
         // 处理治疗
         if (skill.baseHeal !== undefined) {
             for (const target of targets) {
-                const healed = DamageCalculator.applyHeal(target, skill.baseHeal, gameState);
+                const healed = DamageCalculator.applyHeal(target, skill.baseHeal, gameState, caster);
                 result.healingDone?.push(healed);
                 result.log.push(`为${target.name}恢复了${healed}点生命`);
             }

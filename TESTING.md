@@ -1,5 +1,32 @@
 # 六子战棋测试说明
 
+## 浏览器端到端测试
+
+项目内置零 npm 依赖的 Chromium/Edge 测试驱动，通过浏览器调试协议运行真实生产构建。
+它会自动构建 E2E 专用版本、启动随机端口的局域网服务器，并在结束后清理浏览器与服务进程。
+
+```bash
+# 无界面运行全部端到端测试
+npm run test:e2e
+
+# 显示真实浏览器窗口，便于观察或调试
+npm run test:e2e:headed
+```
+
+当前覆盖两条关键链路：
+
+1. 本地双人：点将 → 双方布阵 → 进入战斗 → 释放最后一击 → 出现结算。
+2. 双端联机：两个隔离浏览器输入相同四位数字 → 双方点将同步 → 部署同步 → 战斗行动与当前玩家同步。
+
+Windows 会自动查找 Edge 或 Chrome。其他环境可通过 `E2E_BROWSER_PATH` 指定 Chromium 可执行文件：
+
+```bash
+E2E_BROWSER_PATH=/usr/bin/chromium npm run test:e2e
+```
+
+如果测试失败，当前浏览器画面会保存到 `test-results/e2e/`。测试使用的 `window.__SIX_CHESS_E2E__`
+桥接器只存在于 `VITE_E2E=true` 的专用构建中，普通开发和生产构建不会暴露。
+
 ## 命令
 
 ```bash

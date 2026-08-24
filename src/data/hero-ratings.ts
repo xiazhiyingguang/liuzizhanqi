@@ -30,7 +30,7 @@ function ratings(
  * 当这些英雄完成机制并加入图鉴后，无需再次迁移评分。
  */
 export const HERO_ABILITY_RATINGS: Record<string, HeroAbilityRatings> = {
-    墨阑: ratings(7, 4, 4, 1, 1, 2, 9),
+    墨阑: ratings(8, 6, 5, 1, 1, 2, 9),
     震霄: ratings(7, 7, 4, 6, 1, 5, 6),
     回锋: ratings(8, 3, 6, 5, 1, 6, 8),
     孙悟空: ratings(8, 6, 6, 1, 2, 7, 10),
@@ -58,11 +58,17 @@ export const HERO_ABILITY_RATINGS: Record<string, HeroAbilityRatings> = {
     '时空旅者·戴尔': ratings(7, 8, 10, 8, 10, 10, 8),
     '粒子加速者·费曼': ratings(9, 3, 4, 2, 1, 10, 6),
     寒江雪: ratings(6, 4, 4, 9, 7, 7, 6),
+    绯雪: ratings(9, 6, 4, 7, 1, 6, 9),
+    李太白: ratings(8, 3, 9, 1, 1, 6, 9),
+    醉枕刀: ratings(8, 7, 7, 1, 3, 5, 7),
+    风铃: ratings(9, 7, 5, 9, 1, 4, 9),
+    帝兰: ratings(7, 6, 8, 9, 7, 10, 8),
     旺财: ratings(9, 8, 4, 1, 8, 6, 7),
     '量子观测者·薛定谔': ratings(8, 5, 10, 5, 1, 9, 6),
     '恐惧编织者·莉莉丝': ratings(8, 3, 6, 10, 1, 10, 9),
     '星象师·诺亚': ratings(1, 5, 4, 2, 10, 10, 8),
     '太阳骑士·赫利俄斯': ratings(8, 6, 4, 2, 5, 7, 5),
+    上官婉儿: ratings(7, 5, 9, 1, 1, 7, 8),
 };
 
 export function getHeroAbilityRatings(heroName: string): HeroAbilityRatings | undefined {

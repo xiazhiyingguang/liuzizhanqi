@@ -4,6 +4,7 @@ import { useState } from 'react';
 import InkButton from '../ui/InkButton';
 import InkDivider from '../ui/InkDivider';
 import HeroAvatar from '../ui/HeroAvatar';
+import SetupExitButton from '../GameSetup/SetupExitButton';
 
 export default function Deploy() {
     const {
@@ -50,6 +51,7 @@ export default function Deploy() {
 
     return (
         <div className="w-full h-full flex flex-col items-center justify-center p-6 relative overflow-hidden">
+            <SetupExitButton stage="布阵" />
             {/* 背景水印 */}
             <span className="absolute font-title text-[16rem] text-ink/[0.02] select-none pointer-events-none"
                 style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>
@@ -86,6 +88,7 @@ export default function Deploy() {
                         return (
                             <button
                                 key={heroId}
+                                data-testid={`deploy-hero-${heroId}`}
                                 disabled={isDeployed || !canDeploy}
                                 onClick={() => setSelectedHeroId(heroId)}
                                 className="relative"
@@ -145,6 +148,7 @@ export default function Deploy() {
                                 return (
                                     <div
                                         key={`${row}-${col}`}
+                                        data-testid={`deploy-cell-${row}-${col}`}
                                         onClick={() => handleCellClick(row, col)}
                                         className={`
                                             battle-cell w-[72px] h-[72px] flex items-center justify-center transition-all duration-150
@@ -194,6 +198,7 @@ export default function Deploy() {
                 {/* 确认按钮 */}
                 <div className="mt-5 animate-fade-up" style={{ animationDelay: '300ms' }}>
                     <InkButton
+                        data-testid="confirm-deployment"
                         variant="primary"
                         size="lg"
                         onClick={confirmDeployment}

@@ -1,6 +1,7 @@
 import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState } from '../types/game';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
+import { recordBattleDamage, recordBattleHealing, recordBattleKill } from '../core/battle-statistics';
 import {
     EXTENDED_HERO_IDS,
     EXTENDED_HERO_INFO,
@@ -103,7 +104,7 @@ function syncWukongCritToSelfAndClones(wukong: Hero, gameState: { board: (Hero |
 export const moranPassive: PassiveSkill = {
     id: 'moran_passive',
     name: '为道',
-    description: '收到两次攻击后，在收到第二次攻击后，使自己立即行动一次',
+    description: '处于"为道"状态时防御提升30%；受到两次攻击后，在受到第二次攻击后，使自己立即行动一次并解除"为道"',
     triggerOn: 'onDamaged',
     execute: (hero, gameState, context) => {
         void context;
@@ -133,8 +134,15 @@ export const moranPassive: PassiveSkill = {
             hero.hasMovedThisTurn = false;
             hero.counters['为道受击'] = 0;
 
+            // 致知2：为道解除后的立即出手，技能伤害提升40%（标记由技能消耗、行动结束清除）
+            let burstText = '';
+            if (hero.counters['talent_2']) {
+                hero.counters['__weidao_burst'] = 1;
+                burstText = '，且本次出手技能伤害提升40%';
+            }
+
             hero.effects = hero.effects.filter(e => e.name !== '为道');
-            
+
             // 设置额外行动标记，确保不消耗总回合数
             if (!gameState.pendingExtraActionHeroIds) {
                 gameState.pendingExtraActionHeroIds = {};
@@ -147,7 +155,7 @@ export const moranPassive: PassiveSkill = {
                     id: `log-${Date.now()}-${Math.random()}`,
                     type: 'system' as const,
                     player: hero.owner,
-                    message: `${hero.name}的"为道"触发！获得额外行动机会`,
+                    message: `${hero.name}的"为道"触发！获得额外行动机会${burstText}`,
                     timestamp: Date.now()
                 };
                 gameState.battleLog.push(logEntry);
@@ -188,13 +196,16 @@ export const zhenxiaoPassive: PassiveSkill = {
 
         // 计算实际伤害（考虑护盾和防御）
         let finalDamage = counterDamage;
+        let shieldDamage = 0;
 
         // 先扣除护盾
         if (attacker.shield > 0) {
             const shieldAbsorb = Math.min(attacker.shield, finalDamage);
             attacker.shield -= shieldAbsorb;
             finalDamage -= shieldAbsorb;
+            shieldDamage = shieldAbsorb;
         }
+        if (shieldDamage > 0) recordBattleDamage(gameState, hero, attacker, 0, shieldDamage);
 
         // 再计算防御减免
         if (finalDamage > 0 && attacker.defense > 0) {
@@ -203,11 +214,17 @@ export const zhenxiaoPassive: PassiveSkill = {
 
         // 扣除生命值
         if (finalDamage > 0) {
+            const hpBeforeDamage = attacker.currentHp;
             attacker.currentHp = Math.max(0, attacker.currentHp - finalDamage);
+            const actualHpDamage = Math.min(hpBeforeDamage, Math.floor(finalDamage));
+            recordBattleDamage(gameState, hero, attacker, actualHpDamage);
 
             // 吸血50%
             const healAmount = Math.floor(finalDamage * 0.5);
+            const hpBeforeHeal = hero.currentHp;
             hero.currentHp = Math.min(hero.maxHp, hero.currentHp + healAmount);
+            const actualHealing = hero.currentHp - hpBeforeHeal;
+            recordBattleHealing(gameState, hero, actualHealing);
 
             // 添加日志
             if (gameState.battleLog) {
@@ -225,6 +242,7 @@ export const zhenxiaoPassive: PassiveSkill = {
             if (attacker.currentHp <= 0 && attacker.state === HeroState.ALIVE) {
                 attacker.state = HeroState.DEAD;
                 hero.killCount++;
+                recordBattleKill(gameState, hero, attacker);
 
                 // 从棋盘上移除
                 const [row, col] = attacker.position;
@@ -362,11 +380,11 @@ export const changliPassive: PassiveSkill = {
  * 天威技能库
  */
 
-// 墨阑天威：立即出手一次
+// 墨阑天威：击杀敌人后立即出手一次
 export const moranTianwei: TianweiSkill = {
     id: 'moran_tianwei',
     name: '天威',
-    description: '立即出手一次（每回合限1次）',
+    description: '击杀敌人后立即出手一次（每回合限1次）',
     execute: (hero, gameState) => {
         // 检查每回合触发限制
         const uses = hero.counters['tianwei_uses'] || 0;
@@ -443,7 +461,7 @@ export const zhenxiaoTianwei: TianweiSkill = {
             }
 
             // 恢复生命
-            hero.currentHp = Math.min(hero.maxHp, hero.currentHp + totalHealed);
+            DamageCalculator.applyHeal(hero, totalHealed, gameState, hero);
 
             // 添加日志
             if (gameState.battleLog) {
@@ -463,10 +481,21 @@ export const zhenxiaoTianwei: TianweiSkill = {
 export const wukongTianwei: TianweiSkill = {
     id: 'wukong_tianwei',
     name: '天威',
-    description: '立即释放一个分身（战棋上分身数量不超过3个）',
+    description: '本人或分身击杀敌方英雄时，立即释放一个分身（战棋上分身数量不超过3个）',
     execute: (hero, gameState) => {
         if (!hero.position) return;
-        if (countWukongClonesOnBoard(hero.id, gameState) >= 3) return;
+        if (countWukongClonesOnBoard(hero.id, gameState) >= 3) {
+            if (gameState.battleLog) {
+                gameState.battleLog.push({
+                    id: `log-${Date.now()}-${Math.random()}`,
+                    type: 'tianwei' as const,
+                    player: hero.owner,
+                    message: `${hero.name}的天威未生效：场上分身已达上限（3个）`,
+                    timestamp: Date.now()
+                });
+            }
+            return;
+        }
 
         const [row, col] = hero.position;
         const directions: [number, number][] = [
@@ -486,7 +515,18 @@ export const wukongTianwei: TianweiSkill = {
             }
         }
 
-        if (!summonPos) return;
+        if (!summonPos) {
+            if (gameState.battleLog) {
+                gameState.battleLog.push({
+                    id: `log-${Date.now()}-${Math.random()}`,
+                    type: 'tianwei' as const,
+                    player: hero.owner,
+                    message: `${hero.name}的天威未生效：周围没有空位召唤分身`,
+                    timestamp: Date.now()
+                });
+            }
+            return;
+        }
 
         const clone = createWukongClone(hero.owner, hero.id, summonPos, 10);
         gameState.board[summonPos[0]][summonPos[1]] = clone;
@@ -750,7 +790,7 @@ export function createHero(
         moran: {
             name: '墨阑',
             class: '武曲',
-            maxHp: 40,
+            maxHp: 47,
             moveRange: 2,
             baseAttack: 0,
             skill1Id: 'moran_skill1',
@@ -982,7 +1022,7 @@ export function getHeroInfo(heroId: string) {
         moran: {
             name: '墨阑',
             class: '武曲',
-            description: '多次出手，增加伤害。生命40，移动力2'
+            description: '多次出手，增加伤害。生命47，移动力2'
         },
         zhenxiao: {
             name: '震霄',

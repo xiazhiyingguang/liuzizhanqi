@@ -130,16 +130,57 @@
     height: var(--board-cell-size);
 }
 
-/* 冰晶：寒江雪的棋盘障碍物（六角雪花） */
+/* 冰晶：寒江雪的棋盘障碍物（Lucide 标准雪花图标） */
 .ice-crystal-snow {
     width: 84%;
     height: 84%;
+    color: #7db4f2;
     animation: ice-crystal-pulse 2.4s ease-in-out infinite;
 }
 
 @keyframes ice-crystal-pulse {
     0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 4px rgba(96, 165, 250, 0.5)); }
     50% { opacity: 1; filter: drop-shadow(0 0 10px rgba(96, 165, 250, 0.85)); }
+}
+
+/* 上官婉儿毛笔标记（SVG 水墨毛笔 + 归属光环 + 剩余寿命墨点） */
+.brush-mark-svg {
+    width: 66%;
+    height: 66%;
+    filter: drop-shadow(0 2px 3px rgba(20, 20, 26, 0.35));
+    animation: brush-float 2.6s ease-in-out infinite;
+}
+
+@keyframes brush-float {
+    0%, 100% { transform: translateY(1px) rotate(-2deg); opacity: 0.92; }
+    50% { transform: translateY(-2px) rotate(3deg); opacity: 1; }
+}
+
+/* 归属光环：p1 玉青 / p2 朱砂 */
+.brush-owner-p1 .brush-mark-svg {
+    filter: drop-shadow(0 0 5px rgba(74, 158, 145, 0.55)) drop-shadow(0 2px 3px rgba(20, 20, 26, 0.3));
+}
+
+.brush-owner-p2 .brush-mark-svg {
+    filter: drop-shadow(0 0 5px rgba(192, 57, 43, 0.55)) drop-shadow(0 2px 3px rgba(20, 20, 26, 0.3));
+}
+
+/* 剩余寿命墨点 */
+.brush-life-dots {
+    display: flex;
+    gap: 3px;
+    margin-top: -2px;
+    padding: 1px 4px;
+    border-radius: 999px;
+    background: rgba(24, 24, 30, 0.42);
+}
+
+.brush-life-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #efe9db;
+    box-shadow: 0 0 3px rgba(240, 234, 220, 0.8);
 }
 
 .battle-board-piece {

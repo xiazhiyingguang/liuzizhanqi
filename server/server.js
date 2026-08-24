@@ -494,7 +494,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        if (['move', 'skill', 'end-turn'].includes(action.type)) {
+        if (['move', 'undo-move', 'skill', 'end-turn'].includes(action.type)) {
             if (room.phase !== 'battle') return reject('当前不在战斗阶段');
             if (room.currentPlayer !== playerKey) return reject('当前不是你的回合');
             if (!isPlainGameState(gameState)) return reject('缺少有效的战斗状态');

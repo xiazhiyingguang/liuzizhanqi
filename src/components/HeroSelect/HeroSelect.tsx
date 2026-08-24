@@ -4,6 +4,7 @@ import InkButton from '../ui/InkButton';
 import InkCard from '../ui/InkCard';
 import InkDivider from '../ui/InkDivider';
 import HeroIcon from '../ui/HeroIcon';
+import SetupExitButton from '../GameSetup/SetupExitButton';
 
 export default function HeroSelect() {
     const {
@@ -31,6 +32,7 @@ export default function HeroSelect() {
 
     return (
         <div className="w-full h-full flex flex-col items-center justify-start px-6 py-8 relative overflow-y-auto">
+            <SetupExitButton stage="点将" />
             {/* 背景水印 */}
             <span className="absolute font-title text-[16rem] text-ink/[0.02] select-none pointer-events-none"
                 style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>
@@ -68,6 +70,7 @@ export default function HeroSelect() {
                         return (
                             <div
                                 key={heroId}
+                                data-testid={`hero-select-${heroId}`}
                                 onClick={() => {
                                     if (canSelect) {
                                         useGameStore.getState().selectHero(heroId);
@@ -137,6 +140,7 @@ export default function HeroSelect() {
                 {/* 确认按钮 */}
                 <div className="text-center animate-fade-up" style={{ animationDelay: '500ms' }}>
                     <InkButton
+                        data-testid="confirm-hero-selection"
                         variant="primary"
                         size="lg"
                         onClick={confirmHeroSelection}

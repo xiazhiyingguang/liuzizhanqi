@@ -9,6 +9,8 @@ import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { sendPlayerAction, syncGameState } from '../services/socket-service';
 import { checkYinyangLinks } from '../data/extended-heroes';
+import { getDilanFrontRect, getLibaiFrontRect, hasShangguanDashOption, performShangguanDashSegment } from '../data/extended-skills';
+import { recordBattleSkillUse } from '../core/battle-statistics';
 
 type WukongSkill2Phase = 'pickWukongTarget' | 'pickCloneTarget';
 
@@ -112,6 +114,51 @@ function getEnemyPositionsInArea(center: Position, owner: Hero['owner'], gameSta
     return positions;
 }
 
+/** 读取李太白的历史位置（上次/上上次停留位置，可能为空） */
+function getLibaiHistoryPositions(hero: Hero): Position[] {
+    const positions: Position[] = [];
+    const prev = hero.counters['__libai_prev_pos'];
+    const prev2 = hero.counters['__libai_prev2_pos'];
+    if (prev !== undefined) positions.push([Math.floor(prev / 6), prev % 6]);
+    if (prev2 !== undefined) positions.push([Math.floor(prev2 / 6), prev2 % 6]);
+    return positions;
+}
+
+/** 李太白归位：瞬移回主位置并结束行动 */
+function finalizeLibaiChain(
+    hero: Hero,
+    state: GameStore,
+    addLog: (entry: Omit<BattleLogEntry, 'id' | 'timestamp'>) => void
+): void {
+    const chain = state.libaiChainState;
+    state.libaiChainState = undefined;
+    if (chain && hero.state === HeroState.ALIVE && hero.position) {
+        const [homeRow, homeCol] = chain.home;
+        const moved = homeRow !== hero.position[0] || homeCol !== hero.position[1];
+        if (moved) {
+            const [oldRow, oldCol] = hero.position;
+            const oldPosition: Position = [oldRow, oldCol];
+            if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
+            hero.position = [homeRow, homeCol];
+            state.board[homeRow][homeCol] = hero;
+            DamageCalculator.applyDilanMovementDamage(
+                hero,
+                MovementSystem.getManhattanDistance(oldPosition, hero.position),
+                state
+            );
+            addLog({
+                type: 'passive',
+                player: hero.owner,
+                message: hero.state === HeroState.ALIVE
+                    ? `${hero.name}醉步归位到(${homeRow + 1},${homeCol + 1})`
+                    : `${hero.name}醉步归位时触发羽化伤害并阵亡`
+            });
+        }
+    }
+    hero.hasActedThisTurn = true;
+    GameEngine.endHeroAction(hero, state);
+}
+
 interface GameStore extends GameState {
     // 新增状态
     moveRange: Position[];
@@ -138,6 +185,7 @@ interface GameStore extends GameState {
     selectHeroForAction: (hero: Hero | null) => void;
     showMoveRange: () => void;
     moveHero: (to: Position) => void;
+    undoMove: () => void;
     selectSkill: (skillId: string) => void;
     selectBaizeReviveTarget: (heroId: string) => void;
     toggleChangliSkill2Empowered: () => void;
@@ -147,6 +195,9 @@ interface GameStore extends GameState {
     selectSkillHeroTarget: (heroId: string) => void;
     executeSkill: (targetPos: Position) => void;
     resolvePendingBoardAction: (targetPos: Position) => void;
+    // 李太白被动链
+    selectLibaiChainPosition: (position: Position) => void;
+    skipLibaiChainAttack: () => void;
 
     // 回合管理
     endHeroAction: () => void;
@@ -167,6 +218,7 @@ function getLocalPlayerKey(state: GameStore): 'player1' | 'player2' | null {
 
 export function createOnlineStateSnapshot(state: GameStore) {
     return {
+        matchId: state.matchId,
         board: state.board,
         boardEffects: state.boardEffects,
         player1Heroes: state.player1Heroes,
@@ -182,6 +234,7 @@ export function createOnlineStateSnapshot(state: GameStore) {
         highlightedPositions: state.highlightedPositions,
         selectedSkill: state.selectedSkill,
         battleLog: state.battleLog,
+        battleStatistics: state.battleStatistics,
         deathCounters: state.deathCounters,
         player1SelectedHeroIds: state.player1SelectedHeroIds,
         player2SelectedHeroIds: state.player2SelectedHeroIds,
@@ -193,6 +246,9 @@ export function createOnlineStateSnapshot(state: GameStore) {
         pendingExtraActionHeroIds: state.pendingExtraActionHeroIds,
         performingExtraAction: state.performingExtraAction,
         resumePlayer: state.resumePlayer,
+        pendingForcedActionHeroId: state.pendingForcedActionHeroId,
+        performingForcedAction: state.performingForcedAction,
+        forcedActionResumePlayer: state.forcedActionResumePlayer,
         pendingSkillTargetPositions: state.pendingSkillTargetPositions,
         skillOptionFlags: state.skillOptionFlags,
         heroXRedirectTargetIds: state.heroXRedirectTargetIds,
@@ -204,7 +260,9 @@ export function createOnlineStateSnapshot(state: GameStore) {
         wukongSkill2State: state.wukongSkill2State,
         baizeReviveTargetHeroId: state.baizeReviveTargetHeroId,
         changliSkill2Empowered: state.changliSkill2Empowered,
-        jetzmiSkill1Enhanced: state.jetzmiSkill1Enhanced
+        jetzmiSkill1Enhanced: state.jetzmiSkill1Enhanced,
+        libaiChainState: state.libaiChainState,
+        shangguanDashState: state.shangguanDashState
     };
 }
 
@@ -227,6 +285,11 @@ const createEmptyBoard = (): (Hero | null)[][] => {
     return Array(6).fill(null).map(() => Array(6).fill(null));
 };
 
+function createMatchId(): string {
+    const randomPart = Math.random().toString(36).slice(2, 10);
+    return `match-${Date.now().toString(36)}-${randomPart}`;
+}
+
 const initialState: GameState = {
     board: createEmptyBoard(),
     player1Heroes: [],
@@ -241,6 +304,7 @@ const initialState: GameState = {
     highlightedPositions: [],
     selectedSkill: null,
     battleLog: [],
+    battleStatistics: {},
     deathCounters: {
         player1Dead: 0,
         player2Dead: 0,
@@ -266,6 +330,9 @@ const initialState: GameState = {
     aiDifficulty: undefined,
     performingExtraAction: false,
     resumePlayer: undefined,
+    pendingForcedActionHeroId: undefined,
+    performingForcedAction: false,
+    forcedActionResumePlayer: undefined,
     baizeReviveTargetHeroId: undefined,
     changliSkill2Empowered: false,
     jetzmiSkill1Enhanced: false,
@@ -274,6 +341,8 @@ const initialState: GameState = {
     heroXRedirectTargetIds: {},
     soulLampBeneficiaryIds: {},
     skillSelectedHeroIds: {},
+    libaiChainState: undefined,
+    shangguanDashState: undefined,
     pendingBoardAction: undefined
 };
 
@@ -288,6 +357,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const onlineContext = get();
         set({
             ...initialState,
+            matchId: createMatchId(),
             phase: 'hero-select',
             isOnlineMode: onlineContext.isOnlineMode,
             onlineRoomId: onlineContext.onlineRoomId,
@@ -527,6 +597,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         // 检查是否可以操作该英雄
         if (hero && !GameEngine.canPerformAction(hero, state)) {
+            if (EffectManager.isStunned(hero)) {
+                get().addLog({ type: 'system', player: hero.owner, message: `${hero.name}被眩晕，无法行动` });
+            } else if (hero.hasActedThisTurn) {
+                get().addLog({ type: 'system', player: hero.owner, message: `${hero.name}本回合已经行动过了` });
+            } else if (hero.state !== HeroState.ALIVE) {
+                get().addLog({ type: 'system', player: hero.owner, message: `${hero.name}已阵亡，无法行动` });
+            }
             return;
         }
 
@@ -604,6 +681,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 李太白被动链：链进行中不允许普通移动（会破坏归位点与瞬移高亮）
+        if (state.libaiChainState?.heroId === hero.id) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}酒意正浓：被动链进行中，无法普通移动`
+            });
+            return;
+        }
+
         // 检查是否已经移动过
         if (hero.hasMovedThisTurn) {
             get().addLog({
@@ -656,6 +743,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
 
         // 使用MovementSystem进行移动
+        const fromPosition = hero.position ? [...hero.position] : null;
+        const hadDilanFeatherBeforeMove = hero.effects.some(effect =>
+            effect.name === '羽化' && (effect.stackCount ?? 0) > 0
+        );
+        // 醉枕刀：移动前计算路径，供踩过带醉意友方时触发交换
+        const zuizhendaoPath = hero.passiveId === 'zuizhendao_passive' && fromPosition
+            ? MovementSystem.getMovePath(hero, to, state)
+            : [];
         const success = MovementSystem.moveHero(hero, to, state);
 
         if (success) {
@@ -665,6 +760,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
             // 标记已移动
             hero.hasMovedThisTurn = true;
+            // 记录移动前位置，供撤回使用
+            if (fromPosition && !hadDilanFeatherBeforeMove) {
+                hero.counters['__move_from'] = fromPosition[0] * 6 + fromPosition[1];
+            } else if (hadDilanFeatherBeforeMove) {
+                delete hero.counters['__move_from'];
+            }
+
+            // 醉枕刀被动：踩过带醉意（>=1层）的友方格子 -> 交换1层醉意并再次移动一次
+            if (zuizhendaoPath.length > 0) {
+                const drunkAlly = zuizhendaoPath
+                    .map(([r, c]) => state.board[r][c])
+                    .find((h): h is Hero =>
+                        !!h && h.owner === hero.owner && h !== hero && h.state === HeroState.ALIVE &&
+                        (h.counters['醉意'] ?? 0) >= 1
+                    );
+                if (drunkAlly) {
+                    drunkAlly.counters['醉意'] = (drunkAlly.counters['醉意'] ?? 0) - 1;
+                    hero.counters['醉意'] = (hero.counters['醉意'] ?? 0) + 1;
+                    hero.hasMovedThisTurn = false;
+                    get().addLog({
+                        type: 'passive',
+                        player: hero.owner,
+                        message: `${hero.name}踩过${drunkAlly.name}，交换1层醉意并再次移动`
+                    });
+                }
+            }
 
             const [toRow, toCol] = to;
             get().addLog({
@@ -672,6 +793,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 player: hero.owner,
                 message: `${hero.name}移动到(${toRow + 1},${toCol + 1})`
             });
+
+            if (hero.state !== HeroState.ALIVE) {
+                GameEngine.endHeroAction(hero, state);
+                set({
+                    currentPlayer: state.currentPlayer,
+                    actionsThisTurn: state.actionsThisTurn,
+                    roundNumber: state.roundNumber,
+                    phase: state.phase,
+                    winner: state.winner,
+                    board: state.board.map(row => [...row]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                    selectedHero: state.activeHero,
+                    activeHero: state.activeHero,
+                    highlightedPositions: [],
+                    moveRange: [],
+                    skillRange: [],
+                });
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
 
             set({
                 board: [...state.board],
@@ -686,6 +828,56 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 meta: { beforePlayer: state.currentPlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
             });
         }
+    },
+
+    undoMove: () => {
+        const state = get();
+        const hero = state.selectedHero;
+        if (!hero) return;
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localPlayerKey = getLocalPlayerKey(state);
+            if (!localPlayerKey || state.currentPlayer !== localPlayerKey || hero.owner !== localPlayerKey) {
+                get().addLog({ type: 'system', player: localPlayerKey ?? state.currentPlayer, message: '当前无法操作' });
+                return;
+            }
+        }
+
+        // 只有已移动且尚未行动时才能撤回
+        if (!hero.hasMovedThisTurn || hero.hasActedThisTurn) return;
+        // 李太白被动链：链进行中禁止撤回移动（会传回归位点之外的位置，破坏链状态）
+        if (state.libaiChainState?.heroId === hero.id) return;
+        const encoded = hero.counters['__move_from'];
+        if (encoded === undefined) return;
+        const from: Position = [Math.floor(encoded / 6), encoded % 6];
+
+        // 移回原位（宽限距离，撤回不校验移动力）
+        const moved = MovementSystem.moveHero(hero, from, state, 99);
+        if (!moved) return;
+        delete hero.counters['__move_from'];
+        hero.hasMovedThisTurn = false;
+
+        get().addLog({
+            type: 'move',
+            player: hero.owner,
+            message: `${hero.name}撤回移动，返回原位`
+        });
+
+        set({
+            board: [...state.board],
+            highlightedPositions: [],
+            moveRange: [],
+            activeHero: hero
+        });
+
+        // 撤回后重新显示移动范围，允许重新选择位置
+        get().showMoveRange();
+
+        const after = get();
+        sendOnlineActionIfNeeded(after, {
+            type: 'undo-move',
+            data: { heroId: hero.id },
+            meta: { beforePlayer: state.currentPlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
+        });
     },
 
     selectSkill: (skillId: string) => {
@@ -706,6 +898,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 type: 'system',
                 player: hero.owner,
                 message: `${hero.name}本回合已经行动过了！`
+            });
+            return;
+        }
+
+        // 李太白被动链：等待瞬移历史位置时不能原地反复施法（防止出手次数突破被动上限）
+        if (state.libaiChainState?.heroId === hero.id && state.libaiChainState.awaitingPosition) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}酒意翻涌：请先点击高亮的历史位置瞬移，或跳过攻击`
             });
             return;
         }
@@ -790,6 +992,95 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     cloneMovedById: {}
                 }
             });
+            return;
+        }
+
+        if (skill.id === 'libai_skill2') {
+            // 先选择方向（上下左右），再显示 2x3 矩形范围
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const dirPositions: Position[] = [];
+            for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+                const r = cr + dr;
+                const c = cc + dc;
+                if (r >= 0 && r < 6 && c >= 0 && c < 6) dirPositions.push([r, c]);
+            }
+            set({
+                selectedSkill: skill,
+                highlightedPositions: dirPositions,
+                skillRange: dirPositions,
+                moveRange: [],
+                activeHero: hero
+            });
+            get().addLog({ type: 'system', player: hero.owner, message: '请选择醉斩的方向（上下左右）' });
+            return;
+        }
+
+        if (skill.id === 'shangguan_skill2') {
+            // 连冲：先选冲刺方向（上下左右相邻格），命中敌人/毛笔后可继续选新方向
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const dirPositions: Position[] = [];
+            for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+                const r = cr + dr;
+                const c = cc + dc;
+                if (r >= 0 && r < 6 && c >= 0 && c < 6) dirPositions.push([r, c]);
+            }
+            set({
+                selectedSkill: skill,
+                highlightedPositions: dirPositions,
+                skillRange: dirPositions,
+                moveRange: [],
+                activeHero: hero
+            });
+            get().addLog({ type: 'system', player: hero.owner, message: '请选择连冲的方向（上下左右）' });
+            return;
+        }
+
+        if (skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2') {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const dirPositions: Position[] = [];
+            for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+                const row = cr + dr;
+                const col = cc + dc;
+                if (row >= 0 && row < 6 && col >= 0 && col < 6) dirPositions.push([row, col]);
+            }
+            set({
+                selectedSkill: skill,
+                highlightedPositions: dirPositions,
+                skillRange: dirPositions,
+                moveRange: [],
+                activeHero: hero,
+            });
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: skill.id === 'dilan_skill1'
+                    ? '请选择横向或纵向，决定顺逆长风作用的行列'
+                    : '请选择风压横扫的方向（上下左右）',
+            });
+            return;
+        }
+
+        if (skill.id === 'zuizhendao_skill1') {
+            // 先选择掷刀方向（上下左右），方向确定后自动计算路径并掷刀
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const dirPositions: Position[] = [];
+            for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+                const r = cr + dr;
+                const c = cc + dc;
+                if (r >= 0 && r < 6 && c >= 0 && c < 6) dirPositions.push([r, c]);
+            }
+            set({
+                selectedSkill: skill,
+                highlightedPositions: dirPositions,
+                skillRange: dirPositions,
+                moveRange: [],
+                activeHero: hero
+            });
+            get().addLog({ type: 'system', player: hero.owner, message: '请选择掷刀的方向（上下左右）' });
             return;
         }
 
@@ -918,6 +1209,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!hero || !skill || !isValidBoardPosition(targetPos)) {
             return;
         }
+
+        // 李太白被动链：等待瞬移历史位置时不允许执行技能（双保险，正常流程已被 selectSkill 拦截）
+        if (state.libaiChainState?.heroId === hero.id && state.libaiChainState.awaitingPosition) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}酒意翻涌：请先点击高亮的历史位置瞬移，或跳过攻击`
+            });
+            return;
+        }
+
         const beforePlayer = state.currentPlayer;
         if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
             const localPlayerKey = getLocalPlayerKey(state);
@@ -960,6 +1262,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 player: hero.owner,
                 message: `${hero.name}召唤了一个分身`
             });
+            recordBattleSkillUse(state, hero, skill.id);
 
             hero.hasActedThisTurn = true;
             GameEngine.endHeroAction(hero, state);
@@ -1024,6 +1327,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     
                     if (ok) {
                         EffectManager.consumeCounter(hero, '天禄', 3);
+                        recordBattleSkillUse(state, hero, skill.id);
                         
                         get().addLog({
                             type: 'skill',
@@ -1446,6 +1750,184 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 上官婉儿技能2：多段连冲。每段点击相邻方向格冲刺；命中敌人/毛笔后停下，
+        // 若仍有可命中的目标则等待玩家选新方向继续，否则正常结束行动。
+        // （全程快照同步，不走 action 回放，避免接收端重放结算）
+        if (skill.id === 'shangguan_skill2') {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '请点击相邻的方向格选择连冲方向'
+                });
+                return;
+            }
+            const dirR = isDirUp ? -1 : isDirDown ? 1 : 0;
+            const dirC = isDirLeft ? -1 : isDirRight ? 1 : 0;
+
+            // 处于连冲中则延续已命中列表；否则这是第一段
+            const activeDash =
+                state.shangguanDashState?.heroId === hero.id ? state.shangguanDashState : undefined;
+            const hitTargets: string[] = activeDash ? [...activeDash.hitTargets] : [];
+
+            const outcome = performShangguanDashSegment(hero, dirR, dirC, hitTargets, state);
+            if (!outcome.success) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: outcome.message ?? '该方向无法连冲'
+                });
+                // 第一段失败不消耗行动次数；连冲中失败保留状态等待换方向
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
+
+            if (outcome.hitId) hitTargets.push(outcome.hitId);
+            if (outcome.hitKind === 'enemy') {
+                get().addLog({
+                    type: 'damage',
+                    player: hero.owner,
+                    message: `连冲撞击${outcome.hitName}，造成${outcome.damage}点固定伤害${outcome.killed ? '，目标阵亡' : ''}`
+                });
+            } else {
+                get().addLog({
+                    type: 'passive',
+                    player: hero.owner,
+                    message: `${hero.name}掠过毛笔获得再次冲刺之势`
+                });
+            }
+            const dashPos = hero.position!;
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}落至(${dashPos[0] + 1},${dashPos[1] + 1})`
+            });
+
+            // 命中后若还有可继续的目标：暂停等待玩家选新方向
+            if (hasShangguanDashOption(hero, hitTargets, state)) {
+                const [nr, nc] = hero.position!;
+                const dirPositions: Position[] = [];
+                for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+                    const rr = nr + dr;
+                    const ccc = nc + dc;
+                    if (rr >= 0 && rr < 6 && ccc >= 0 && ccc < 6) dirPositions.push([rr, ccc]);
+                }
+                set({
+                    shangguanDashState: { heroId: hero.id, hitTargets },
+                    selectedHero: hero,
+                    activeHero: hero,
+                    selectedSkill: skill,
+                    highlightedPositions: dirPositions,
+                    skillRange: dirPositions,
+                    moveRange: [],
+                    board: state.board.map(row => [...row]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                    battleLog: [...get().battleLog]
+                });
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '可选择新方向继续连冲，或结束行动'
+                });
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
+
+            // 无法继续连冲：标记已行动并结束（触发行动结束后毛笔移动）
+            hero.hasActedThisTurn = true;
+            GameEngine.endHeroAction(hero, state);
+            set({
+                currentPlayer: state.currentPlayer,
+                actionsThisTurn: state.actionsThisTurn,
+                roundNumber: state.roundNumber,
+                phase: state.phase,
+                winner: state.winner,
+                board: state.board.map(row => [...row]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                battleLog: [...get().battleLog],
+                highlightedPositions: [],
+                selectedSkill: null,
+                shangguanDashState: undefined,
+                pendingSkillTargetPositions: [],
+                skillRange: [],
+                moveRange: [],
+                selectedHero: state.activeHero,
+                activeHero: state.activeHero
+            });
+            sendOnlineStateIfNeeded(get());
+            return;
+        }
+
+        // 李太白技能2：先选方向（点击上下左右方向格），再选范围内敌人
+        if (skill.id === 'libai_skill2' && hero.counters['__libai_skill2_dir'] === undefined) {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定醉斩方向' });
+                return;
+            }
+            hero.counters['__libai_skill2_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+            const rect = getLibaiFrontRect(hero);
+            set({
+                highlightedPositions: rect,
+                skillRange: rect,
+                moveRange: []
+            });
+            get().addLog({ type: 'system', player: hero.owner, message: '方向已确定，请选择范围内的敌人' });
+            return;
+        }
+
+        if (
+            (skill.id === 'dilan_skill1' && hero.counters['__dilan_skill1_axis'] === undefined) ||
+            (skill.id === 'dilan_skill2' && hero.counters['__dilan_skill2_dir'] === undefined)
+        ) {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击相邻方向格' });
+                return;
+            }
+            if (skill.id === 'dilan_skill1') {
+                hero.counters['__dilan_skill1_axis'] = isDirUp || isDirDown ? 1 : 0;
+            } else {
+                hero.counters['__dilan_skill2_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+                const rect = getDilanFrontRect(hero);
+                set({ highlightedPositions: rect, skillRange: rect, moveRange: [] });
+            }
+        }
+
+        // 醉枕刀技能1：先选方向（点击上下左右方向格），方向确定后自动掷刀
+        if (skill.id === 'zuizhendao_skill1') {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定掷刀方向' });
+                return;
+            }
+            hero.counters['__zuizhendao_skill1_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+            get().addLog({ type: 'system', player: hero.owner, message: '掷刀方向已确定，正在掷刀' });
+        }
+
         // 通用多目标选择：依次点击；可选目标技能再次点击已选目标即可提前释放。
         let targetPositions: Position[] = [targetPos];
         if (typeof skill.targetCount === 'number' && skill.targetCount > 1) {
@@ -1456,6 +1938,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
             let effectiveCount = skill.targetCount;
             if (skill.id === 'jetzmi_skill1') {
                 effectiveCount = state.jetzmiSkill1Enhanced ? 2 : 1;
+            }
+            // 凋零之主技能1：两个位置必须成对角（行差1列差1）才能构成 2x2 区域
+            if (skill.id === 'wither_lord_skill1' && pending.length === 1 && !duplicate) {
+                const [first] = pending;
+                const rowDiff = Math.abs(first[0] - targetPos[0]);
+                const colDiff = Math.abs(first[1] - targetPos[1]);
+                if (rowDiff !== 1 || colDiff !== 1) {
+                    get().addLog({
+                        type: 'system',
+                        player: hero.owner,
+                        message: '第二个位置需与第一个位置成对角，构成2x2区域'
+                    });
+                    return;
+                }
             }
             if (!duplicate && pending.length + 1 < effectiveCount) {
                 const next = [...pending, targetPos];
@@ -1511,6 +2007,96 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 player: hero.owner,
                 message: log
             });
+        }
+
+        // 醉枕刀：技能成功后清除掷刀方向
+        if (hero.passiveId === 'zuizhendao_passive') {
+            delete hero.counters['__zuizhendao_skill1_dir'];
+        }
+        if (hero.passiveId === 'dilan_passive') {
+            delete hero.counters['__dilan_skill1_axis'];
+            delete hero.counters['__dilan_skill2_dir'];
+        }
+
+        // 李太白被动链：技能成功后瞬移到历史位置继续攻击，全部用完自动归位
+        if (hero.passiveId === 'libai_passive') {
+            delete hero.counters['__libai_skill2_dir'];
+            const chain = state.libaiChainState;
+            if (chain) {
+                if (chain.pending.length > 0) {
+                    // 链中攻击完成，还有历史位置：高亮等待选择（回到等待瞬移阶段）
+                    set({
+                        libaiChainState: { ...chain, awaitingPosition: true },
+                        highlightedPositions: chain.pending,
+                        skillRange: chain.pending,
+                        moveRange: [],
+                        selectedSkill: null,
+                        board: state.board.map(row => [...row]),
+                        player1Heroes: [...state.player1Heroes],
+                        player2Heroes: [...state.player2Heroes],
+                    });
+                    get().addLog({
+                        type: 'passive',
+                        player: hero.owner,
+                        message: `${hero.name}可瞬移到历史位置继续攻击（剩余${chain.pending.length}个）`
+                    });
+                    sendOnlineStateIfNeeded(get());
+                    return;
+                }
+                // 全部用完：归位结束
+                finalizeLibaiChain(hero, state, (entry) => get().addLog(entry));
+                set({
+                    currentPlayer: state.currentPlayer,
+                    roundNumber: state.roundNumber,
+                    phase: state.phase,
+                    winner: state.winner,
+                    board: state.board.map(row => [...row]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                    battleLog: [...get().battleLog],
+                    libaiChainState: undefined,
+                    selectedSkill: null,
+                    highlightedPositions: [],
+                    skillRange: [],
+                    moveRange: [],
+                    selectedHero: state.activeHero,
+                    activeHero: state.activeHero
+                });
+                const after = get();
+                sendOnlineActionIfNeeded(after, {
+                    type: 'end-turn',
+                    data: { heroId: hero.id },
+                    meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
+                });
+                return;
+            }
+            // 首次技能：有历史位置则进入链（等待选择瞬移位置，期间禁止再次施法）
+            const historyPositions = getLibaiHistoryPositions(hero);
+            if (historyPositions.length > 0 && hero.position) {
+                state.libaiChainState = {
+                    heroId: hero.id,
+                    home: [...hero.position],
+                    pending: historyPositions,
+                    awaitingPosition: true
+                };
+                set({
+                    libaiChainState: state.libaiChainState,
+                    highlightedPositions: historyPositions,
+                    skillRange: historyPositions,
+                    moveRange: [],
+                    selectedSkill: null,
+                    board: state.board.map(row => [...row]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                });
+                get().addLog({
+                    type: 'passive',
+                    player: hero.owner,
+                    message: `${hero.name}酒意上涌，可瞬移到历史位置继续攻击`
+                });
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
         }
 
         // 标记已行动
@@ -1575,9 +2161,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
         const [oldRow, oldCol] = hero.position;
+        const oldPosition: Position = [oldRow, oldCol];
         if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
         hero.position = targetPos;
         state.board[row][col] = hero;
+        DamageCalculator.applyDilanMovementDamage(
+            hero,
+            MovementSystem.getManhattanDistance(oldPosition, targetPos),
+            state
+        );
+        if (hero.state !== HeroState.ALIVE) {
+            state.pendingBoardAction = undefined;
+            set({
+                pendingBoardAction: undefined,
+                board: state.board.map(boardRow => [...boardRow]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                highlightedPositions: [],
+                skillRange: [],
+                selectedHero: null,
+                activeHero: null,
+                battleLog: [...state.battleLog]
+            });
+            sendOnlineStateIfNeeded(get());
+            return;
+        }
 
         const affected = MovementSystem.getPositionsInRange(targetPos, 2);
         for (const [r, c] of affected) {
@@ -1611,14 +2219,188 @@ export const useGameStore = create<GameStore>((set, get) => ({
         sendOnlineStateIfNeeded(get());
     },
 
+    selectLibaiChainPosition: (position: Position) => {
+        const state = get();
+        const chain = state.libaiChainState;
+        if (!chain || !isValidBoardPosition(position)) return;
+        const hero = [...state.player1Heroes, ...state.player2Heroes].find(item => item.id === chain.heroId);
+        if (!hero || hero.state !== HeroState.ALIVE || !hero.position) return;
+        const idx = chain.pending.findIndex(([r, c]) => r === position[0] && c === position[1]);
+        if (idx === -1) {
+            get().addLog({ type: 'system', player: hero.owner, message: '请选择高亮的历史位置' });
+            return;
+        }
+        const occupant = state.board[position[0]][position[1]];
+        if (occupant && occupant !== hero) {
+            get().addLog({ type: 'system', player: hero.owner, message: '该位置已被占用，无法瞬移' });
+            return;
+        }
+        // 瞬移
+        const [oldRow, oldCol] = hero.position;
+        const oldPosition: Position = [oldRow, oldCol];
+        if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
+        hero.position = [position[0], position[1]];
+        state.board[position[0]][position[1]] = hero;
+        DamageCalculator.applyDilanMovementDamage(
+            hero,
+            MovementSystem.getManhattanDistance(oldPosition, position),
+            state
+        );
+        if (hero.state !== HeroState.ALIVE) {
+            state.libaiChainState = undefined;
+            set({
+                libaiChainState: undefined,
+                board: state.board.map(row => [...row]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                highlightedPositions: [],
+                skillRange: [],
+                moveRange: [],
+                selectedSkill: null,
+                selectedHero: null,
+                activeHero: null,
+                battleLog: [...state.battleLog]
+            });
+            sendOnlineStateIfNeeded(get());
+            return;
+        }
+        const pending = chain.pending.filter((_, i) => i !== idx);
+        state.libaiChainState = { ...chain, pending, awaitingPosition: false };
+        set({
+            libaiChainState: state.libaiChainState,
+            board: state.board.map(row => [...row]),
+            player1Heroes: [...state.player1Heroes],
+            player2Heroes: [...state.player2Heroes],
+            highlightedPositions: [],
+            skillRange: [],
+            moveRange: [],
+            selectedSkill: null,
+            selectedHero: hero,
+            activeHero: hero
+        });
+        get().addLog({
+            type: 'passive',
+            player: hero.owner,
+            message: `${hero.name}瞬移到(${position[0] + 1},${position[1] + 1})，请选择技能继续攻击，或跳过攻击`
+        });
+        sendOnlineStateIfNeeded(get());
+    },
+
+    skipLibaiChainAttack: () => {
+        const state = get();
+        const chain = state.libaiChainState;
+        if (!chain) return;
+        const hero = [...state.player1Heroes, ...state.player2Heroes].find(item => item.id === chain.heroId);
+        if (!hero) return;
+        if (chain.pending.length > 0) {
+            // 还有历史位置：回到选位置阶段（恢复等待瞬移标记，禁止原地施法）
+            set({
+                libaiChainState: { ...chain, awaitingPosition: true },
+                highlightedPositions: chain.pending,
+                skillRange: chain.pending,
+                moveRange: [],
+                selectedSkill: null
+            });
+            get().addLog({
+                type: 'passive',
+                player: hero.owner,
+                message: `${hero.name}放弃本次攻击，请选择下一个历史位置或结束行动`
+            });
+            sendOnlineStateIfNeeded(get());
+            return;
+        }
+        // 没有剩余位置：归位结束
+        const beforePlayer = state.currentPlayer;
+        finalizeLibaiChain(hero, state, (entry) => get().addLog(entry));
+        set({
+            currentPlayer: state.currentPlayer,
+            roundNumber: state.roundNumber,
+            phase: state.phase,
+            winner: state.winner,
+            board: state.board.map(row => [...row]),
+            player1Heroes: [...state.player1Heroes],
+            player2Heroes: [...state.player2Heroes],
+            battleLog: [...get().battleLog],
+            libaiChainState: undefined,
+            selectedSkill: null,
+            highlightedPositions: [],
+            skillRange: [],
+            moveRange: [],
+            selectedHero: state.activeHero,
+            activeHero: state.activeHero
+        });
+        const after = get();
+        sendOnlineActionIfNeeded(after, {
+            type: 'end-turn',
+            data: { heroId: hero.id },
+            meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
+        });
+    },
+
     endHeroAction: () => {
         const state = get();
-        if (!state.selectedHero) return;
+        if (!state.selectedHero) {
+            // 没有选中英雄时：若当前玩家无可行动英雄（全员眩晕/已行动），自动跳过该玩家
+            if (GameEngine.getAvailableHeroesForPlayer(state, state.currentPlayer).length === 0) {
+                GameEngine.advancePastBlockedPlayer(state);
+                set({
+                    currentPlayer: state.currentPlayer,
+                    roundNumber: state.roundNumber,
+                    phase: state.phase,
+                    winner: state.winner,
+                    board: state.board.map(row => [...row]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                    selectedHero: state.selectedHero,
+                    activeHero: state.activeHero,
+                    highlightedPositions: [],
+                    selectedSkill: null,
+                    moveRange: [],
+                    skillRange: []
+                });
+            }
+            return;
+        }
 
         const hero = state.selectedHero;
         const wState = state.wukongSkill2State;
         const skill = state.selectedSkill;
         const beforePlayer = state.currentPlayer;
+
+        // 上官婉儿连冲挂起时结束行动：清理连冲状态后正常走结束流程
+        // （不提前return——必须让 GameEngine.endHeroAction 执行以触发行动结束后的毛笔移动）
+        if (state.shangguanDashState?.heroId === hero.id) {
+            set({ shangguanDashState: undefined });
+        }
+
+        // 李太白链状态：结束行动 = 归位并结束
+        if (state.libaiChainState?.heroId === hero.id) {
+            finalizeLibaiChain(hero, state, (entry) => get().addLog(entry));
+            set({
+                currentPlayer: state.currentPlayer,
+                roundNumber: state.roundNumber,
+                phase: state.phase,
+                winner: state.winner,
+                board: state.board.map(row => [...row]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                battleLog: [...get().battleLog],
+                libaiChainState: undefined,
+                highlightedPositions: [],
+                selectedSkill: null,
+                moveRange: [],
+                skillRange: [],
+                selectedHero: state.activeHero,
+                activeHero: state.activeHero
+            });
+            const after = get();
+            sendOnlineActionIfNeeded(after, {
+                type: 'end-turn',
+                data: { heroId: hero.id },
+                meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
+            });
+            return;
+        }
         if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
             const localPlayerKey = getLocalPlayerKey(state);
             if (!localPlayerKey || state.currentPlayer !== localPlayerKey || hero.owner !== localPlayerKey) {

@@ -37,4 +37,12 @@ describe('battle glossary', () => {
             '恐惧情绪能量'
         ]);
     });
+
+    it('解释绯雪的破冰、寒天与绝对零度', () => {
+        const tokens = tokenizeBattleGlossaryText('绯雪触发绝对零度，随后破冰并重新施加寒天');
+        const glossaryTokens = tokens.filter(token => token.glossary);
+
+        expect(glossaryTokens.map(token => token.text)).toEqual(['绝对零度', '破冰', '寒天']);
+        expect(glossaryTokens.at(-1)?.glossary?.description).toContain('冰系英雄共享');
+    });
 });

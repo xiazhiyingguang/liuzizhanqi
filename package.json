@@ -12,8 +12,12 @@
         "preview": "vite preview",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "test": "vitest run",
+        "test:e2e": "node scripts/e2e/run-e2e.mjs",
+        "test:e2e:headed": "node scripts/e2e/run-e2e.mjs --headed",
         "test:coverage": "vitest run --coverage",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "balance:test": "vite-node scripts/balance/run-balance-simulation.ts",
+        "balance:test:deep": "vite-node scripts/balance/run-balance-simulation.ts --deep"
     },
     "dependencies": {
         "react": "^18.2.0",

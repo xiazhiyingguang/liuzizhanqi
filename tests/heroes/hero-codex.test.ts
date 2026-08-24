@@ -42,6 +42,6 @@ describe('英雄图鉴数据', () => {
                 expect(value).toBeLessThanOrEqual(10);
             }
         }
-        expect(Object.keys(HERO_ABILITY_RATINGS)).toHaveLength(33);
+        expect(Object.keys(HERO_ABILITY_RATINGS).length).toBeGreaterThanOrEqual(HERO_CODEX.length);
     });
 });

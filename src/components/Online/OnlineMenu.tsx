@@ -166,6 +166,9 @@ export default function OnlineMenu() {
                     <InkDivider variant="brush" className="max-w-[200px] mx-auto" />
                     <div className="mt-3 flex items-center justify-center gap-3 text-xs font-body">
                         <span className={connected ? 'text-jade' : 'text-vermillion'}>
+                            <span data-testid="online-connection-state" className="sr-only">
+                                {connected ? 'connected' : 'disconnected'}
+                            </span>
                             <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${connected ? 'bg-jade animate-pulse' : 'bg-vermillion'}`} />
                             {connected ? '联机服务已连接' : '联机服务未连接'}
                         </span>
@@ -209,6 +212,7 @@ export default function OnlineMenu() {
                                 </p>
                             </div>
                             <input
+                                data-testid="room-code-input"
                                 value={roomCode}
                                 onChange={event => setRoomCode(event.target.value.replace(/\D/g, '').slice(0, 4))}
                                 onKeyDown={event => event.key === 'Enter' && roomCode.length === 4 && handleEnterRoom()}
@@ -220,6 +224,7 @@ export default function OnlineMenu() {
                                 className="mx-auto my-5 block w-64 border-b-2 border-ink/15 bg-transparent py-3 text-center font-mono text-4xl font-bold tracking-[0.35em] text-ink outline-none transition focus:border-indigo-ink/50"
                             />
                             <InkButton
+                                data-testid="enter-code-room"
                                 variant="primary"
                                 size="lg"
                                 className="w-full"

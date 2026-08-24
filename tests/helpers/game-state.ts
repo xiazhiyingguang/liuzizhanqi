@@ -20,6 +20,7 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
         highlightedPositions: [],
         selectedSkill: null,
         battleLog: [],
+        battleStatistics: {},
         deathCounters: {
             player1Dead: 0,
             player2Dead: 0,

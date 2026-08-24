@@ -4,6 +4,9 @@ export type Position = [number, number];
 /** 玩家标识 */
 export type Player = 'player1' | 'player2';
 
+/** 电脑难度：简单（常失误）/ 普通（偶有失误）/ 宗师（全力） */
+export type AiDifficulty = 'easy' | 'normal' | 'master';
+
 /** 英雄职业 */
 export type HeroClass = '武曲' | '天师' | '霸魁' | '素问' | '猎户' | '化识' | '通灵';
 
@@ -166,10 +169,26 @@ export interface DamageResult {
     shieldDamage: number;      // 护盾承受的伤害
     hpDamage: number;          // 生命值损失
     killed: boolean;           // 是否击杀
+    /** 不可规避的固定伤害：直接扣除生命，无视护盾、闪避、免伤替代与伤害转移。 */
+    unavoidable?: boolean;
+}
+
+/** 单局内按英雄累计的结算数据。召唤物的贡献会归并到其召唤者。 */
+export interface BattleStatistics {
+    damageDealt: number;
+    damageTaken: number;
+    healingDone: number;
+    shieldAbsorbed: number;
+    kills: number;
+    /** 成功结算的技能一/技能二次数，供战后与平衡性分析使用。 */
+    skill1Casts?: number;
+    skill2Casts?: number;
+    /** 最近一次真实阵亡所在轮次；复活后再次阵亡会覆盖。 */
+    lastDeathRound?: number;
 }
 
 /** 游戏阶段 */
-export type GamePhase = 'menu' | 'online-menu' | 'hero-codex' | 'hero-select' | 'deploy' | 'battle' | 'ended';
+export type GamePhase = 'menu' | 'online-menu' | 'hero-codex' | 'weapon-codex' | 'career-statistics' | 'hero-select' | 'deploy' | 'battle' | 'ended';
 
 
 /** 战斗日志条目 */
@@ -194,7 +213,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -203,6 +222,9 @@ export interface BoardEffect {
 
 /** 游戏状态 */
 export interface GameState {
+    /** 单局唯一标识，用于长期统计去重。 */
+    matchId?: string;
+
     // 棋盘
     board: (Hero | null)[][]; // 6x6棋盘
     boardEffects?: BoardEffect[];
@@ -229,6 +251,7 @@ export interface GameState {
 
     // 战斗日志
     battleLog: BattleLogEntry[];
+    battleStatistics?: Record<string, BattleStatistics>;
 
     // 全局计数器
     deathCounters: DeathCounters;
@@ -251,12 +274,15 @@ export interface GameState {
     // 人机模式
     isAiMode?: boolean;           // 是否由本地电脑控制一方
     aiPlayer?: Player;            // 电脑控制的玩家，当前固定为玩家2
-    aiDifficulty?: 'master';      // 宗师：组合选将 + 局面模拟 + 战术走位
+    aiDifficulty?: AiDifficulty;  // 简单/普通/宗师三档（默认宗师）：影响容差、失误率与规划深度
 
     // 特殊行动标记
     pendingExtraActionHeroIds?: Partial<Record<Player, string>>; // 待执行额外行动的英雄ID（按玩家分槽位）
     performingExtraAction?: boolean;   // 当前是否正在执行额外行动
     resumePlayer?: Player;             // 额外行动结束后应恢复的玩家
+    pendingForcedActionHeroId?: string; // 风铃技能1命中的未行动敌人，必须立即完成其正常行动
+    performingForcedAction?: boolean;  // 当前锁定英雄是否正在执行被强制的正常行动
+    forcedActionResumePlayer?: Player; // 强制行动结束后恢复到的玩家
 
     // 多阶段技能交互
     baizeReviveTargetHeroId?: string;
@@ -270,6 +296,18 @@ export interface GameState {
     pendingBoardAction?: {
         type: 'schrodinger-tianwei';
         heroId: string;
+    };
+    // 李太白被动链：瞬移到历史位置继续攻击，全部用完自动归位
+    libaiChainState?: {
+        heroId: string;
+        home: Position;      // 归位点（本回合移动后的主位置）
+        pending: Position[]; // 尚未使用的历史位置
+        awaitingPosition: boolean; // true=等待选择历史位置瞬移（此时禁止施法/移动）；false=已瞬移，等待攻击
+    };
+    // 上官婉儿连冲：命中敌人/毛笔后暂停，等待玩家选择新方向继续冲刺
+    shangguanDashState?: {
+        heroId: string;
+        hitTargets: string[]; // 已命中目标（敌方英雄 id / 毛笔效果 id），不可重复
     };
 }
 

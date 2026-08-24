@@ -16,6 +16,11 @@ dist-ssr
 .env
 coverage
 graphify-out
+test-results
+
+# 本地工具与冗余产物
+.workbuddy/
+public/hero-images.zip
 
 # Editor directories and files
 .vscode/*

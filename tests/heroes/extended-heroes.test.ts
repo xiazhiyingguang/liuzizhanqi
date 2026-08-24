@@ -359,6 +359,53 @@ describe('extended heroes', () => {
         expect(caster.position).toEqual([3, 3]);
     });
 
+    it('琵琶技能1给两格范围内所有友方施加音符', () => {
+        const state = makeGameState();
+        const pipa = addHero(state, 'pipa', 'player1', [2, 2]);
+        const allyA = addHero(state, 'moran', 'player1', [2, 3]);
+        const allyB = addHero(state, 'liuli', 'player1', [2, 4]);
+        const farAlly = addHero(state, 'baize', 'player1', [5, 5]);
+
+        const result = SkillSystem.executeSkill(pipa, pipaSkill1, [[2, 3]], state);
+
+        expect(result.success).toBe(true);
+        expect(EffectManager.hasEffect(allyA, '音符')).toBe(true);
+        expect(EffectManager.hasEffect(allyB, '音符')).toBe(true);
+        expect(EffectManager.hasEffect(farAlly, '音符')).toBe(false);
+    });
+
+    it('吟游诗人技能1覆盖两格（曼哈顿距离）范围内所有友方', () => {
+        const state = makeGameState();
+        const bard = addHero(state, 'bard', 'player1', [2, 2]);
+        const near = addHero(state, 'moran', 'player1', [2, 3]);
+        const twoAway = addHero(state, 'liuli', 'player1', [2, 4]);
+        const far = addHero(state, 'baize', 'player1', [5, 5]);
+
+        const result = SkillSystem.executeSkill(bard, bardSkill1, [[2, 3]], state);
+
+        expect(result.success).toBe(true);
+        expect(EffectManager.hasEffect(near, '和声')).toBe(true);
+        expect(EffectManager.hasEffect(twoAway, '和声')).toBe(true);
+        expect(EffectManager.hasEffect(far, '和声')).toBe(false);
+    });
+
+    it('吟游诗人技能2治疗两格范围内所有友方', () => {
+        const state = makeGameState();
+        const bard = addHero(state, 'bard', 'player1', [2, 2]);
+        const allyA = addHero(state, 'moran', 'player1', [2, 3]);
+        const allyB = addHero(state, 'liuli', 'player1', [2, 4]);
+        allyA.currentHp = 20;
+        allyB.currentHp = 20;
+        EffectManager.addCounter(allyA, '激情', 2);
+        EffectManager.addCounter(allyB, '激情', 2);
+
+        const result = SkillSystem.executeSkill(bard, bardSkill2, [[2, 3]], state);
+
+        expect(result.success).toBe(true);
+        expect(allyA.currentHp).toBe(20 + 5 + 2 * 3);
+        expect(allyB.currentHp).toBe(20 + 5 + 2 * 3);
+    });
+
     it('吟游诗人施加和声与激情，协奏曲消耗激情治疗', () => {
         const state = makeGameState();
         const bard = addHero(state, 'bard', 'player1', [2, 2]);
@@ -387,11 +434,29 @@ describe('extended heroes', () => {
         expect(ally.counters['激情']).toBe(0);
     });
 
+    it('凋零之主技能1以两个对角位置构成2x2区域，只伤害区域内敌人', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'wither_lord', 'player1', [2, 2]);
+        const insideA = addHero(state, 'baize', 'player2', [2, 3]);
+        const insideB = addHero(state, 'liuli', 'player2', [3, 4]);
+        const outside = addHero(state, 'moran', 'player2', [5, 5]);
+
+        // 对角点 (2,3) 与 (3,4) 构成 2x2：{(2,3),(2,4),(3,3),(3,4)}
+        SkillSystem.executeSkill(caster, witherLordSkill1, [[2, 3], [3, 4]], state);
+
+        expect(EffectManager.hasEffect(insideA, '凋零')).toBe(true);
+        expect(EffectManager.hasEffect(insideB, '凋零')).toBe(true);
+        expect(EffectManager.hasEffect(outside, '凋零')).toBe(false);
+        expect(insideA.currentHp).toBeLessThan(insideA.maxHp);
+        expect(insideB.currentHp).toBeLessThan(insideB.maxHp);
+        expect(outside.currentHp).toBe(outside.maxHp);
+    });
+
     it('凋零之主施加并引爆凋零，三条生命会拦截致死', () => {
         const state = makeGameState();
         const caster = addHero(state, 'wither_lord', 'player1', [2, 2]);
         const enemy = addHero(state, 'baize', 'player2', [2, 3]);
-        SkillSystem.executeSkill(caster, witherLordSkill1, [[2, 3]], state);
+        SkillSystem.executeSkill(caster, witherLordSkill1, [[2, 3], [3, 4]], state);
         expect(EffectManager.hasEffect(enemy, '凋零')).toBe(true);
         const before = enemy.currentHp;
         witherLordSkill2.execute!(caster, [enemy], state);
@@ -409,6 +474,33 @@ describe('extended heroes', () => {
         const summons = state.player1Heroes.filter(hero => hero.counters['__isSummon'] === 1);
         expect(summons.map(hero => hero.name).sort()).toEqual(['玄龟', '金乌']);
         expect(state.board[2][3]).toBe(summons.find(hero => hero.name === '金乌'));
+    });
+
+    it('T型帛画已有金乌时技能一连锁：本体普攻6后金乌耀斑范围出手', () => {
+        const state = makeGameState();
+        const painting = addHero(state, 't_painting', 'player1', [2, 2]);
+        const enemyA = addHero(state, 'moran', 'player2', [2, 4]);
+        const enemyB = addHero(state, 'baize', 'player2', [1, 3]);
+        SkillSystem.executeSkill(painting, tPaintingSkill1, [[2, 3]], state); // 召唤金乌
+        expect(state.board[2][3]!.name).toBe('金乌');
+        const beforeA = enemyA.currentHp;
+        const beforeB = enemyB.currentHp;
+        SkillSystem.executeSkill(painting, tPaintingSkill1, [[2, 4]], state); // 连锁
+        // 本体 6 + 被动1（1个召唤物）= 7；金乌耀斑覆盖 A、B 两名敌人，各 敌数2 x 3 = 6
+        expect(beforeA - enemyA.currentHp).toBe(13);
+        expect(beforeB - enemyB.currentHp).toBe(6);
+    });
+
+    it('T型帛画已有玄龟时技能二连锁：本体普攻6后玄龟震击出手并可能眩晕', () => {
+        const state = makeGameState();
+        const painting = addHero(state, 't_painting', 'player1', [2, 2]);
+        const enemy = addHero(state, 'moran', 'player2', [2, 4]);
+        SkillSystem.executeSkill(painting, tPaintingSkill2, [[2, 3]], state); // 召唤玄龟
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const before = enemy.currentHp;
+        SkillSystem.executeSkill(painting, tPaintingSkill2, [[2, 4]], state); // 连锁
+        expect(before - enemy.currentHp).toBe(13); // 本体 6 + 被动1 = 7，玄龟 6
+        expect(EffectManager.hasEffect(enemy, '眩晕')).toBe(true);
     });
 
     it('费曼粒子束逐个衰减并积累能量，两个标记可形成轰爆矩形', () => {

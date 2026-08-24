@@ -1,0 +1,446 @@
+.weapon-codex-stage {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    flex-direction: column;
+    isolation: isolate;
+    color: #22221f;
+    background:
+        radial-gradient(circle at 83% 18%, rgba(188, 69, 48, .055), transparent 28%),
+        radial-gradient(circle at 14% 82%, rgba(54, 83, 68, .055), transparent 32%),
+        #f4efe6;
+}
+
+.weapon-codex-stage::before {
+    content: "";
+    position: absolute;
+    z-index: -2;
+    inset: 0;
+    opacity: .46;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='4' seed='8'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.07'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
+}
+
+.weapon-codex-stage::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    right: -8%;
+    bottom: -18%;
+    width: 54%;
+    height: 48%;
+    border-radius: 50%;
+    background: rgba(38, 51, 44, .045);
+    filter: blur(28px);
+    transform: rotate(-8deg);
+}
+
+.weapon-codex-page-mark {
+    position: absolute;
+    z-index: -1;
+    right: 5%;
+    top: 3%;
+    color: rgba(26, 26, 26, .018);
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: min(31vw, 390px);
+    line-height: 1;
+    user-select: none;
+}
+
+.weapon-codex-header {
+    position: relative;
+    z-index: 5;
+    flex: 0 0 auto;
+    border-bottom: 1px solid rgba(26, 26, 26, .075);
+    background: rgba(250, 247, 241, .76);
+    backdrop-filter: blur(14px);
+}
+
+.weapon-codex-header-inner {
+    display: flex;
+    width: min(1540px, 100%);
+    min-height: 70px;
+    margin: 0 auto;
+    padding: 10px 25px;
+    align-items: center;
+    gap: 18px;
+}
+
+.weapon-codex-back {
+    display: flex;
+    height: 41px;
+    padding: 0 14px;
+    border: 1px solid rgba(26, 26, 26, .11);
+    border-radius: 8px;
+    align-items: center;
+    gap: 8px;
+    color: #45423d;
+    background: rgba(255, 255, 255, .46);
+    cursor: pointer;
+    transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+
+.weapon-codex-back:hover {
+    border-color: rgba(26, 26, 26, .24);
+    background: rgba(255, 255, 255, .82);
+    transform: translateX(-2px);
+}
+
+.weapon-codex-title {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: flex-end;
+    gap: 15px;
+}
+
+.weapon-codex-title > div {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 13px;
+}
+
+.weapon-codex-title h1 {
+    margin: 0;
+    color: #1e1f1c;
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: 32px;
+    font-weight: 400;
+    letter-spacing: .13em;
+    line-height: 1.2;
+}
+
+.weapon-codex-title span {
+    color: #756f66;
+    font-size: 11px;
+    letter-spacing: .18em;
+    white-space: nowrap;
+}
+
+.weapon-codex-title p {
+    padding-left: 15px;
+    border-left: 1px solid rgba(26, 26, 26, .1);
+    color: #9a3a30;
+    font-size: 10px;
+    letter-spacing: .15em;
+}
+
+.weapon-codex-count {
+    display: flex;
+    min-width: 86px;
+    height: 39px;
+    padding: 0 13px;
+    border: 1px solid rgba(159, 52, 43, .18);
+    border-radius: 999px;
+    align-items: baseline;
+    justify-content: center;
+    gap: 5px;
+    color: #9f342b;
+    background: rgba(159, 52, 43, .045);
+}
+
+.weapon-codex-count strong {
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: 22px;
+    font-weight: 400;
+}
+
+.weapon-codex-count span { font-size: 10px; }
+
+.weapon-codex-layout {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    width: min(1540px, 100%);
+    min-height: 0;
+    margin: 0 auto;
+    padding: 18px 25px 24px;
+    flex: 1;
+    grid-template-columns: 385px minmax(0, 1fr);
+    gap: 18px;
+}
+
+.weapon-codex-sidebar,
+.weapon-codex-content {
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid rgba(26, 26, 26, .075);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .36);
+    box-shadow: 0 11px 35px rgba(48, 42, 34, .055);
+}
+
+.weapon-codex-sidebar { display: flex; flex-direction: column; }
+
+.weapon-codex-tools {
+    padding: 15px;
+    flex: 0 0 auto;
+    border-bottom: 1px solid rgba(26, 26, 26, .065);
+}
+
+.weapon-codex-search { position: relative; display: block; }
+.weapon-codex-search > span {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    color: #766f66;
+    font-size: 17px;
+    transform: translateY(-54%);
+}
+
+.weapon-codex-search input {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px 0 37px;
+    border: 1px solid rgba(26, 26, 26, .1);
+    border-radius: 8px;
+    outline: none;
+    color: #292824;
+    background: rgba(250, 247, 241, .76);
+    font-size: 13px;
+    transition: border-color .18s ease, box-shadow .18s ease;
+}
+
+.weapon-codex-search input:focus {
+    border-color: rgba(169, 119, 32, .6);
+    box-shadow: 0 0 0 3px rgba(169, 119, 32, .08);
+}
+
+.weapon-system-filters {
+    display: flex;
+    margin-top: 11px;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.weapon-system-filters button {
+    padding: 4px 9px;
+    border: 1px solid rgba(26, 26, 26, .075);
+    border-radius: 999px;
+    color: #726d65;
+    background: rgba(255, 255, 255, .3);
+    font-size: 11px;
+    cursor: pointer;
+    transition: color .16s ease, background .16s ease, border-color .16s ease;
+}
+
+.weapon-system-filters button:hover { color: #252521; background: rgba(255, 255, 255, .72); }
+.weapon-system-filters button.is-active { border-color: #292b27; color: #f8f3e9; background: #292f2a; }
+.weapon-codex-tools > p { margin-top: 10px; color: #827b71; font-size: 10px; letter-spacing: .08em; }
+
+.weapon-codex-list {
+    min-height: 0;
+    padding: 8px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.weapon-list-item {
+    display: grid;
+    width: 100%;
+    min-height: 63px;
+    margin-bottom: 5px;
+    padding: 7px 10px 7px 7px;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    grid-template-columns: 26px 46px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    color: #292925;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: background .17s ease, border-color .17s ease, transform .17s ease;
+}
+
+.weapon-list-item:hover { border-color: rgba(26, 26, 26, .07); background: rgba(255, 255, 255, .55); transform: translateX(2px); }
+.weapon-list-item.is-selected { background: rgba(255, 255, 255, .68); }
+.weapon-list-index { color: #a39c91; font-family: Georgia, serif; font-size: 9px; letter-spacing: .04em; }
+
+.weapon-list-copy { min-width: 0; }
+.weapon-list-copy strong { display: block; overflow: hidden; font-family: "Ma Shan Zheng", cursive; font-size: 18px; font-weight: 400; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.weapon-list-copy small { display: block; margin-top: 2px; overflow: hidden; color: #7d766d; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.weapon-list-system { font-size: 9px; letter-spacing: .1em; }
+
+.weapon-sigil {
+    position: relative;
+    display: grid;
+    width: 178px;
+    height: 178px;
+    border: 1px solid currentColor;
+    border-color: color-mix(in srgb, currentColor 24%, transparent);
+    border-radius: 50%;
+    place-items: center;
+    box-shadow: inset 0 0 35px rgba(255, 255, 255, .5), 0 14px 35px rgba(48, 42, 34, .06);
+}
+
+.weapon-sigil::before,
+.weapon-sigil::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    width: 1px;
+    height: 25px;
+    background: currentColor;
+    opacity: .35;
+}
+.weapon-sigil::before { top: -13px; }
+.weapon-sigil::after { bottom: -13px; }
+
+.weapon-sigil-orbit {
+    position: absolute;
+    inset: 20px;
+    border: 1px dashed currentColor;
+    border-radius: 50%;
+    opacity: .26;
+    transform: rotate(-22deg);
+}
+
+.weapon-sigil-blade {
+    position: absolute;
+    width: 13px;
+    height: 104px;
+    border: 1px solid currentColor;
+    border-radius: 80% 80% 30% 30%;
+    opacity: .38;
+    transform: rotate(35deg);
+}
+
+.weapon-sigil-blade::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -15px;
+    width: 34px;
+    height: 5px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    transform: translateX(-50%);
+}
+
+.weapon-sigil-mark {
+    position: relative;
+    z-index: 2;
+    font-family: "Ma Shan Zheng", cursive;
+    font-size: 63px;
+    line-height: 1;
+    text-shadow: 0 2px 0 rgba(255, 255, 255, .8);
+}
+
+.weapon-sigil-compact { width: 42px; height: 42px; box-shadow: none; }
+.weapon-sigil-compact::before, .weapon-sigil-compact::after, .weapon-sigil-compact .weapon-sigil-blade { display: none; }
+.weapon-sigil-compact .weapon-sigil-orbit { inset: 5px; }
+.weapon-sigil-compact .weapon-sigil-mark { font-size: 22px; }
+
+.weapon-list-empty { display: flex; min-height: 210px; align-items: center; justify-content: center; flex-direction: column; color: #7c756c; }
+.weapon-list-empty > span { color: rgba(26, 26, 26, .13); font-family: "Ma Shan Zheng", cursive; font-size: 48px; }
+.weapon-list-empty p { margin-top: 5px; font-size: 13px; }
+.weapon-list-empty button { margin-top: 10px; border: 0; color: #9f342b; background: none; font-size: 11px; cursor: pointer; }
+
+.weapon-codex-content {
+    padding: 22px;
+    overflow-y: auto;
+    background: rgba(250, 247, 241, .55);
+}
+
+.weapon-detail-hero {
+    position: relative;
+    display: grid;
+    min-height: 340px;
+    overflow: hidden;
+    border: 1px solid rgba(26, 26, 26, .065);
+    border-radius: 16px;
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
+}
+
+.weapon-detail-watermark { position: absolute; right: -10px; top: -62px; color: rgba(26, 26, 26, .028); font-family: "Ma Shan Zheng", cursive; font-size: 190px; user-select: none; }
+.weapon-detail-copy { position: relative; z-index: 2; padding: 42px 28px 32px 40px; }
+.weapon-detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.weapon-detail-meta > span { padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.weapon-detail-meta i { padding: 4px 9px; border: 1px solid; border-radius: 999px; font-size: 9px; font-style: normal; letter-spacing: .12em; }
+.weapon-detail-meta i.is-drafted { border-color: rgba(154, 107, 29, .22); color: #8d631f; background: rgba(154, 107, 29, .055); }
+.weapon-detail-meta i.is-pending { border-color: rgba(26, 26, 26, .11); color: #7d766d; background: rgba(26, 26, 26, .025); }
+.weapon-detail-copy h2 { margin-top: 14px; font-family: "Ma Shan Zheng", cursive; font-size: clamp(44px, 5vw, 67px); font-weight: 400; line-height: 1.08; letter-spacing: .08em; }
+.weapon-detail-copy > p { max-width: 550px; margin-top: 12px; color: #777168; font-size: 12px; line-height: 1.9; letter-spacing: .04em; }
+
+.weapon-owner-card {
+    display: flex;
+    width: min(390px, 100%);
+    margin-top: 28px;
+    padding: 11px 15px 11px 11px;
+    border: 1px solid rgba(26, 26, 26, .075);
+    border-radius: 13px;
+    align-items: center;
+    gap: 13px;
+    background: rgba(255, 255, 255, .5);
+}
+
+.weapon-owner-avatar { display: grid; width: 66px; height: 66px; overflow: hidden; border: 1px solid rgba(26, 26, 26, .09); border-radius: 50%; place-items: center; }
+.weapon-owner-card span { display: block; color: #8a8378; font-size: 9px; letter-spacing: .18em; }
+.weapon-owner-card strong { display: block; margin-top: 2px; overflow: hidden; color: #292925; font-family: "Ma Shan Zheng", cursive; font-size: 22px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.weapon-owner-card small { display: block; margin-top: 1px; color: #777168; font-size: 10px; }
+
+.weapon-detail-art { position: relative; display: flex; min-height: 320px; padding: 33px 25px 25px; align-items: center; justify-content: center; flex-direction: column; }
+.weapon-detail-halo { position: absolute; width: 235px; height: 235px; border: 1px solid; border-radius: 50%; box-shadow: 0 0 65px rgba(255, 255, 255, .55); }
+.weapon-detail-art > b { margin-top: 20px; font-family: "Ma Shan Zheng", cursive; font-size: 23px; font-weight: 400; letter-spacing: .18em; }
+.weapon-detail-art > small { margin-top: 3px; color: #9a9388; font-family: Georgia, serif; font-size: 8px; letter-spacing: .25em; }
+
+.weapon-effect-panel { margin-top: 16px; padding: 23px 24px; border: 1px solid rgba(26, 26, 26, .07); border-radius: 14px; background: rgba(255, 255, 255, .43); }
+.weapon-effect-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.weapon-effect-heading > div { display: flex; align-items: center; gap: 9px; }
+.weapon-effect-heading > div > span { width: 4px; height: 20px; border-radius: 99px; }
+.weapon-effect-heading h3 { font-family: "Ma Shan Zheng", cursive; font-size: 24px; font-weight: 400; letter-spacing: .08em; }
+.weapon-effect-heading em { color: #989085; font-size: 9px; font-style: normal; letter-spacing: .18em; }
+
+.weapon-effect-list { display: grid; margin-top: 17px; gap: 9px; list-style: none; }
+.weapon-effect-list li { display: flex; min-height: 58px; padding: 12px 15px 12px 11px; border: 1px solid rgba(26, 26, 26, .055); border-radius: 10px; align-items: center; gap: 13px; background: rgba(250, 247, 241, .55); }
+.weapon-effect-list li > span { display: grid; width: 31px; height: 31px; flex: 0 0 auto; border: 1px solid; border-radius: 50%; place-items: center; font-family: Georgia, serif; font-size: 9px; }
+.weapon-effect-list p { color: #4e4b45; font-size: 13px; line-height: 1.8; }
+
+.weapon-effect-empty { display: flex; min-height: 116px; margin-top: 17px; padding: 22px; border: 1px dashed rgba(26, 26, 26, .11); border-radius: 11px; align-items: center; justify-content: center; gap: 16px; background: rgba(26, 26, 26, .012); }
+.weapon-effect-empty > span { display: grid; width: 50px; height: 50px; border: 1px solid currentColor; border-radius: 50%; place-items: center; font-family: "Ma Shan Zheng", cursive; font-size: 26px; opacity: .65; }
+.weapon-effect-empty strong { color: #46433e; font-size: 13px; font-weight: 600; }
+.weapon-effect-empty p { margin-top: 5px; color: #888077; font-size: 11px; line-height: 1.7; }
+
+.weapon-design-note { display: flex; margin-top: 16px; padding: 18px 21px; border: 1px solid rgba(159, 52, 43, .1); border-radius: 13px; align-items: center; gap: 16px; background: rgba(159, 52, 43, .025); }
+.weapon-design-seal { display: grid; width: 50px; height: 50px; flex: 0 0 auto; border: 1.5px solid rgba(159, 52, 43, .62); border-radius: 3px; place-items: center; color: #9f342b; font-family: "Ma Shan Zheng", cursive; font-size: 16px; transform: rotate(-4deg); }
+.weapon-design-note h3 { color: #383732; font-size: 12px; font-weight: 600; letter-spacing: .08em; }
+.weapon-design-note p { margin-top: 4px; color: #7f776e; font-size: 11px; line-height: 1.75; }
+.weapon-codex-footer { margin: 22px 0 2px; color: #999186; font-size: 9px; letter-spacing: .15em; text-align: center; }
+
+@media (max-width: 1050px) {
+    .weapon-codex-layout { grid-template-columns: 330px minmax(0, 1fr); padding-inline: 15px; }
+    .weapon-detail-hero { grid-template-columns: 1fr; }
+    .weapon-detail-art { min-height: 285px; border-top: 1px solid rgba(26, 26, 26, .055); }
+}
+
+@media (max-width: 760px) {
+    .weapon-codex-header-inner { min-height: 62px; padding-inline: 12px; }
+    .weapon-codex-title > div > span, .weapon-codex-title > p, .weapon-codex-back-copy { display: none; }
+    .weapon-codex-title h1 { font-size: 27px; }
+    .weapon-codex-layout { grid-template-columns: 1fr; padding: 10px; overflow-y: auto; }
+    .weapon-codex-sidebar { min-height: 390px; max-height: 52vh; }
+    .weapon-codex-content { min-height: 650px; overflow: visible; }
+    .weapon-detail-copy { padding: 30px 22px; }
+}
+
+@media (max-width: 480px) {
+    .weapon-codex-count { min-width: 69px; padding-inline: 9px; }
+    .weapon-codex-count strong { font-size: 19px; }
+    .weapon-codex-layout { display: block; }
+    .weapon-codex-sidebar { margin-bottom: 10px; }
+    .weapon-codex-content { padding: 12px; }
+    .weapon-detail-copy h2 { font-size: 43px; }
+    .weapon-detail-art { min-height: 260px; }
+    .weapon-owner-card { margin-top: 20px; }
+    .weapon-effect-panel { padding: 18px 14px; }
+    .weapon-effect-list li { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .weapon-list-item, .weapon-codex-back { transition: none; }
+}
+

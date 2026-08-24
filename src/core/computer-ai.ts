@@ -1,4 +1,4 @@
-import type { GameState, Hero, Player, Position, Skill } from '../types/game';
+import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
 import { AVAILABLE_HERO_IDS, getHeroInfo } from '../data/heroes';
 import { getHeroAbilityRatings, type HeroAbilityRatings } from '../data/hero-ratings';
@@ -21,21 +21,56 @@ export interface ComputerSkillPlan {
 
 const BOARD_SIZE = 6;
 /** 选将候选池大小：只从分数最高的阵容里随机挑选，保住强度上限的同时让每局选将不同。 */
-const TEAM_CANDIDATE_POOL_SIZE = 10;
+const TEAM_CANDIDATE_POOL_SIZE = 16;
 /** 候选池内阵容之间至少不同的英雄数，避免每局都是同一套核心（如长离+阴阳师）。 */
 const TEAM_MIN_DIFFERENCE = 2;
-/** 移动/选英雄的随机容差：分数与最优差距小于该值时随机挑选，增加对局变化但不明显降智。 */
-const DECISION_TOLERANCE = 2;
+/** 候选池中单个英雄的最大出现次数（控制高分英雄的重复率，让阵容更多样）。 */
+const TEAM_MAX_HERO_USAGE = 8;
+/** 选将温度采样：分数每差 10 分，被选中权重降约 63%，兼顾强度与多样性。 */
+const TEAM_SOFTMAX_TEMPERATURE = 10;
+/** 最近一次使用过的技能会减分，促使 AI 轮换使用不同技能。 */
+const SKILL_REPEAT_PENALTY = 5;
 /** 斩杀优先奖励：模拟中确认击杀一名敌人时附加的评分，压过其他一切收益，让 AI 追着残血杀。 */
 const KILL_SCORE_BONUS = 180;
 /** 把敌人打成暂时阵亡的奖励（敌方可能拥有复活，故低于真实击杀）。 */
 const TEMP_DEAD_SCORE_BONUS = 40;
+/** 拥有"击杀后立即再动"天威的英雄，每次模拟击杀的额外收益。 */
+const TIANWEI_KILL_BONUS = 40;
 /** 多目标技能组合枚举时考虑的前 N 个高优先级目标。 */
 const MULTI_TARGET_COMBINATION_TOP = 6;
 /** 多段伤害技能：估算威胁伤害时按段数放大（如回锋连刃斩共 3 段）。 */
 const MULTI_HIT_SKILLS: Record<string, number> = {
     huifeng_skill1: 3,
 };
+
+/**
+ * 各难度的决策参数：容差越大越"随性"，blunderChance 是主动挑次优解的概率，
+ * jointMoveTopK 控制移动+技能联合规划的候选格数（0 关闭），exposureWeight 控制防守暴露扣分力度。
+ */
+interface DifficultyProfile {
+    decisionTolerance: number;
+    skillTolerance: number;
+    blunderChance: number;
+    jointMoveTopK: number;
+    exposureWeight: number;
+}
+
+const DIFFICULTY_PROFILES: Record<AiDifficulty, DifficultyProfile> = {
+    easy: { decisionTolerance: 8, skillTolerance: 18, blunderChance: 0.3, jointMoveTopK: 0, exposureWeight: 0.35 },
+    normal: { decisionTolerance: 4, skillTolerance: 9, blunderChance: 0.12, jointMoveTopK: 5, exposureWeight: 0.7 },
+    master: { decisionTolerance: 2, skillTolerance: 5, blunderChance: 0, jointMoveTopK: 6, exposureWeight: 1 },
+};
+
+let currentDifficulty: AiDifficulty = 'master';
+
+/** 设置电脑难度（由对局入口在每步决策前同步），未设置时默认宗师。 */
+export function setComputerAiDifficulty(difficulty: AiDifficulty | undefined): void {
+    currentDifficulty = difficulty ?? 'master';
+}
+
+function difficultyProfile(): DifficultyProfile {
+    return DIFFICULTY_PROFILES[currentDifficulty];
+}
 
 /**
  * 没有 baseDamage 字段、伤害写在 execute 里的技能，按策划公式估算威胁伤害。
@@ -69,11 +104,6 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position): n
             return null;
     }
 }
-const AI_UNSUPPORTED_SKILL_IDS = new Set([
-    // 需要依次指挥本体和每一个分身，第一版 AI 使用更稳定的分身召唤与其他技能。
-    'wukong_skill2',
-]);
-
 const DEFAULT_RATINGS: HeroAbilityRatings = {
     输出: 5,
     生存: 5,
@@ -88,6 +118,88 @@ function ratingsForHeroId(heroId: string): HeroAbilityRatings {
     return getHeroAbilityRatings(getHeroInfo(heroId).name) ?? DEFAULT_RATINGS;
 }
 
+/**
+ * 在 nearBest 窗口内随机挑选；若命中失误概率，则改为从窗口外的次优解中挑选，
+ * 制造人类玩家常见的"走错一步"。宗师档 blunderChance=0 不启用。
+ */
+function pickWithBlunder<T extends { score: number }>(candidates: T[], tolerance: number): T | undefined {
+    if (candidates.length === 0) return undefined;
+    const sorted = [...candidates].sort((left, right) => right.score - left.score);
+    const bestScore = sorted[0].score;
+    const nearBest = sorted.filter(candidate => candidate.score >= bestScore - tolerance);
+    const { blunderChance } = difficultyProfile();
+    if (nearBest.length < sorted.length && blunderChance > 0 && Math.random() < blunderChance) {
+        const rest = sorted.slice(nearBest.length);
+        // 只从次优区间的前 35% 里挑，失误也不至于完全乱走
+        const window = rest.slice(0, Math.max(1, Math.ceil(rest.length * 0.35)));
+        return window[Math.floor(Math.random() * window.length)];
+    }
+    if (blunderChance <= 0) {
+        // 不失误档位（宗师）：严格取最优解，仅完全同分才随机，
+        // 避免"斩杀"与"打盾"这类接近候选被容差窗口随机选中
+        const ties = sorted.filter(candidate => candidate.score === bestScore);
+        return ties[Math.floor(Math.random() * ties.length)];
+    }
+    return nearBest[Math.floor(Math.random() * nearBest.length)];
+}
+
+/** 温度采样：按 exp((score-max)/temperature) 加权随机，分数越高越可能被选但低分也有机会。 */
+function softmaxPick<T extends { score: number }>(items: T[], temperature: number): T | undefined {
+    if (items.length === 0) return undefined;
+    if (temperature <= 0) {
+        return [...items].sort((left, right) => right.score - left.score)[0];
+    }
+    const maxScore = Math.max(...items.map(item => item.score));
+    const weights = items.map(item => Math.exp((item.score - maxScore) / temperature));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    let roll = Math.random() * total;
+    for (let index = 0; index < items.length; index++) {
+        roll -= weights[index];
+        if (roll <= 0) return items[index];
+    }
+    return items[items.length - 1];
+}
+
+/** 孙悟空分身识别：ID 形如 "wukong-clone|{wukongId}|..."，且带 __isClone 计数器。 */
+function isWukongCloneOf(hero: Hero, wukongId: string): boolean {
+    if ((hero.counters['__isClone'] ?? 0) !== 1) return false;
+    const parts = hero.id.split('|');
+    return parts.length >= 2 && parts[0] === 'wukong-clone' && parts[1] === wukongId;
+}
+
+const RECENT_HERO_USAGE_KEY = 'six-chess-ai-recent-hero-usage';
+/** 跨局记忆保留的最近局数（每局 4 个英雄）。 */
+const RECENT_HERO_USAGE_GAMES = 6;
+/** 选将时对近期用过的英雄施加的减分。 */
+const RECENT_HERO_SCORE_PENALTY = 7;
+
+/** 读取最近几局电脑用过的英雄（localStorage 不可用时静默降级为无记忆）。 */
+function loadRecentHeroUsage(): string[] {
+    try {
+        if (typeof window === 'undefined') return [];
+        const raw = window.localStorage.getItem(RECENT_HERO_USAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) return [];
+        return parsed.flat().filter((id): id is string => typeof id === 'string');
+    } catch {
+        return [];
+    }
+}
+
+function saveRecentHeroUsage(team: string[]): void {
+    try {
+        if (typeof window === 'undefined') return;
+        const recent = loadRecentHeroUsage();
+        recent.push(...team);
+        window.localStorage.setItem(
+            RECENT_HERO_USAGE_KEY,
+            JSON.stringify(recent.slice(-RECENT_HERO_USAGE_GAMES * 4))
+        );
+    } catch {
+        // 忽略存储异常
+    }
+}
+
 function ratingsForHero(hero: Hero): HeroAbilityRatings {
     return getHeroAbilityRatings(hero.name) ?? DEFAULT_RATINGS;
 }
@@ -97,7 +209,11 @@ function averageRating(heroIds: string[], key: keyof HeroAbilityRatings): number
     return heroIds.reduce((sum, id) => sum + ratingsForHeroId(id)[key], 0) / heroIds.length;
 }
 
-function teamScore(team: string[], opponentHeroIds: string[]): number {
+function teamScore(
+    team: string[],
+    opponentHeroIds: string[],
+    recentHeroes: ReadonlySet<string>
+): number {
     const ratings = team.map(ratingsForHeroId);
     const sum = (key: keyof HeroAbilityRatings) => ratings.reduce((total, item) => total + item[key], 0);
     const max = (key: keyof HeroAbilityRatings) => Math.max(...ratings.map(item => item[key]));
@@ -127,6 +243,11 @@ function teamScore(team: string[], opponentHeroIds: string[]): number {
     score += (sum('输出') + sum('控制')) * Math.max(0, opponentSurvival - 6) * 0.16;
     score += (sum('控制') + sum('覆盖')) * Math.max(0, opponentMobility - 6) * 0.18;
 
+    // 跨局多样性：最近几局用过的英雄减分，避免玩家每局都面对同一套阵容。
+    for (const id of team) {
+        if (recentHeroes.has(id)) score -= RECENT_HERO_SCORE_PENALTY;
+    }
+
     return score;
 }
 
@@ -141,28 +262,39 @@ function teamOverlap(left: string[], right: string[]): number {
 }
 
 /**
- * 按分数从高到低挑选互相差异明显的阵容组成候选池：与池中已有阵容至少有
- * TEAM_MIN_DIFFERENCE 个英雄不同才入池，避免随机结果总是同一套核心。
+ * 按分数从高到低挑选互相差异明显的阵容组成候选池：
+ * 与池中已有阵容至少有 TEAM_MIN_DIFFERENCE 个英雄不同才入池，
+ * 同时限制单个英雄在池中的出现次数，避免高分核心反复出现。
  */
 function buildDiversePool(
     candidates: { team: string[]; score: number }[],
     size: number
 ): { team: string[]; score: number }[] {
     const pool: { team: string[]; score: number }[] = [];
+    const usage = new Map<string, number>();
     for (const candidate of candidates) {
         if (pool.length >= size) break;
         if (pool.every(existing => teamOverlap(existing.team, candidate.team) <= 4 - TEAM_MIN_DIFFERENCE)) {
-            pool.push(candidate);
+            if (candidate.team.every(id => (usage.get(id) ?? 0) < TEAM_MAX_HERO_USAGE)) {
+                pool.push(candidate);
+                for (const id of candidate.team) usage.set(id, (usage.get(id) ?? 0) + 1);
+            }
         }
     }
     return pool;
 }
 
 /**
- * 根据玩家阵容穷举四人组合评分，在满足职责完整度的最高分阵容池中随机挑选，
- * 保证强度与反制能力的前提下让每次对局的电脑阵容不同。
+ * 根据玩家阵容穷举四人组合评分，在满足职责完整度的高分阵容池中做温度采样，
+ * 结合跨局使用记录减分，让电脑的阵容既有强度又不会每局重复。
  */
 export function chooseComputerTeam(opponentHeroIds: string[]): string[] {
+    // 逐拍选将期间复用同一份规划，避免每拍重新随机导致阵容拼接错乱
+    if (cachedDesiredTeam && cachedDesiredTeam.every(id => AVAILABLE_HERO_IDS.includes(id))) {
+        return [...cachedDesiredTeam];
+    }
+
+    const recentHeroes = new Set(loadRecentHeroUsage());
     const candidates: { team: string[]; score: number }[] = [];
 
     for (let a = 0; a < AVAILABLE_HERO_IDS.length - 3; a++) {
@@ -176,7 +308,7 @@ export function chooseComputerTeam(opponentHeroIds: string[]): string[] {
                         AVAILABLE_HERO_IDS[d],
                     ];
                     if (!passesTeamConstraints(team)) continue;
-                    candidates.push({ team, score: teamScore(team, opponentHeroIds) });
+                    candidates.push({ team, score: teamScore(team, opponentHeroIds, recentHeroes) });
                 }
             }
         }
@@ -184,8 +316,22 @@ export function chooseComputerTeam(opponentHeroIds: string[]): string[] {
 
     candidates.sort((left, right) => right.score - left.score);
     const pool = buildDiversePool(candidates, TEAM_CANDIDATE_POOL_SIZE);
-    const picked = pool[Math.floor(Math.random() * pool.length)] ?? candidates[0];
-    return picked ? picked.team : AVAILABLE_HERO_IDS.slice(0, 4);
+    const picked = pool.length > 0
+        ? softmaxPick(pool, TEAM_SOFTMAX_TEMPERATURE)
+        : (candidates[0] ?? null);
+    if (!picked) return AVAILABLE_HERO_IDS.slice(0, 4);
+
+    cachedDesiredTeam = [...picked.team];
+    saveRecentHeroUsage(picked.team);
+    return [...picked.team];
+}
+
+/** 当前对局已确定的电脑选将（逐拍选将期间保持稳定）。 */
+let cachedDesiredTeam: string[] | null = null;
+
+/** 新对局开始时清除选将缓存，让下一局重新规划阵容。 */
+export function resetCachedComputerTeam(): void {
+    cachedDesiredTeam = null;
 }
 
 function rowThreatFromOpponent(row: number, opponentHeroes: Hero[]): number {
@@ -266,10 +412,45 @@ function heroBoardValue(hero: Hero): number {
         + visibleCounterValue(hero) * 1.2;
 }
 
+/**
+ * 轻量防守意识：估算 player 一方全体单位暴露给敌方火力的惩罚值。
+ * 单位被多个敌人盯上、或总威胁超过有效血量时才计罚，避免对正常对峙过度敏感。
+ */
+function exposurePenalty(state: GameState, player: Player): number {
+    let penalty = 0;
+    for (const hero of heroesFor(state, player)) {
+        if (hero.state !== HeroState.ALIVE || !hero.position) continue;
+        const effectiveHp = hero.currentHp + hero.shield;
+        let totalThreat = 0;
+        let attackers = 0;
+        for (const enemy of enemiesFor(state, player)) {
+            if (enemy.state !== HeroState.ALIVE || !enemy.position || EffectManager.isStunned(enemy)) continue;
+            const moveExtra = enemy.hasMovedThisTurn ? 0 : Math.max(0, enemy.moveRange);
+            const distance = MovementSystem.getManhattanDistance(enemy.position, hero.position);
+            if (distance > maximumSkillReach(enemy) + moveExtra) continue;
+            const threat = estimateDamageAgainst(enemy, hero);
+            if (threat <= 0) continue;
+            attackers++;
+            totalThreat += threat * (enemy.hasActedThisTurn ? 0.25 : 1);
+        }
+        if (attackers >= 2 || totalThreat >= effectiveHp) {
+            penalty += Math.min(totalThreat, effectiveHp) * 0.45 + attackers * 3;
+        }
+    }
+    return penalty;
+}
+
 export function evaluateComputerBoard(state: GameState, player: Player): number {
     const friendly = heroesFor(state, player).reduce((total, hero) => total + heroBoardValue(hero), 0);
     const enemy = enemiesFor(state, player).reduce((total, hero) => total + heroBoardValue(hero), 0);
-    return friendly - enemy * 1.08;
+    // 防守意识按难度加权：把己方暴露扣掉、把敌方暴露视为额外优势，
+    // 使技能模拟天然规避"把自己送进火力网"的走位。
+    const weight = difficultyProfile().exposureWeight;
+    if (weight <= 0) return friendly - enemy * 1.08;
+    const opponent: Player = player === 'player1' ? 'player2' : 'player1';
+    const myExposure = exposurePenalty(state, player) * weight;
+    const theirExposure = exposurePenalty(state, opponent) * weight;
+    return friendly - myExposure - (enemy - theirExposure) * 1.08;
 }
 
 function cloneGameState(state: GameState): GameState {
@@ -277,6 +458,9 @@ function cloneGameState(state: GameState): GameState {
     const data = Object.fromEntries(dataEntries);
     // Skill 定义携带 execute 函数，不能直接 structuredClone；模拟时会从技能表重新取得它。
     data.selectedSkill = null;
+    // 日志和战后统计不参与局面评分。长局若在每个候选技能中反复深拷贝它们，会造成明显的二次增长。
+    data.battleLog = [];
+    data.battleStatistics = {};
     return structuredClone(data) as GameState;
 }
 
@@ -392,6 +576,30 @@ function targetPriority(state: GameState, caster: Hero, skill: Skill, position: 
 function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position[][] {
     if (!caster.position) return [];
 
+    if (skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2') {
+        return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
+    }
+
+    // 凋零之主技能1：枚举全场所有对角位置对（构成 2x2 区域），按靠近敌人排序取前 24 个
+    if (skill.id === 'wither_lord_skill1') {
+        const pairs: Position[][] = [];
+        for (let row = 0; row < BOARD_SIZE - 1; row++) {
+            for (let col = 0; col < BOARD_SIZE - 1; col++) {
+                pairs.push([[row, col], [row + 1, col + 1]]);
+                pairs.push([[row + 1, col], [row, col + 1]]);
+            }
+        }
+        const enemies = enemiesFor(state, caster.owner)
+            .filter(enemy => enemy.state === HeroState.ALIVE && enemy.position);
+        const nearestDistance = (pair: Position[]) => enemies.reduce(
+            (best, enemy) => Math.min(best, MovementSystem.getManhattanDistance(pair[0], enemy.position!)),
+            99
+        );
+        return pairs
+            .sort((left, right) => nearestDistance(left) - nearestDistance(right))
+            .slice(0, 24);
+    }
+
     if (skill.id === 'baize_skill2' && (caster.counters['天禄'] ?? 0) >= 3) {
         const deadAllies = heroesFor(state, caster.owner).filter(hero => hero.state === HeroState.DEAD);
         if (deadAllies.length > 0) {
@@ -449,7 +657,21 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
     return sets;
 }
 
-function configureSimulationChoices(state: GameState, caster: Hero, skill: Skill): void {
+function configureSimulationChoices(
+    state: GameState,
+    caster: Hero,
+    skill: Skill,
+    targetPositions: Position[]
+): void {
+    if ((skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2') && caster.position) {
+        const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
+        const dirCode = direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
+        if (skill.id === 'dilan_skill1') {
+            caster.counters['__dilan_skill1_axis'] = dirCode <= 1 ? 1 : 0;
+        } else {
+            caster.counters['__dilan_skill2_dir'] = dirCode;
+        }
+    }
     if (skill.id === 'baize_skill2') {
         const dead = heroesFor(state, caster.owner)
             .filter(hero => hero.state === HeroState.DEAD)
@@ -495,7 +717,7 @@ function simulateSkillPlan(
         const simulated = cloneGameState(state);
         const simulatedCaster = findHero(simulated, caster.id);
         if (!simulatedCaster) return null;
-        configureSimulationChoices(simulated, simulatedCaster, skill);
+        configureSimulationChoices(simulated, simulatedCaster, skill, targetPositions);
 
         if (skill.id === 'wukong_skill1') {
             const [row, col] = targetPositions[0] ?? [-1, -1];
@@ -538,15 +760,35 @@ function simulateSkillPlan(
         }
         const damage = result.damageDealt?.reduce((sum, amount) => sum + amount, 0) ?? 0;
         const healing = result.healingDone?.reduce((sum, amount) => sum + amount, 0) ?? 0;
-        const appliedEffects = result.effectsApplied?.length ?? 0;
-        const meaningfulResult = Math.abs(afterScore - beforeScore) > 0.25 || damage > 0 || healing > 0 || appliedEffects > 0;
+        // 效果价值按类型加权：控制/增益/减益的价值远高于单纯的“效果数量”
+        const effectValue = result.effectsApplied?.reduce((sum, effect) => {
+            if (effect.type === 'stun' || effect.type === 'control') return sum + 14;
+            if (effect.type === 'buff' || effect.type === 'debuff') return sum + 7;
+            if (effect.type === 'shield') return sum + 5;
+            return sum + 3;
+        }, 0) ?? 0;
+        const meaningfulResult = Math.abs(afterScore - beforeScore) > 0.25 || damage > 0 || healing > 0 || effectValue > 0;
+        const lastSkillIndex = caster.counters['__ai_last_skill_index'];
+        const skillIndex = caster.skill1Id === skill.id ? 0 : 1;
+        // 天威联动：拥有"击杀敌人后立即再动"天威的英雄，每次击杀还能白赚一轮行动
+        const tianweiBonus = kills > 0 && simulatedCaster.tianweiId ? kills * TIANWEI_KILL_BONUS : 0;
+        // 悟空技能2：召唤的分身每个都能再打一轮，场上分身越多价值越高
+        const cloneBonus = skill.id === 'wukong_skill2'
+            ? allHeroes(simulated).filter(hero =>
+                hero.state === HeroState.ALIVE && isWukongCloneOf(hero, caster.id)
+            ).length * 26
+            : 0;
         const score = afterScore - beforeScore
             + damage * 0.65
             + healing * 0.45
-            + appliedEffects * 3
+            + effectValue
             + kills * KILL_SCORE_BONUS
             + tempDeaths * TEMP_DEAD_SCORE_BONUS
-            + (meaningfulResult ? skillTypeBias(skill) : 0);
+            + tianweiBonus
+            + cloneBonus
+            + (meaningfulResult ? skillTypeBias(skill) : 0)
+            // 技能轮换：最近一次用过的技能减分，促使 AI 换着放技能
+            - (lastSkillIndex === skillIndex ? SKILL_REPEAT_PENALTY : 0);
 
         return { skillId: skill.id, targetPositions, score };
     } catch {
@@ -561,24 +803,44 @@ export function chooseComputerSkillPlan(
 ): ComputerSkillPlan | null {
     if (caster.state !== HeroState.ALIVE || !caster.position || caster.hasActedThisTurn) return null;
     const skillIds = onlySkillId ? [onlySkillId] : [caster.skill1Id, caster.skill2Id];
-    let best: ComputerSkillPlan | null = null;
+    const candidates: ComputerSkillPlan[] = [];
 
     for (const skillId of skillIds) {
-        if (AI_UNSUPPORTED_SKILL_IDS.has(skillId)) continue;
         const skill = getSkill(skillId);
         // 冷却感知：冷却中的技能不再进入模拟，避免浪费计算并让 AI 优先使用就绪技能
         if (!skill || isSkillOnCooldown(caster, skill)) continue;
+        if (skill.id === 'wukong_skill2') {
+            // 分身指挥要求本回合未移动，且场上已有分身或射程内有敌人才有意义
+            if (caster.hasMovedThisTurn) continue;
+            const hasClones = allHeroes(state).some(hero =>
+                hero.state === HeroState.ALIVE && isWukongCloneOf(hero, caster.id)
+            );
+            const hasEnemyInReach = enemiesFor(state, caster.owner).some(enemy =>
+                enemy.state === HeroState.ALIVE &&
+                enemy.position &&
+                MovementSystem.getAreaPositions(caster.position!, skill.areaSize || 3)
+                    .some(([row, col]) => row === enemy.position![0] && col === enemy.position![1])
+            );
+            if (!hasClones && !hasEnemyInReach) continue;
+        }
         if (!SkillSystem.canUseSkill(caster, skill, state)) {
             // 白泽复活会绕过常规目标判定，单独允许进入模拟。
-            if (!(skill?.id === 'baize_skill2' && (caster.counters['天禄'] ?? 0) >= 3)) continue;
+            if (
+                !(skill?.id === 'baize_skill2' && (caster.counters['天禄'] ?? 0) >= 3) &&
+                skill?.id !== 'dilan_skill2'
+            ) continue;
         }
         for (const targetPositions of buildTargetSets(state, caster, skill)) {
             const candidate = simulateSkillPlan(state, caster, skill, targetPositions);
-            if (candidate && (!best || candidate.score > best.score)) best = candidate;
+            if (candidate) candidates.push(candidate);
         }
     }
 
-    return best;
+    if (candidates.length === 0) return null;
+
+    // 技能多样性：分数接近的候选（含不同技能/目标）之间随机挑选，避免每回合都放同一个技能；
+    // 低难度还会以一定概率主动挑次优解。
+    return pickWithBlunder(candidates, difficultyProfile().skillTolerance) ?? null;
 }
 
 function maximumSkillReach(hero: Hero): number {
@@ -603,17 +865,28 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
         const enemyHpRatio = effectiveHpRatio(enemy);
         if (distance <= reach) score += ratings.输出 * 2.2 + ratings.控制 * 1.4 + (1 - enemyHpRatio) * 18;
         score += Math.max(0, 6 - distance) * ratings.输出 * 0.22;
-        if (distance <= enemyReach && !EffectManager.isStunned(enemy)) {
-            const threat = estimateThreatAtPosition(enemy, position, hero);
-            if (threat > 0) {
-                // 会被敌方单次技能直接击杀时威胁扣分大幅放大，残血英雄优先保命；
-                // 敌方本回合已行动过则威胁大幅降低。
-                const deathRisk = threat >= hero.currentHp ? 2.5 : 1;
-                const actedFactor = enemy.hasActedThisTurn ? 0.25 : 1;
-                score -= threat * (0.35 + (1 - hpRatio) * 0.65) * actedFactor * deathRisk;
-            } else {
-                // 没有直接伤害技能的治疗/辅助单位，保留轻微威慑分。
-                score -= (1.15 - hpRatio) * ratingsForHero(enemy).输出 * 0.5;
+        if (!EffectManager.isStunned(enemy)) {
+            if (distance <= enemyReach) {
+                // 直接威胁：敌人原地就能打到这个位置
+                const threat = estimateThreatAtPosition(enemy, position, hero);
+                if (threat > 0) {
+                    // 会被敌方单次技能直接击杀时威胁扣分大幅放大，残血英雄优先保命；
+                    // 敌方本回合已行动过则威胁大幅降低。
+                    const deathRisk = threat >= hero.currentHp ? 3.2 : 1;
+                    const actedFactor = enemy.hasActedThisTurn ? 0.25 : 1;
+                    score -= threat * (0.35 + (1 - hpRatio) * 0.65) * actedFactor * deathRisk;
+                } else {
+                    // 没有直接伤害技能的治疗/辅助单位，保留轻微威慑分。
+                    score -= (1.15 - hpRatio) * ratingsForHero(enemy).输出 * 0.5;
+                }
+            } else if (!enemy.hasActedThisTurn && distance <= enemyReach + Math.max(0, enemy.moveRange)) {
+                // 间接威胁：敌人下回合移动一步后就能打到。属于推测性风险，
+                // 按远低于直接威胁的折扣提前规避，不能盖过"离开当前射程"的相对收益。
+                const threat = estimateDamageAgainst(enemy, hero) * 0.5;
+                if (threat > 0) {
+                    const deathRisk = threat >= hero.currentHp ? 1.2 : 1;
+                    score -= threat * (0.16 + (1 - hpRatio) * 0.35) * deathRisk;
+                }
             }
         }
     }
@@ -652,9 +925,7 @@ export function chooseComputerMove(state: GameState, hero: Hero): Position | nul
         .filter(candidate => candidate.score > currentScore + 1.25);
     if (candidates.length === 0) return null;
 
-    const bestScore = Math.max(...candidates.map(candidate => candidate.score));
-    const nearBest = candidates.filter(candidate => candidate.score >= bestScore - DECISION_TOLERANCE);
-    return nearBest[Math.floor(Math.random() * nearBest.length)].position;
+    return pickWithBlunder(candidates, difficultyProfile().decisionTolerance)?.position ?? null;
 }
 
 export function chooseComputerHero(state: GameState, player: Player): Hero | null {
@@ -681,9 +952,7 @@ export function chooseComputerHero(state: GameState, player: Player): Hero | nul
     });
     if (scored.length === 0) return null;
 
-    const bestScore = Math.max(...scored.map(item => item.score));
-    const nearBest = scored.filter(item => item.score >= bestScore - DECISION_TOLERANCE);
-    return nearBest[Math.floor(Math.random() * nearBest.length)].hero;
+    return pickWithBlunder(scored, difficultyProfile().decisionTolerance)?.hero ?? null;
 }
 
 export function chooseComputerPendingBoardPosition(state: GameState, hero: Hero): Position | null {
@@ -735,4 +1004,137 @@ export function chooseComputerBeneficiary(state: GameState, caster: Hero): Hero 
                 ratingsForHero(hero).输出 * 2 + (hero.hasActedThisTurn ? 0 : 4) + hero.currentHp / hero.maxHp;
             return value(right) - value(left);
         })[0] ?? null;
+}
+
+export interface ComputerJointMovePlan {
+    /** 建议先移动到的格子 */
+    position: Position;
+    /** 移动后能打出的最优技能方案 */
+    plan: ComputerSkillPlan;
+    /** 站位分与技能分的加权总分 */
+    totalScore: number;
+}
+
+/** 联合规划要求总分明显优于原地放技能才采纳的门槛。 */
+const JOINT_MOVE_MARGIN = 8;
+/** 联合规划中的技能本身也要有足够强度，避免为了一点站位分而浪费行动。 */
+const JOINT_MIN_PLAN_SCORE = 55;
+
+/**
+ * 移动+技能联合规划：枚举若干高价值站位，模拟"先移动到该格再放技能"的总收益。
+ * 只有当总分明显超过"原地放技能 + 原地站位"时才返回方案，控制计算开销并防止为动而动。
+ * 低难度档 jointMoveTopK=0 直接关闭该能力。
+ */
+export function planJointMoveForHero(state: GameState, caster: Hero): ComputerJointMovePlan | null {
+    if (!caster.position || caster.hasMovedThisTurn || caster.hasActedThisTurn) return null;
+    if (caster.state !== HeroState.ALIVE) return null;
+    const topK = difficultyProfile().jointMoveTopK;
+    if (topK <= 0) return null;
+
+    const currentPos = caster.position;
+    const movable = MovementSystem.getMovablePositions(caster, state);
+    if (movable.length === 0) return null;
+
+    const baselinePlan = chooseComputerSkillPlan(state, caster);
+    const baselineTotal =
+        (baselinePlan?.score ?? 0) + scoreComputerPosition(state, caster, currentPos) * 0.3;
+
+    // 按站位质量取前 topK 个候选格，避免全图模拟
+    const ranked = movable
+        .map(position => ({ position, posScore: scoreComputerPosition(state, caster, position) }))
+        .sort((left, right) => right.posScore - left.posScore)
+        .slice(0, topK);
+
+    let best: ComputerJointMovePlan | null = null;
+    for (const candidate of ranked) {
+        const plan = simulateHeroMoveThenSkill(state, caster, candidate.position);
+        if (!plan) continue;
+        const total = plan.score + candidate.posScore * 0.3;
+        if (!best || total > best.totalScore) {
+            best = { position: candidate.position, plan, totalScore: total };
+        }
+    }
+
+    if (
+        !best ||
+        best.totalScore <= baselineTotal + JOINT_MOVE_MARGIN ||
+        best.plan.score < JOINT_MIN_PLAN_SCORE
+    ) {
+        return null;
+    }
+    return best;
+}
+
+/** 模拟"移动到 position 后立刻放技能"：克隆棋盘、搬位置，再走完整技能模拟。 */
+function simulateHeroMoveThenSkill(
+    state: GameState,
+    caster: Hero,
+    position: Position
+): ComputerSkillPlan | null {
+    try {
+        if (state.board[position[0]][position[1]] !== null) return null;
+        const simulated = cloneGameState(state);
+        const movedCaster = findHero(simulated, caster.id);
+        if (!movedCaster || !movedCaster.position) return null;
+        simulated.board[movedCaster.position[0]][movedCaster.position[1]] = null;
+        movedCaster.position = position;
+        simulated.board[position[0]][position[1]] = movedCaster;
+        movedCaster.hasMovedThisTurn = true;
+        return chooseComputerSkillPlan(simulated, movedCaster);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 孙悟空分身指挥：为攻击单位（本体或任一分身）在其 3x3 技能范围内挑选收益最高的敌人目标。
+ * 用完整技能模拟评分，天然考虑伤害、击杀与天威联动。
+ */
+export function chooseComputerWukongStrikeTarget(
+    state: GameState,
+    attacker: Hero,
+    skill: Skill
+): Position | null {
+    if (!attacker.position || attacker.state !== HeroState.ALIVE) return null;
+    let best: Position | null = null;
+    let bestScore = 0;
+    for (const position of SkillSystem.getValidTargetPositions(attacker, skill).filter(isBoardPosition)) {
+        const target = state.board[position[0]][position[1]];
+        if (!target || target.owner === attacker.owner || target.state !== HeroState.ALIVE) continue;
+        const plan = simulateSkillPlan(state, attacker, skill, [position]);
+        const score = plan?.score ?? 0;
+        if (score > bestScore) {
+            bestScore = score;
+            best = position;
+        }
+    }
+    return best;
+}
+
+/**
+ * 孙悟空分身指挥：为本体/分身挑一格相邻移动位。
+ * 只考虑移动过去后 3x3 内有敌人的格子（移动就是为了打出下一拳），
+ * 再按走位安危排序取最优。
+ */
+export function chooseComputerWukongStepPosition(state: GameState, unit: Hero): Position | null {
+    if (!unit.position || unit.state !== HeroState.ALIVE) return null;
+    let best: Position | null = null;
+    let bestScore = -Infinity;
+    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+        const row = unit.position[0] + dr;
+        const col = unit.position[1] + dc;
+        if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) continue;
+        if (state.board[row][col] !== null) continue;
+        const hasTargetNearby = MovementSystem.getAreaPositions([row, col], 3).some(([areaRow, areaCol]) => {
+            const occupant = state.board[areaRow][areaCol];
+            return !!occupant && occupant.owner !== unit.owner && occupant.state === HeroState.ALIVE;
+        });
+        if (!hasTargetNearby) continue;
+        const score = scoreComputerPosition(state, unit, [row, col]);
+        if (score > bestScore) {
+            bestScore = score;
+            best = [row, col];
+        }
+    }
+    return best;
 }

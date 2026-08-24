@@ -1,7 +1,9 @@
 import { GameState, Hero, HeroState, BattleLogEntry, Player } from '../types/game';
 import { MovementSystem } from './movement-system';
 import { EffectManager } from './effect-manager';
+import { DamageCalculator } from './damage-calculator';
 import { findSoulLampBeneficiary, placeBounties } from '../data/extended-heroes';
+import { recordBattleHealing } from './battle-statistics';
 
 /**
  * 游戏引擎 - 主控制器
@@ -110,6 +112,14 @@ export class GameEngine {
                     // 额外行动/再动不会提前结束冷却。
                     hero.counters['mowen_skill1_cd'] = Math.max(0, hero.counters['mowen_skill1_cd'] - 1);
                 }
+                if (hero.passiveId === 'libai_passive' && hero.state === HeroState.ALIVE) {
+                    // 记录上次/上上次停留位置（滚动）：供被动瞬移链使用
+                    const prev = hero.counters['__libai_prev_pos'];
+                    if (prev !== undefined) hero.counters['__libai_prev2_pos'] = prev;
+                    if (hero.position) {
+                        hero.counters['__libai_prev_pos'] = hero.position[0] * 6 + hero.position[1];
+                    }
+                }
             }
         }
 
@@ -119,11 +129,14 @@ export class GameEngine {
         // 默认 Player1 先手，或者根据游戏规则决定
         gameState.currentPlayer = 'player1';
         gameState.activeHero = null;  // 重置锁定状态
+        gameState.pendingForcedActionHeroId = undefined;
+        gameState.performingForcedAction = false;
+        gameState.forcedActionResumePlayer = undefined;
 
         // 更新效果持续时间
         EffectManager.updateEffectDurations(gameState);
         gameState.boardEffects = (gameState.boardEffects ?? [])
-            .map(effect => ({ ...effect, duration: effect.duration - 1 }))
+            .map(effect => effect.type === 'brush' ? effect : { ...effect, duration: effect.duration - 1 })
             .filter(effect => effect.duration > 0);
 
         // 触发回合开始效果
@@ -136,26 +149,63 @@ export class GameEngine {
             message: `第${gameState.roundNumber}轮开始`
         });
 
-        // 回合开始兑底：如果轮到的一方没有可行动英雄（全队被冰冻/眩晕），
-        // 自动切给有行动能力的一方；双方都无法行动时直接推进下一轮，让控制效果递减。
-        const p1Available = this.getAvailableHeroesForPlayer(gameState, 'player1');
-        const p2Available = this.getAvailableHeroesForPlayer(gameState, 'player2');
-        if (p1Available.length === 0 && p2Available.length === 0) {
-            if (gameState.roundNumber < 50) {
-                this.endTurn(gameState);
-                return;
-            }
-            gameState.currentPlayer = 'player1';
-        } else if (p1Available.length === 0) {
-            gameState.currentPlayer = 'player2';
+        // 回合开始兑底：自动跳过全员无法行动的一方（全员眩晕/冰冻/已行动）。
+        // 双方都无法行动时推进回合，让控制效果递减；长时间未解除则强制清除控制。
+        this.advancePastBlockedPlayer(gameState);
+    }
+
+    /**
+     * 当 currentPlayer 一方没有可行动英雄（全员眩晕/已行动）时，自动跳过该玩家：
+     * - 另一方有可行动英雄 -> 切换过去
+     * - 双方都没有 -> 推进回合（让控制效果递减）
+     * - 连续超过 50 轮仍无法行动 -> 强制清除双方所有控制效果，防止死局
+     * 返回是否执行了跳过。
+     */
+    static advancePastBlockedPlayer(gameState: GameState): boolean {
+        const currentAvailable = this.getAvailableHeroesForPlayer(gameState, gameState.currentPlayer);
+        if (currentAvailable.length > 0) return false;
+
+        const other = gameState.currentPlayer === 'player1' ? 'player2' : 'player1';
+        const otherAvailable = this.getAvailableHeroesForPlayer(gameState, other);
+
+        if (otherAvailable.length > 0) {
+            gameState.currentPlayer = other;
+            gameState.activeHero = null;
+            this.addLog(gameState, {
+                type: 'system',
+                player: other,
+                message: `${other === 'player1' ? '玩家1' : '玩家2'}的英雄均无法行动，自动跳过其回合`
+            });
+            return true;
+        }
+
+        // 双方都无法行动：推进回合，让控制效果递减
+        if (gameState.roundNumber < 50) {
+            this.endTurn(gameState);
+            return true;
+        }
+
+        // 保险丝：连续 50 轮双方都无法行动（控制效果被反复刷新），强制清除控制效果，避免死局
+        const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
+        let cleared = 0;
+        for (const hero of allHeroes) {
+            const before = hero.effects.length;
+            hero.effects = hero.effects.filter(effect => effect.type !== 'stun');
+            cleared += before - hero.effects.length;
+        }
+        if (cleared > 0) {
             this.addLog(gameState, {
                 type: 'system',
                 player: 'player1',
-                message: '玩家1的英雄均被控制，跳过其行动'
+                message: '双方长时间无法行动，眩晕效果已被强制清除'
             });
-        } else {
-            gameState.currentPlayer = 'player1';
         }
+        const restored = this.getAvailableHeroesForPlayer(gameState, gameState.currentPlayer);
+        if (restored.length === 0) {
+            gameState.currentPlayer = other;
+            gameState.activeHero = null;
+        }
+        return true;
     }
 
     /**
@@ -179,6 +229,8 @@ export class GameEngine {
     static endHeroAction(hero: Hero, gameState: GameState): void {
         const isFinishingExtraActionHero =
             gameState.performingExtraAction && gameState.activeHero?.id === hero.id;
+        const isFinishingForcedActionHero =
+            gameState.performingForcedAction && gameState.activeHero?.id === hero.id;
 
         if (!isFinishingExtraActionHero) {
             hero.hasActedThisTurn = true;
@@ -195,6 +247,11 @@ export class GameEngine {
             hero.counters['mowen_prev_hp'] = hero.currentHp;
         }
 
+        // 墨阑：致知2的"为道爆发"加成仅在"为道"解除后的立即出手内有效，行动结束即清除
+        if (hero.passiveId === 'moran_passive') {
+            delete hero.counters['__weidao_burst'];
+        }
+
         if (!gameState.performingExtraAction) {
             gameState.actionsThisTurn++;
         }
@@ -207,7 +264,52 @@ export class GameEngine {
             gameState.pendingExtraActionHeroIds = undefined;
             gameState.performingExtraAction = false;
             gameState.resumePlayer = undefined;
+            gameState.pendingForcedActionHeroId = undefined;
+            gameState.performingForcedAction = false;
+            gameState.forcedActionResumePlayer = undefined;
             return;
+        }
+
+        // 风铃的锁敌优先于额外行动：目标必须立刻完成并消耗自己的正常行动。
+        const forcedActionHeroId = gameState.pendingForcedActionHeroId;
+        gameState.pendingForcedActionHeroId = undefined;
+        if (forcedActionHeroId) {
+            const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
+            const forcedHero = allHeroes.find(candidate => candidate.id === forcedActionHeroId);
+            if (forcedHero && forcedHero.state === HeroState.ALIVE && !forcedHero.hasActedThisTurn) {
+                if (isFinishingExtraActionHero) {
+                    const preActed = hero.counters['__extra_preActed'];
+                    const preMoved = hero.counters['__extra_preMoved'];
+                    if (preActed !== undefined || preMoved !== undefined) {
+                        hero.hasActedThisTurn = preActed === 1;
+                        hero.hasMovedThisTurn = preMoved === 1;
+                        delete hero.counters['__extra_preActed'];
+                        delete hero.counters['__extra_preMoved'];
+                    }
+                    gameState.performingExtraAction = false;
+                    gameState.resumePlayer = undefined;
+                }
+
+                gameState.performingForcedAction = true;
+                gameState.forcedActionResumePlayer = hero.owner;
+                gameState.currentPlayer = forcedHero.owner;
+                gameState.activeHero = forcedHero;
+                this.addLog(gameState, {
+                    type: 'system',
+                    player: forcedHero.owner,
+                    message: `${forcedHero.name}被风铃锁定，必须立即行动！`,
+                });
+
+                if (EffectManager.isStunned(forcedHero)) {
+                    this.addLog(gameState, {
+                        type: 'system',
+                        player: forcedHero.owner,
+                        message: `${forcedHero.name}无法行动，本回合行动机会被消耗`,
+                    });
+                    this.endHeroAction(forcedHero, gameState);
+                }
+                return;
+            }
         }
 
         // 1. 检查是否有待执行的额外行动（如墨阑的天威或被动触发）
@@ -233,6 +335,10 @@ export class GameEngine {
             const extraHero = allHeroes.find(h => h.id === extraActionHeroId);
 
             if (extraHero && extraHero.state === HeroState.ALIVE && !EffectManager.isStunned(extraHero)) {
+                if (isFinishingForcedActionHero) {
+                    gameState.performingForcedAction = false;
+                    gameState.forcedActionResumePlayer = undefined;
+                }
                 // 允许该英雄再次行动
                 extraHero.hasActedThisTurn = false;
                 extraHero.hasMovedThisTurn = false;
@@ -266,7 +372,13 @@ export class GameEngine {
         }
 
         // 2. 如果当前是额外行动结束
-        if (gameState.performingExtraAction) {
+        if (gameState.performingForcedAction && isFinishingForcedActionHero) {
+            gameState.performingForcedAction = false;
+            gameState.activeHero = null;
+            gameState.currentPlayer = gameState.forcedActionResumePlayer ??
+                (gameState.currentPlayer === 'player1' ? 'player2' : 'player1');
+            gameState.forcedActionResumePlayer = undefined;
+        } else if (gameState.performingExtraAction) {
             if (isFinishingExtraActionHero) {
                 const preActed = hero.counters['__extra_preActed'];
                 const preMoved = hero.counters['__extra_preMoved'];
@@ -423,6 +535,27 @@ export class GameEngine {
                 }
             }
 
+            if (
+                hero.passiveId === 'feixue_passive' &&
+                hero.counters['talent_1'] &&
+                !hero.counters['__feixue_talent1_applied']
+            ) {
+                hero.counters['__feixue_talent1_applied'] = 1;
+                hero.maxHp += 8;
+                hero.currentHp += 8;
+            }
+
+            // 墨阑致知1：生命增加10
+            if (
+                hero.passiveId === 'moran_passive' &&
+                hero.counters['talent_1'] &&
+                !hero.counters['__moran_talent1_applied']
+            ) {
+                hero.counters['__moran_talent1_applied'] = 1;
+                hero.maxHp += 10;
+                hero.currentHp += 10;
+            }
+
             if (hero.passiveId === 'bounty_passive' && hero.counters['bounty_placed'] !== 1) {
                 // 被动：战斗开始（第一回合）向敌方全员随机发布一次悬赏
                 hero.counters['bounty_placed'] = 1;
@@ -448,7 +581,7 @@ export class GameEngine {
                 item.state === HeroState.ALIVE && item.position &&
                 MovementSystem.getManhattanDistance(hero.position!, item.position) <= 1
             ).length;
-            this.applyDirectHeal(hero, Math.min(5, count * 2));
+            this.applyDirectHeal(hero, Math.min(5, count * 2), gameState);
         }
 
         for (const wangcai of (hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)
@@ -461,10 +594,73 @@ export class GameEngine {
                 this.transformWangcaiIfReady(wangcai, gameState);
             }
         }
+
+        // 上官婉儿：行动结束后，她落下的毛笔朝自己移动1格，经过的敌人受到6点固定伤害
+        if (hero.passiveId === 'shangguan_passive' && hero.position) {
+            this.moveShangguanBrushes(hero, gameState);
+        }
     }
 
-    private static applyDirectHeal(hero: Hero, amount: number): void {
+    /**
+     * 上官婉儿的毛笔每回合朝她移动1格；移动到的格子若有敌人则造成6点固定伤害；
+     * 毛笔抵达上官婉儿所在格时消失。毛笔寿命最多3次移动（复用 duration 字段），
+     * 耗尽后自动消散。毛笔为不可规避的固定伤害。
+     */
+    private static moveShangguanBrushes(hero: Hero, gameState: GameState): void {
+        const brushes = (gameState.boardEffects ?? []).filter(
+            effect => effect.type === 'brush' && effect.sourceHeroId === hero.id
+        );
+        if (brushes.length === 0) return;
+        const [hr, hc] = hero.position!;
+        const toRemove = new Set<string>();
+
+        for (const brush of brushes) {
+            const [br, bc] = brush.position;
+            if (br === hr && bc === hc) {
+                toRemove.add(brush.id);
+                continue;
+            }
+            const stepR = br < hr ? 1 : br > hr ? -1 : 0;
+            const stepC = bc < hc ? 1 : bc > hc ? -1 : 0;
+            const nr = br + stepR;
+            const nc = bc + stepC;
+            if (nr < 0 || nr >= 6 || nc < 0 || nc >= 6) continue;
+
+            brush.position = [nr, nc];
+            // 寿命递减：brush 豁免 boardEffect 的 duration 自动衰减，这里手动管理
+            brush.duration = (brush.duration ?? 0) - 1;
+
+            const occupant = gameState.board[nr][nc];
+            if (occupant && occupant.owner !== hero.owner && occupant.state === HeroState.ALIVE) {
+                const dmg = DamageCalculator.calculate(hero, occupant, 6, false, false, { fixedDamage: true, canCrit: false });
+                DamageCalculator.applyDamage(occupant, dmg, hero, gameState);
+                this.addLog(gameState, {
+                    type: 'passive',
+                    player: hero.owner,
+                    message: `毛笔掠过${occupant.name}，造成${dmg.finalDamage}点伤害`,
+                });
+            }
+            if ((nr === hr && nc === hc) || (brush.duration ?? 0) <= 0) {
+                if ((brush.duration ?? 0) <= 0 && !(nr === hr && nc === hc)) {
+                    this.addLog(gameState, {
+                        type: 'passive',
+                        player: hero.owner,
+                        message: `一支毛笔墨迹用尽，消散于纸上`,
+                    });
+                }
+                toRemove.add(brush.id);
+            }
+        }
+
+        if (toRemove.size > 0) {
+            gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => !toRemove.has(effect.id));
+        }
+    }
+
+    private static applyDirectHeal(hero: Hero, amount: number, gameState: GameState): void {
+        const hpBefore = hero.currentHp;
         hero.currentHp = Math.min(hero.maxHp, hero.currentHp + Math.max(0, Math.floor(amount)));
+        recordBattleHealing(gameState, hero, hero.currentHp - hpBefore);
     }
 
     static transformWangcaiIfReady(hero: Hero, gameState: GameState): void {
@@ -479,7 +675,7 @@ export class GameEngine {
             gameState.board[position[0]][position[1]] = hero;
             this.recordResurrection(hero, gameState);
         } else {
-            this.applyDirectHeal(hero, hero.maxHp * 0.5);
+            this.applyDirectHeal(hero, hero.maxHp * 0.5, gameState);
         }
     }
 

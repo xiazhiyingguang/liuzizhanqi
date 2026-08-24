@@ -1,7 +1,14 @@
+import { useState } from 'react';
 import { useGameStore } from '../../store/game-store';
+import type { AiDifficulty } from '../../types/game';
 import './main-menu.css';
 
+type MenuVisualMode = 'enhanced' | 'classic';
+
+const MENU_VISUAL_MODE_KEY = 'six-chess-menu-visual-mode';
+
 type MenuChoiceProps = {
+    testId?: string;
     title: string;
     subtitle: string;
     index: string;
@@ -11,6 +18,7 @@ type MenuChoiceProps = {
 };
 
 function MenuChoice({
+    testId,
     title,
     subtitle,
     index,
@@ -21,6 +29,7 @@ function MenuChoice({
     return (
         <button
             type="button"
+            data-testid={testId}
             className={`main-menu-choice main-menu-choice-${tone}`}
             disabled={disabled}
             onClick={onClick}
@@ -37,13 +46,29 @@ function MenuChoice({
 
 export default function MainMenu() {
     const initGame = useGameStore(state => state.initGame);
+    const [visualMode, setVisualMode] = useState<MenuVisualMode>(() => {
+        if (typeof window === 'undefined') return 'enhanced';
+        return window.localStorage.getItem(MENU_VISUAL_MODE_KEY) === 'classic' ? 'classic' : 'enhanced';
+    });
 
-    const handleAiGame = () => {
+    const [showDifficultyPicker, setShowDifficultyPicker] = useState(false);
+
+    const toggleVisualMode = () => {
+        setVisualMode(current => {
+            const next = current === 'enhanced' ? 'classic' : 'enhanced';
+            window.localStorage.setItem(MENU_VISUAL_MODE_KEY, next);
+            return next;
+        });
+    };
+
+    const handleAiGame = () => setShowDifficultyPicker(true);
+
+    const startAiGame = (difficulty: AiDifficulty) => {
         useGameStore.setState({
             isOnlineMode: false,
             isAiMode: true,
             aiPlayer: 'player2',
-            aiDifficulty: 'master'
+            aiDifficulty: difficulty
         });
         initGame();
     };
@@ -68,9 +93,28 @@ export default function MainMenu() {
     };
 
     return (
-        <main className="main-menu-stage">
+        <main className={`main-menu-stage main-menu-stage-${visualMode}${visualMode === 'enhanced' ? ' main-menu-stage-cinematic' : ''}`}>
             <div className="main-menu-paper-grain" aria-hidden="true" />
             <div className="main-menu-sun" aria-hidden="true" />
+
+            <div className="main-menu-enhanced-only main-menu-ink-bloom main-menu-ink-bloom-one" aria-hidden="true" />
+            <div className="main-menu-enhanced-only main-menu-ink-bloom main-menu-ink-bloom-two" aria-hidden="true" />
+
+            <svg className="main-menu-enhanced-only main-menu-pine" viewBox="0 0 420 330" fill="none" aria-hidden="true">
+                <path className="main-menu-pine-trunk" d="M430 18 C348 58 348 116 286 145 C228 172 205 222 148 263 C107 293 70 309 10 330" />
+                <path d="M350 89 C321 56 284 51 249 61 M307 131 C275 101 231 96 194 112 M256 170 C226 143 186 142 153 156 M206 216 C175 190 136 191 103 207" />
+                <path d="M259 61 C275 39 300 31 325 38 M208 111 C224 86 252 78 278 87 M160 157 C177 133 204 126 229 135 M109 207 C126 183 152 178 177 187" />
+                <g className="main-menu-pine-needles">
+                    <path d="M249 61 l-58 -13 M251 63 l-51 12 M194 112 l-62 -15 M198 114 l-57 16 M153 157 l-61 -16 M157 158 l-55 18 M103 207 l-58 -13 M107 209 l-52 18" />
+                    <path d="M325 38 l-41 -17 M324 40 l-34 15 M278 87 l-44 -19 M279 89 l-36 18 M229 135 l-43 -17 M229 137 l-35 18 M177 187 l-41 -18 M177 189 l-34 17" />
+                </g>
+            </svg>
+
+            <svg className="main-menu-enhanced-only main-menu-water-ripples" viewBox="0 0 920 110" fill="none" aria-hidden="true">
+                <path d="M4 29 C149 13 242 41 384 24 C530 8 641 39 916 17" />
+                <path d="M87 58 C232 43 340 68 482 52 C631 35 746 67 863 49" />
+                <path d="M218 87 C345 75 452 97 592 81 C691 70 768 86 836 79" />
+            </svg>
 
             <svg
                 className="main-menu-landscape main-menu-landscape-far"
@@ -140,6 +184,18 @@ export default function MainMenu() {
                 <i>弈</i>
             </div>
 
+            <div className="main-menu-enhanced-only main-menu-chapter" aria-hidden="true">
+                <span>卷一</span>
+                <i />
+                <p>入局</p>
+            </div>
+
+            <div className="main-menu-enhanced-only main-menu-cinematic-caption" aria-hidden="true">
+                <span>山河入卷</span>
+                <i />
+                <span>落子无悔</span>
+            </div>
+
             <section className="main-menu-center">
                 <div className="main-menu-title-block">
                     <div className="main-menu-kicker">
@@ -158,51 +214,115 @@ export default function MainMenu() {
                     </svg>
                 </div>
 
-                <nav className="main-menu-actions" aria-label="主菜单">
-                    <MenuChoice
-                        index="壹"
-                        title="人机对战"
-                        subtitle="宗师电脑 · 智谋博弈"
-                        tone="primary"
-                        onClick={handleAiGame}
-                    />
-                    <MenuChoice
-                        index="贰"
-                        title="本地双人"
-                        subtitle="同屏对弈 · 排兵布阵"
-                        onClick={handleLocalGame}
-                    />
-                    <MenuChoice
-                        index="叁"
-                        title="联机对战"
-                        subtitle="远方来客 · 同局争锋"
-                        onClick={handleOnlineGame}
-                    />
-                    <MenuChoice
-                        index="肆"
-                        title="英雄图鉴"
-                        subtitle="群英入卷 · 见招知势"
-                        tone="quiet"
-                        onClick={() => useGameStore.setState({ phase: 'hero-codex' })}
-                    />
-                    <MenuChoice
-                        index="伍"
-                        title="设置"
-                        subtitle="敬请期待"
-                        tone="quiet"
-                        disabled
-                    />
+                <nav className="main-menu-actions" aria-label={showDifficultyPicker ? '人机对战难度' : '主菜单'}>
+                    {showDifficultyPicker ? (
+                        <>
+                            <MenuChoice
+                                testId="menu-ai-master"
+                                index="壹"
+                                title="宗师电脑"
+                                subtitle="全力博弈 · 步步紧逼"
+                                tone="primary"
+                                onClick={() => startAiGame('master')}
+                            />
+                            <MenuChoice
+                                testId="menu-ai-normal"
+                                index="贰"
+                                title="普通电脑"
+                                subtitle="偶有失误 · 稳扎稳打"
+                                onClick={() => startAiGame('normal')}
+                            />
+                            <MenuChoice
+                                testId="menu-ai-easy"
+                                index="叁"
+                                title="简单电脑"
+                                subtitle="常出失误 · 适合入门"
+                                onClick={() => startAiGame('easy')}
+                            />
+                            <MenuChoice
+                                testId="menu-ai-difficulty-back"
+                                index="肆"
+                                title="返回主菜单"
+                                subtitle="再想想 · 换个玩法"
+                                tone="quiet"
+                                onClick={() => setShowDifficultyPicker(false)}
+                            />
+                        </>
+                    ) : (
+                        <>
+                            <MenuChoice
+                                testId="menu-ai-game"
+                                index="壹"
+                                title="人机对战"
+                                subtitle="挑战电脑 · 三档实力"
+                                tone="primary"
+                                onClick={handleAiGame}
+                            />
+                            <MenuChoice
+                                testId="menu-local-game"
+                                index="贰"
+                                title="本地双人"
+                                subtitle="同屏对弈 · 排兵布阵"
+                                onClick={handleLocalGame}
+                            />
+                            <MenuChoice
+                                testId="menu-online-game"
+                                index="叁"
+                                title="联机对战"
+                                subtitle="远方来客 · 同局争锋"
+                                onClick={handleOnlineGame}
+                            />
+                            <MenuChoice
+                                testId="menu-hero-codex"
+                                index="肆"
+                                title="英雄图鉴"
+                                subtitle="群英入卷 · 见招知势"
+                                tone="quiet"
+                                onClick={() => useGameStore.setState({ phase: 'hero-codex' })}
+                            />
+                            <MenuChoice
+                                testId="menu-weapon-codex"
+                                index="伍"
+                                title="武器图鉴"
+                                subtitle="神兵入卷 · 各择其主"
+                                tone="quiet"
+                                onClick={() => useGameStore.setState({ phase: 'weapon-codex' })}
+                            />
+                            <MenuChoice
+                                testId="menu-career-statistics"
+                                index="陆"
+                                title="长期战绩"
+                                subtitle="弈谱留痕 · 洞见阵势"
+                                tone="quiet"
+                                onClick={() => useGameStore.setState({ phase: 'career-statistics' })}
+                            />
+                        </>
+                    )}
                 </nav>
 
                 <footer className="main-menu-footer">
                     <span className="main-menu-footer-line" />
                     <span className="main-menu-mini-seal">六</span>
-                    <span>水墨策略对弈</span>
+                    <span>{visualMode === 'enhanced' ? '原创水墨长卷' : '水墨策略对弈'}</span>
                     <b>·</b>
                     <span>VERSION 2.0.0</span>
                     <span className="main-menu-footer-line" />
                 </footer>
             </section>
+
+            <button
+                type="button"
+                className="main-menu-visual-toggle"
+                data-testid="menu-visual-toggle"
+                onClick={toggleVisualMode}
+                aria-label={visualMode === 'enhanced' ? '切换至原版首页' : '切换至新版首页'}
+            >
+                <span aria-hidden="true">{visualMode === 'enhanced' ? '素' : '新'}</span>
+                <span>
+                    <small>首页样式</small>
+                    <strong>{visualMode === 'enhanced' ? '切回原版' : '查看新境'}</strong>
+                </span>
+            </button>
         </main>
     );
 }

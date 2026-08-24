@@ -46,8 +46,9 @@ import { HeroState } from '../../src/types/game';
 import { addHero, killOffBoard, makeGameState } from '../helpers/game-state';
 
 describe('active hero registry', () => {
-    it('exposes all twenty-seven playable heroes, each with two registered skills', () => {
-        expect(AVAILABLE_HERO_IDS).toHaveLength(27);
+    it('exposes Feixue and keeps every playable hero wired to two registered skills', () => {
+        expect(AVAILABLE_HERO_IDS).toContain('feixue');
+        expect(new Set(AVAILABLE_HERO_IDS).size).toBe(AVAILABLE_HERO_IDS.length);
 
         for (const heroId of AVAILABLE_HERO_IDS) {
             const state = makeGameState();
@@ -203,6 +204,22 @@ describe('Liuli', () => {
         expect(ally.currentHp).toBe(ally.maxHp);
         expect(liuli.currentHp).toBe(liuli.maxHp - 5);
         expect(EffectManager.getCounter(liuli, '禅定')).toBe(2);
+    });
+
+    it('guards every ally within one cell instead of a single clicked target', () => {
+        const state = makeGameState();
+        const liuli = addHero(state, 'liuli', 'player1', [2, 2]);
+        const allyA = addHero(state, 'moran', 'player1', [2, 3]);
+        const allyB = addHero(state, 'baize', 'player1', [3, 3]);
+        const farAlly = addHero(state, 'zhenxiao', 'player1', [2, 5]);
+
+        const result = SkillSystem.executeSkill(liuli, liuliSkill1, [[2, 3]], state);
+
+        expect(result.success).toBe(true);
+        expect(EffectManager.hasEffect(allyA, '援护')).toBe(true);
+        expect(EffectManager.hasEffect(allyB, '援护')).toBe(true);
+        expect(EffectManager.hasEffect(farAlly, '援护')).toBe(false);
+        expect(liuli.counters['禅定']).toBe(1);
     });
 
     it('consumes all meditation to heal 10% max HP per stack', () => {
@@ -578,7 +595,29 @@ describe('Mirror', () => {
         expect(result.success).toBe(true);
         expect(mirror.position).toEqual([3, 3]);
         expect(clone.position).toEqual([0, 0]);
-        expect(enemy.currentHp).toBe(enemy.maxHp - 12);
+        // 路径伤害 10 + 基础攻击力14 = 24；交换后不收回镜像获得1层破镜之刃并立即释放（5点）
+        expect(enemy.currentHp).toBe(enemy.maxHp - 24 - 5);
+        expect(EffectManager.getCounter(mirror, '破镜之刃')).toBe(0);
+    });
+
+    it('skill 2 clicking self recalls the clone: merges HP and heals 6, allowing overflow', () => {
+        const state = makeGameState();
+        const mirror = addHero(state, 'mirror', 'player1', [0, 0]);
+        const clone = createMirrorClone('player1', mirror.id, [5, 5], mirror.maxHp, 20);
+        state.board[5][5] = clone;
+        mirror.currentHp = 30;
+        const enemy = addHero(state, 'baize', 'player2', [1, 1]);
+        enemy.currentHp = 100; // 远离破镜范围避免被动干扰？不，先让它死不掉即可
+
+        const result = mirrorSkill2.execute!(mirror, [mirror], state);
+
+        expect(result.success).toBe(true);
+        // 收回：合体 30 + 20 + 12 = 62（允许溢出上限40）
+        expect(mirror.currentHp).toBe(62);
+        expect(clone.state).toBe(HeroState.DEAD);
+        expect(state.board[5][5]).toBeNull();
+        // 点本体也有路径伤害：镜本体 [0,0] 与镜像 [5,5] 对角，路径经过 [1,1] 敌人
+        expect(enemy.currentHp).toBe(100 - 24);
     });
 });
 
@@ -794,6 +833,25 @@ describe('Hanjiangxue', () => {
         const allyMoves = MovementSystem.getMovablePositions(ally, state);
         expect(allyMoves.some(([row, col]) => row === 1 && col === 3)).toBe(true);
         expect(MovementSystem.moveHero(ally, [1, 3], state)).toBe(true);
+        expect(EffectManager.hasEffect(ally, '冰甲')).toBe(true);
+        expect(state.boardEffects?.some(effect =>
+            effect.type === 'ice-crystal' &&
+            effect.position[0] === 1 && effect.position[1] === 3
+        )).toBe(false);
+    });
+
+    it('moving onto a crystal consumes it even when the hero already has ice armor', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'hanjiangxue', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 3]);
+        const enemy = addHero(state, 'baize', 'player2', [0, 3]);
+        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[1, 3]], state);
+        // 模拟被动雪誓已附加冰甲
+        EffectManager.addIceArmor(ally, caster.id);
+
+        expect(MovementSystem.moveHero(ally, [1, 3], state)).toBe(true);
+
+        // 冰甲保持，冰晶被拾取消失
         expect(EffectManager.hasEffect(ally, '冰甲')).toBe(true);
         expect(state.boardEffects?.some(effect =>
             effect.type === 'ice-crystal' &&

@@ -18,6 +18,7 @@ export default function SkillPanel() {
         soulLampBeneficiaryIds,
         skillSelectedHeroIds,
         showMoveRange,
+        undoMove,
         selectSkill,
         selectBaizeReviveTarget,
         toggleChangliSkill2Empowered,
@@ -25,7 +26,9 @@ export default function SkillPanel() {
         selectHeroXRedirectTarget,
         selectSoulLampBeneficiary,
         selectSkillHeroTarget,
-        endHeroAction
+        endHeroAction,
+        libaiChainState,
+        skipLibaiChainAttack
     } = useGameStore();
 
     if (isAiMode && currentPlayer === aiPlayer) {
@@ -49,12 +52,32 @@ export default function SkillPanel() {
     }
 
     if (!selectedHero) {
+        const myHeroes = currentPlayer === 'player1' ? player1Heroes : player2Heroes;
+        const hasActionable = myHeroes.some(h =>
+            h.state === 'alive' &&
+            !h.hasActedThisTurn &&
+            !h.effects.some(e => e.type === 'stun' && e.duration > 0)
+        );
         return (
             <div className="ink-panel p-4 h-full flex flex-col">
                 <h3 className="font-title text-base text-ink mb-3">操作</h3>
-                <p className="text-ink-faint text-sm font-body text-center py-8">
-                    请选择一位英雄
-                </p>
+                {hasActionable ? (
+                    <p className="text-ink-faint text-sm font-body text-center py-8">
+                        请选择一位英雄
+                    </p>
+                ) : (
+                    <>
+                        <p className="text-ink-faint text-sm font-body text-center py-6">
+                            本回合没有可行动英雄（眩晕/已行动）
+                        </p>
+                        <button
+                            onClick={() => endHeroAction()}
+                            className="skill-btn skill-btn-end py-2.5 font-title tracking-wider text-sm"
+                        >
+                            跳过本回合
+                        </button>
+                    </>
+                )}
             </div>
         );
     }
@@ -73,6 +96,9 @@ export default function SkillPanel() {
     const skill1 = getSkill(selectedHero.skill1Id);
     const skill2 = getSkill(selectedHero.skill2Id);
     const isP1 = selectedHero.owner === 'player1';
+    // 李太白被动链：等待瞬移时禁用技能按钮；整个链期间禁用普通移动/撤回
+    const libaiChainActive = !!libaiChainState && libaiChainState.heroId === selectedHero.id;
+    const libaiChainWaiting = libaiChainActive && !!libaiChainState?.awaitingPosition;
     const deadAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
         .filter(hero => hero.state === 'dead');
     const choosingBaizeReviveTarget =
@@ -111,30 +137,50 @@ export default function SkillPanel() {
 
             {/* 操作列表 */}
             <div className="space-y-2 overflow-y-auto flex-1 min-h-0 light-scrollbar pr-1">
-                {/* 移动 */}
-                <button
-                    disabled={selectedHero.hasActedThisTurn || selectedHero.hasMovedThisTurn}
-                    onClick={() => showMoveRange()}
-                    className="skill-btn skill-btn-move"
-                >
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <span className="text-jade font-title text-sm">行</span>
-                            <span className="font-body text-sm text-ink">移动</span>
-                            {selectedHero.hasMovedThisTurn && (
-                                <span className="text-jade text-xs">✓</span>
-                            )}
+                {/* 移动 / 撤回 */}
+                {selectedHero.hasMovedThisTurn && !selectedHero.hasActedThisTurn && !libaiChainActive ? (
+                    <button
+                        data-testid="undo-move"
+                        onClick={() => undoMove()}
+                        className="skill-btn skill-btn-move"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-amber-600 font-title text-sm">返</span>
+                                <span className="font-body text-sm text-ink">撤回移动</span>
+                            </div>
+                            <span className="text-[10px] text-ink-faint font-body">
+                                返回原位重新选择
+                            </span>
                         </div>
-                        <span className="text-[10px] text-ink-faint font-body">
-                            移动力 {selectedHero.moveRange}
-                        </span>
-                    </div>
-                </button>
+                    </button>
+                ) : (
+                    <button
+                        data-testid="show-move-range"
+                        disabled={selectedHero.hasActedThisTurn || selectedHero.hasMovedThisTurn || libaiChainActive}
+                        onClick={() => showMoveRange()}
+                        className="skill-btn skill-btn-move"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-jade font-title text-sm">行</span>
+                                <span className="font-body text-sm text-ink">移动</span>
+                                {selectedHero.hasMovedThisTurn && (
+                                    <span className="text-jade text-xs">✓</span>
+                                )}
+                            </div>
+                            <span className="text-[10px] text-ink-faint font-body">
+                                移动力 {selectedHero.moveRange}
+                            </span>
+                        </div>
+                    </button>
+                )}
 
                 {/* 技能1 */}
                 {skill1 && (
                     <button
-                        disabled={selectedHero.hasActedThisTurn}
+                        data-testid={`skill-button-${skill1.id}`}
+                        disabled={selectedHero.hasActedThisTurn || libaiChainWaiting}
                         onClick={() => selectSkill(skill1.id)}
                         className="skill-btn skill-btn-skill"
                     >
@@ -158,7 +204,8 @@ export default function SkillPanel() {
                 {/* 技能2 */}
                 {skill2 && (
                     <button
-                        disabled={selectedHero.hasActedThisTurn}
+                        data-testid={`skill-button-${skill2.id}`}
+                        disabled={selectedHero.hasActedThisTurn || libaiChainWaiting}
                         onClick={() => selectSkill(skill2.id)}
                         className="skill-btn skill-btn-ultimate"
                     >
@@ -300,8 +347,24 @@ export default function SkillPanel() {
                     </div>
                 )}
 
+                {/* 李太白被动链：瞬移后可继续攻击，或跳过攻击 */}
+                {libaiChainState && libaiChainState.heroId === selectedHero.id && (
+                    <div className="ink-surface p-2 space-y-1.5 border-amber-400/30">
+                        <p className="text-[11px] text-amber-700 font-body">
+                            酒意正浓：可瞬移到棋盘高亮的历史位置继续攻击，剩余 {libaiChainState.pending.length} 个
+                        </p>
+                        <button
+                            onClick={() => skipLibaiChainAttack()}
+                            className="skill-btn skill-btn-end py-2 font-title tracking-wider text-xs"
+                        >
+                            跳过本次攻击
+                        </button>
+                    </div>
+                )}
+
                 {/* 结束行动 */}
                 <button
+                    data-testid="end-hero-action"
                     onClick={() => endHeroAction()}
                     className="skill-btn skill-btn-end py-2.5 font-title tracking-wider text-sm"
                 >

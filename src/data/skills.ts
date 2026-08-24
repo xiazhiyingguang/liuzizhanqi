@@ -59,7 +59,7 @@ export const baizeSkill1: Skill = {
         const power = EffectManager.getCounter(target, '白泽之力');
         const bonus = Math.min(0.5, power * 0.1);
         const healAmount = Math.floor(8 * (1 + bonus));
-        const actualHeal = DamageCalculator.applyHeal(target, healAmount, gameState);
+        const actualHeal = DamageCalculator.applyHeal(target, healAmount, gameState, caster);
 
         EffectManager.addCounter(target, '白泽之力', 1);
         EffectManager.addCounter(caster, '天禄', 1);
@@ -130,7 +130,7 @@ export const baizeSkill2: Skill = {
 
         const power = EffectManager.getCounter(target, '白泽之力');
         const healAmount = Math.floor((caster.currentHp / 3) * (1 + power / 10));
-        const actualHeal = DamageCalculator.applyHeal(target, healAmount, gameState);
+        const actualHeal = DamageCalculator.applyHeal(target, healAmount, gameState, caster);
 
         result.healingDone?.push(actualHeal);
         result.log.push(`${caster.name}恢复${target.name}${actualHeal}点生命`);
@@ -290,6 +290,9 @@ export const huifengSkill2: Skill = {
         if (!MovementSystem.moveHero(caster, target, gameState)) {
             return { success: false, log: ['目标位置不可到达'] };
         }
+        if (caster.state !== HeroState.ALIVE) {
+            return { success: true, log: [`${caster.name}在跳跃中触发羽化伤害并阵亡`] };
+        }
         caster.hasMovedThisTurn = true;
         gameState.boardEffects ??= [];
         gameState.boardEffects.push({
@@ -423,7 +426,8 @@ export const changliSkill2: Skill = {
                 EffectManager.addEffect(target, {
                     type: 'stun',
                     name: '眩晕',
-                    duration: 2,
+                    // 行动中施加：已行动的目标剥夺下回合（2），未行动的目标剥夺本回合（1），恰好1次行动
+                    duration: target.hasActedThisTurn ? 2 : 1,
                     sourceHeroId: caster.id,
                     description: '停止行动一回合'
                 });
@@ -438,17 +442,17 @@ export const changliSkill2: Skill = {
     }
 };
 
-// 墨阑技能1：十字8伤害，进入"为道"状态
+// 墨阑技能1：十字10伤害，进入"为道"状态
 export const moranSkill1: Skill = {
     id: 'moran_skill1',
     name: '技能1',
     type: 'damage',
-    description: '对周围十字范围内的一人造成8点伤害，使自身进入"为道"状态',
+    description: '对周围十字范围内的一人造成10点伤害，使自身进入"为道"状态',
     rangeType: 'cross',
     range: 1,
     targetType: 'enemy',
     targetCount: 1,
-    baseDamage: 8,
+    baseDamage: 10,
     scalesWithAttack: false,
     canCrit: true,
 
@@ -473,12 +477,20 @@ export const moranSkill1: Skill = {
         const target = targets[0];
 
         // 计算伤害
-        const damageResult = DamageCalculator.calculate(caster, target, 8, false);
+        // 致知2："为道"解除后的立即出手，技能伤害提升40%（一次性消耗）
+        let skillDamage = 10;
+        let burstText = '';
+        if (caster.counters['talent_2'] && caster.counters['__weidao_burst']) {
+            skillDamage = Math.floor(skillDamage * 1.4);
+            delete caster.counters['__weidao_burst'];
+            burstText = '（为道爆发+40%）';
+        }
+        const damageResult = DamageCalculator.calculate(caster, target, skillDamage, false);
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
 
         result.damageDealt?.push(damageResult.finalDamage);
         result.log.push(
-            `${caster.name}使用技能1对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}`
+            `${caster.name}使用技能1对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}${burstText}`
         );
 
         if (damageResult.killed) {
@@ -508,17 +520,17 @@ export const moranSkill1: Skill = {
     }
 };
 
-// 墨阑技能2：十字12伤害
+// 墨阑技能2：十字15伤害
 export const moranSkill2: Skill = {
     id: 'moran_skill2',
     name: '技能2',
     type: 'damage',
-    description: '对周围十字范围内的一人造成12点伤害',
+    description: '对周围十字范围内的一人造成15点伤害',
     rangeType: 'cross',
     range: 1,
     targetType: 'enemy',
     targetCount: 1,
-    baseDamage: 12,
+    baseDamage: 15,
     scalesWithAttack: false,
     canCrit: true,
 
@@ -543,13 +555,21 @@ export const moranSkill2: Skill = {
         const target = targets[0];
 
         // 计算伤害
-        // 基础伤害设为12，不随攻击力变化
-        const damageResult = DamageCalculator.calculate(caster, target, 12, false);
+        // 基础伤害设为15，不随攻击力变化
+        // 致知2："为道"解除后的立即出手，技能伤害提升40%（一次性消耗）
+        let skillDamage = 15;
+        let burstText = '';
+        if (caster.counters['talent_2'] && caster.counters['__weidao_burst']) {
+            skillDamage = Math.floor(skillDamage * 1.4);
+            delete caster.counters['__weidao_burst'];
+            burstText = '（为道爆发+40%）';
+        }
+        const damageResult = DamageCalculator.calculate(caster, target, skillDamage, false);
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
 
         result.damageDealt?.push(damageResult.finalDamage);
         result.log.push(
-            `${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}`
+            `${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}${burstText}`
         );
 
         if (damageResult.killed) {
@@ -660,7 +680,7 @@ export const zhenxiaoSkill2: Skill = {
  * 琉璃的技能
  */
 
-// 琉璃技能1：援护友方
+// 琉璃技能1：援护周围一格范围内的所有友方
 export const liuliSkill1: Skill = {
     id: 'liuli_skill1',
     name: '援护',
@@ -670,7 +690,7 @@ export const liuliSkill1: Skill = {
     range: 1,
     areaSize: 3,
     targetType: 'ally',
-    targetCount: 1,
+    targetCount: 'all',
 
     execute: (caster: Hero, targets: Hero[], gameState: GameState): SkillExecuteResult => {
         void gameState;
@@ -689,25 +709,25 @@ export const liuliSkill1: Skill = {
             return result;
         }
 
-        const target = targets[0];
+        for (const target of targets) {
+            // 先移除目标身上旧的援护效果（如果有的话）
+            target.effects = target.effects.filter(e => e.name !== '援护');
 
-        // 先移除目标身上旧的援护效果（如果有的话）
-        target.effects = target.effects.filter(e => e.name !== '援护');
-
-        // 添加援护标记
-        // duration: -1 表示持续到琉璃下次出手时移除
-        EffectManager.addEffect(target, {
-            type: 'buff',
-            name: '援护',
-            duration: -1,  // 持续到琉璃下次出手
-            sourceHeroId: caster.id,
-            description: '受到的伤害由琉璃承担，直到琉璃下次行动'
-        });
+            // 添加援护标记
+            // duration: -1 表示持续到琉璃下次出手时移除
+            EffectManager.addEffect(target, {
+                type: 'buff',
+                name: '援护',
+                duration: -1,  // 持续到琉璃下次出手
+                sourceHeroId: caster.id,
+                description: '受到的伤害由琉璃承担，直到琉璃下次行动'
+            });
+        }
 
         // 添加禅定
         EffectManager.addCounter(caster, '禅定', 1);
 
-        result.log.push(`${caster.name}援护了${target.name}，获得1层禅定`);
+        result.log.push(`${caster.name}援护了${targets.length}名友方，获得1层禅定`);
 
         return result;
     }
@@ -934,8 +954,8 @@ export const mirrorSkill1: Skill = {
 
         // 本体和镜像各恢复4点生命
         const healAmount = 4;
-        const casterHeal = DamageCalculator.applyHeal(caster, healAmount, gameState);
-        const cloneHeal = DamageCalculator.applyHeal(clone, healAmount, gameState);
+        const casterHeal = DamageCalculator.applyHeal(caster, healAmount, gameState, caster);
+        const cloneHeal = DamageCalculator.applyHeal(clone, healAmount, gameState, caster);
         
         result.healingDone?.push(casterHeal);
         result.log.push(`${caster.name}恢复了${casterHeal}点生命，镜像恢复了${cloneHeal}点生命`);
@@ -955,7 +975,7 @@ export const mirrorSkill2: Skill = {
     id: 'mirror_skill2',
     name: '移形换影',
     type: 'damage',
-    description: '点击镜像：交换位置并对路径敌人造成伤害；点击本体：收回镜像并恢复6点生命',
+    description: '点击镜像：交换位置并对路径敌人造成10+攻击伤害，不收回镜像获得1层破镜之刃；点击本体：划伤路径敌人，收回镜像使生命合体并恢复12点（允许溢出）',
     rangeType: '全场',
     range: 100,
     targetType: 'any',
@@ -986,7 +1006,7 @@ export const mirrorSkill2: Skill = {
         }
 
         if (isTargetSelf) {
-            // 点击本体：收回镜像，回血6点，不位移，不造成伤害
+            // 点击本体：划伤路径敌人（对角路径），收回镜像使生命合体，再恢复6点（允许溢出）
             const clones: Hero[] = [];
              for (let r = 0; r < 6; r++) {
                 for (let c = 0; c < 6; c++) {
@@ -1002,24 +1022,44 @@ export const mirrorSkill2: Skill = {
                  return result;
             }
             const mirrorClone = clones[0];
-            
-            // 收回镜像
-            if (mirrorClone.position) {
-                const [cr, cc] = mirrorClone.position;
-                gameState.board[cr][cc] = null;
-                mirrorClone.state = HeroState.DEAD;
+
+            // 1. 路径伤害（与交换一致：对角路径，10 + 基础攻击力）
+            if (caster.position && mirrorClone.position) {
+                const [r1, c1] = caster.position;
+                const [r2, c2] = mirrorClone.position;
+                if (Math.abs(r1 - r2) === Math.abs(c1 - c2)) {
+                    const dr = r2 > r1 ? 1 : -1;
+                    const dc = c2 > c1 ? 1 : -1;
+                    let currR = r1 + dr;
+                    let currC = c1 + dc;
+                    while (currR !== r2 && currC !== c2) {
+                        if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
+                            const h = gameState.board[currR][currC];
+                            if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
+                                const realDmg = DamageCalculator.calculate(caster, h, 10, true);
+                                DamageCalculator.applyDamage(h, realDmg, caster, gameState);
+                                result.damageDealt?.push(realDmg.finalDamage);
+                                result.log.push(`${caster.name}划伤${h.name}造成${realDmg.finalDamage}点伤害`);
+                            }
+                        }
+                        currR += dr;
+                        currC += dc;
+                    }
+                }
             }
+
+            // 2. 收回镜像：分身生命与本体生命合体（允许溢出），再恢复12点
+            const [cr, cc] = mirrorClone.position!;
+            gameState.board[cr][cc] = null;
+            mirrorClone.state = HeroState.DEAD;
+            caster.currentHp += mirrorClone.currentHp + 12;
+            result.healingDone?.push(mirrorClone.currentHp + 12);
             
-            // 恢复生命
-            const healAmount = 6;
-            const actualHeal = DamageCalculator.applyHeal(caster, healAmount, gameState);
-            result.healingDone?.push(actualHeal);
-            
-            result.log.push(`${caster.name}收回了镜像，恢复了${actualHeal}点生命`);
+            result.log.push(`${caster.name}收回镜像，生命合体并恢复12点`);
             return result;
 
         } else {
-            // 点击镜像：交换位置，对路径造成伤害
+            // 点击镜像：交换位置，对路径造成伤害，不收回镜像（+1破镜之刃）
             const mirrorClone = target;
             const mirrorHero = caster;
 
@@ -1036,7 +1076,7 @@ export const mirrorSkill2: Skill = {
             const [r1, c1] = mirrorHero.position;
             const [r2, c2] = mirrorClone.position;
             
-            // 路径伤害逻辑
+            // 路径伤害逻辑（10 + 基础攻击力）
             if (Math.abs(r1 - r2) === Math.abs(c1 - c2)) {
                 const dr = r2 > r1 ? 1 : -1;
                 const dc = c2 > c1 ? 1 : -1;
@@ -1048,8 +1088,7 @@ export const mirrorSkill2: Skill = {
                      if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
                          const h = gameState.board[currR][currC];
                          if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                             const damageAmount = 12; 
-                             const realDmg = DamageCalculator.calculate(caster, h, damageAmount, false);
+                             const realDmg = DamageCalculator.calculate(caster, h, 10, true);
                              DamageCalculator.applyDamage(h, realDmg, caster, gameState);
                              result.damageDealt?.push(realDmg.finalDamage);
                              result.log.push(`${caster.name}穿过${h.name}造成${realDmg.finalDamage}点伤害`);
@@ -1063,13 +1102,26 @@ export const mirrorSkill2: Skill = {
             // 交换位置
             const pos1 = mirrorHero.position;
             const pos2 = mirrorClone.position;
-            
+
             gameState.board[pos1[0]][pos1[1]] = mirrorClone;
             gameState.board[pos2[0]][pos2[1]] = mirrorHero;
-            
+
             mirrorHero.position = pos2;
             mirrorClone.position = pos1;
-            
+
+            const movedSteps = MovementSystem.getManhattanDistance(pos1, pos2);
+            DamageCalculator.applyDilanMovementDamage(mirrorHero, movedSteps, gameState);
+            DamageCalculator.applyDilanMovementDamage(mirrorClone, movedSteps, gameState);
+            if (mirrorHero.state !== HeroState.ALIVE) {
+                result.log.push(`${mirrorHero.name}在交换位置时触发羽化伤害并阵亡`);
+                return result;
+            }
+
+            // 不收回镜像：获得1层破镜之刃并立即释放
+            EffectManager.addCounter(caster, '破镜之刃', 1);
+            result.log.push(`${caster.name}未收回镜像，获得1层破镜之刃`);
+            DamageCalculator.triggerMirrorBrokenBlade(caster, gameState);
+
             result.log.push(`${caster.name}与镜像交换了位置`);
             return result;
         }
@@ -1122,9 +1174,11 @@ export const mowenSkill1: Skill = {
         const prevHp = caster.counters['mowen_prev_hp'];
         const fallbackHp = caster.maxHp;
         const restoreTo = typeof prevHp === 'number' ? prevHp : fallbackHp;
-        const oldHp = caster.currentHp;
-        caster.currentHp = Math.min(caster.maxHp, Math.max(0, restoreTo));
-        const healed = caster.currentHp - oldHp;
+        const desiredHp = Math.min(caster.maxHp, Math.max(0, restoreTo));
+        const healed = desiredHp > caster.currentHp
+            ? DamageCalculator.applyHeal(caster, desiredHp - caster.currentHp, gameState, caster)
+            : 0;
+        if (desiredHp < caster.currentHp) caster.currentHp = desiredHp;
         if (healed > 0) {
             result.healingDone?.push(healed);
         }
@@ -1282,36 +1336,15 @@ export const guyingSkill1: Skill = {
         DamageCalculator.applyDamage(firstEnemy, damageResult, caster, gameState);
         result.damageDealt?.push(damageResult.finalDamage);
 
-        const addHantian = (target: Hero, stacksToAdd: number) => {
-            EffectManager.addEffect(target, {
-                type: 'debuff',
-                name: '寒天',
-                duration: -1,
-                stackCount: stacksToAdd,
-                sourceHeroId: caster.id,
-                description: '累计3层进入冰冻'
-            });
-
-            const effect = target.effects.find(e => e.name === '寒天' && e.sourceHeroId === caster.id);
-            const stacks = effect?.stackCount ?? 1;
-            if (stacks >= 3) {
-                EffectManager.removeEffectByName(target, '寒天');
-                EffectManager.removeEffectByName(target, '冰冻');
-                EffectManager.addEffect(target, {
-                    type: 'stun',
-                    name: '冰冻',
-                    duration: 2,
-                    sourceHeroId: caster.id,
-                    description: '停止行动一回合'
-                });
-                result.log.push(`${target.name}寒天叠加至3层，进入冰冻`);
-            } else {
-                result.log.push(`${target.name}获得寒天+${stacksToAdd}（当前${stacks}层）`);
-            }
-        };
-
         const stacksToAdd = caster.counters['talent_3'] && Math.random() < 0.5 ? 2 : 1;
-        addHantian(firstEnemy, stacksToAdd);
+        DamageCalculator.applyHantianStacks(firstEnemy, stacksToAdd, caster.id, gameState);
+        if (EffectManager.hasEffect(firstEnemy, '冰冻')) {
+            result.log.push(`${firstEnemy.name}进入冰冻`);
+        } else {
+            result.log.push(
+                `${firstEnemy.name}获得寒天+${stacksToAdd}（当前${DamageCalculator.getHantianStackCount(firstEnemy)}层）`
+            );
+        }
 
         if (hadHantianBefore) {
             const current = caster.counters['寒星'] ?? 0;
@@ -1335,6 +1368,11 @@ export const guyingSkill1: Skill = {
         gameState.board[landingPos[0]][landingPos[1]] = caster;
         caster.position = landingPos;
         caster.hasMovedThisTurn = true;
+        DamageCalculator.applyDilanMovementDamage(
+            caster,
+            MovementSystem.getManhattanDistance(fromPos, landingPos),
+            gameState
+        );
 
         result.log.unshift(`${caster.name}使用技能1对${firstEnemy.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}，并移动到(${landingPos[0] + 1},${landingPos[1] + 1})`);
 

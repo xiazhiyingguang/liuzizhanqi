@@ -8,9 +8,11 @@ import SkillPanel from './SkillPanel';
 import InkButton from '../ui/InkButton';
 import { getBattleOutcomePresentation, getLatestKillAnnouncement } from '../../core/battle-presentation';
 import TurnActionBanner from './TurnActionBanner';
+import BattleStatisticsModal from './BattleStatisticsModal';
 
 export default function BattleScene() {
     const [showExitConfirm, setShowExitConfirm] = useState(false);
+    const [showBattleStatistics, setShowBattleStatistics] = useState(false);
     const {
         currentPlayer,
         roundNumber,
@@ -136,7 +138,7 @@ export default function BattleScene() {
 
             {/* 游戏结束弹窗 */}
             {phase === 'ended' && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="battle-result">
                     {/* 遮罩 */}
                     <div className="absolute inset-0 bg-ink/50 animate-fade-in backdrop-blur-sm" />
 
@@ -165,9 +167,14 @@ export default function BattleScene() {
                                 {outcome.description}
                             </p>
 
-                            <InkButton variant="primary" size="lg" onClick={leaveBattle}>
-                                返回主界面
-                            </InkButton>
+                            <div className="flex items-center justify-center gap-3">
+                                <InkButton variant="secondary" size="sm" onClick={() => setShowBattleStatistics(true)}>
+                                    伤害统计
+                                </InkButton>
+                                <InkButton variant="primary" size="lg" onClick={leaveBattle}>
+                                    返回主界面
+                                </InkButton>
+                            </div>
 
                             {/* 印章 */}
                             <div className="mt-6 opacity-30">
@@ -176,6 +183,10 @@ export default function BattleScene() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {phase === 'ended' && showBattleStatistics && (
+                <BattleStatisticsModal onClose={() => setShowBattleStatistics(false)} />
             )}
 
             {showExitConfirm && phase !== 'ended' && (

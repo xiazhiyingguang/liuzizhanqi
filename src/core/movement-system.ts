@@ -1,6 +1,7 @@
-import { Position, Hero, GameState } from '../types/game';
+import { Position, Hero, GameState, HeroState } from '../types/game';
 import { getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { EffectManager } from './effect-manager';
+import { DamageCalculator } from './damage-calculator';
 
 /**
  * 移动系统和路径寻找
@@ -17,7 +18,14 @@ export class MovementSystem {
 
         const start = hero.position;
         const movablePositions: Position[] = [];
-        const moveRange = rangeOverride ?? hero.moveRange;
+        const windModifier = rangeOverride === undefined
+            ? hero.effects.reduce((sum, effect) => {
+                if (effect.name === '顺风') return sum + (effect.stackCount ?? 1);
+                if (effect.name === '逆风') return sum - (effect.stackCount ?? 1);
+                return sum;
+            }, 0)
+            : 0;
+        const moveRange = Math.max(0, (rangeOverride ?? hero.moveRange) + windModifier);
 
         // 使用BFS搜索所有可达位置
         const queue: [Position, number][] = [[start, 0]];
@@ -50,7 +58,19 @@ export class MovementSystem {
 
                 // 检查是否有单位占据（不能通过）
                 const [newRow, newCol] = newPos;
-                if (gameState.board[newRow][newCol] !== null) continue;
+                const occupant = gameState.board[newRow][newCol];
+                if (occupant !== null) {
+                    // 醉枕刀特权：可以穿过带醉意（>=1层）的友方格子，但不可停留
+                    const canPassDrunkAlly =
+                        hero.passiveId === 'zuizhendao_passive' &&
+                        occupant.owner === hero.owner &&
+                        occupant.state === HeroState.ALIVE &&
+                        (occupant.counters['醉意'] ?? 0) >= 1;
+                    if (!canPassDrunkAlly) continue;
+                    visited.add(key);
+                    queue.push([newPos, newDistance]);
+                    continue;
+                }
 
                 // 敌方冰晶视为障碍物，不可进入（己方冰晶可通行）
                 if (gameState.boardEffects?.some(effect =>
@@ -66,6 +86,54 @@ export class MovementSystem {
         }
 
         return movablePositions;
+    }
+
+    /**
+     * 计算从英雄当前位置到目标位置的 BFS 最短路径（不含起点）。
+     * 醉枕刀可将带醉意（>=1层）的友方格视为可通过；普通单位只能走空位。
+     * 无法到达时返回空数组。
+     */
+    static getMovePath(hero: Hero, to: Position, gameState: GameState): Position[] {
+        if (!hero.position || !this.inBounds(to)) return [];
+        const start = hero.position;
+        const queue: Position[] = [start];
+        const visited = new Set<string>([this.posToKey(start)]);
+        const parent = new Map<string, Position>();
+        const isDrunk = hero.passiveId === 'zuizhendao_passive';
+
+        while (queue.length > 0) {
+            const current = queue.shift()!;
+            if (current[0] === to[0] && current[1] === to[1]) {
+                // 回溯路径
+                const path: Position[] = [];
+                let node: Position | undefined = to;
+                while (node && (node[0] !== start[0] || node[1] !== start[1])) {
+                    path.push(node);
+                    node = parent.get(this.posToKey(node));
+                }
+                return path.reverse();
+            }
+            for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+                const nr = current[0] + dr;
+                const nc = current[1] + dc;
+                if (!this.inBounds([nr, nc])) continue;
+                const key = this.posToKey([nr, nc]);
+                if (visited.has(key)) continue;
+                const occupant = gameState.board[nr][nc];
+                if (occupant !== null) {
+                    const canPassDrunkAlly =
+                        isDrunk &&
+                        occupant.owner === hero.owner &&
+                        occupant.state === HeroState.ALIVE &&
+                        (occupant.counters['醉意'] ?? 0) >= 1;
+                    if (!canPassDrunkAlly) continue;
+                }
+                visited.add(key);
+                parent.set(key, current);
+                queue.push([nr, nc]);
+            }
+        }
+        return [];
     }
 
     /**
@@ -280,6 +348,7 @@ export class MovementSystem {
         if (!this.inBounds(to)) return false;
 
         const from = hero.position;
+        const movePath = this.getMovePath(hero, to, gameState);
         const [fromRow, fromCol] = from;
         const [toRow, toCol] = to;
 
@@ -296,6 +365,7 @@ export class MovementSystem {
         // 检查镜的对称移动机制
         let partner: Hero | null = null;
         let partnerTo: Position | null = null;
+        let partnerFrom: Position | null = null;
 
         // 情况1：当前是镜本体
         if (hero.skill1Id === 'mirror_skill1') {
@@ -331,6 +401,7 @@ export class MovementSystem {
 
         // 如果有联动单位，检查联动位置是否合法
         if (partner && partner.position) {
+            partnerFrom = [...partner.position];
             // 对称位置：(5-tr, 5-tc)
             const pToR = 5 - toRow;
             const pToC = 5 - toCol;
@@ -450,23 +521,36 @@ export class MovementSystem {
             }
         }
 
-        // 到达己方冰晶位置时获得冰甲；冰晶是一次性拾取物，被获得后立即消失
+        // 到达己方冰晶位置：冰晶是一次性拾取物，被到达即消耗消失；
+        // 冰甲在英雄尚未拥有时才附加（已有冰甲时冰晶同样被拾取）
         const crystal = gameState.boardEffects?.find(effect =>
             effect.type === 'ice-crystal' &&
             effect.owner === hero.owner &&
             effect.position[0] === toRow && effect.position[1] === toCol
         );
-        if (crystal && EffectManager.addIceArmor(hero, crystal.sourceHeroId)) {
+        if (crystal) {
             gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => effect.id !== crystal.id);
+            const gained = EffectManager.addIceArmor(hero, crystal.sourceHeroId);
             if (gameState.battleLog) {
                 gameState.battleLog.push({
                     id: `log-${Date.now()}-${Math.random()}`,
                     type: 'passive' as const,
                     player: hero.owner,
-                    message: `${hero.name}到达冰晶，获得冰甲（冰晶消失）`,
+                    message: gained
+                        ? `${hero.name}到达冰晶，获得冰甲（冰晶消失）`
+                        : `${hero.name}到达冰晶并将其拾取（冰晶消失）`,
                     timestamp: Date.now()
                 });
             }
+        }
+
+        DamageCalculator.applyDilanMovementDamage(hero, movePath.length, gameState);
+        if (partner && partnerFrom && partnerTo && partner.state === HeroState.ALIVE) {
+            DamageCalculator.applyDilanMovementDamage(
+                partner,
+                this.getManhattanDistance(partnerFrom, partnerTo),
+                gameState
+            );
         }
 
         return true;
