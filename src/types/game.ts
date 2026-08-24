@@ -220,6 +220,12 @@ export interface BoardEffect {
     duration: number;
 }
 
+/** 单位在回合开始时的状态快照（时空旅者·戴尔的「时空回溯」用） */
+export interface HeroRoundSnapshot {
+    hp: number;
+    effects: Effect[];
+}
+
 /** 游戏状态 */
 export interface GameState {
     /** 单局唯一标识，用于长期统计去重。 */
@@ -304,6 +310,9 @@ export interface GameState {
     heroXRedirectTargetIds?: Record<string, string>;
     soulLampBeneficiaryIds?: Record<string, string>;
     skillSelectedHeroIds?: Record<string, string>;
+
+    // 时空旅者·戴尔：每回合开始时记录的全体存活单位快照（生命与效果），供「时空回溯」恢复
+    heroSnapshots?: Record<string, HeroRoundSnapshot>;
     pendingBoardAction?: {
         type: 'schrodinger-tianwei';
         heroId: string;

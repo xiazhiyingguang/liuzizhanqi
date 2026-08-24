@@ -2063,6 +2063,151 @@ export const chenyuanSkill2: Skill = {
     },
 };
 
+/**
+ * 时空旅者·戴尔技能1「时空回溯」：
+ * 选择我方或敌方的一名角色，使其回到上一回合开始时的状态（生命与效果）。
+ * 不可以对通灵角色使用；对处于「时空停滞」的阵亡友方使用则将其复活（每名英雄限一次）。
+ */
+export const daiSkill1: Skill = {
+    id: 'dai_skill1',
+    name: '时空回溯',
+    type: 'special',
+    description: '选择我方或敌方的一名角色回到上一回合的状态（生命与效果）；不可对通灵角色使用。也可对处于时空停滞的阵亡友方使用，将其复活（每名英雄限一次）',
+    rangeType: '全场',
+    range: 0,
+    targetType: 'any',
+    targetCount: 1,
+    execute: (caster, targets, gameState) => {
+        if (!caster.position) return fail('时空旅者尚未部署');
+        const target = targets[0];
+        if (!target) return fail('请选择场上的一名角色');
+
+        // 分支一：复活处于时空停滞的阵亡友方
+        if (target.state === HeroState.DEAD) {
+            if (target.owner !== caster.owner) {
+                return fail('时空停滞只能凝固我方单位，无法复活敌方单位');
+            }
+            const until = target.counters['__dai_stasis_until'];
+            if (until === undefined) {
+                return fail(`${target.name}不处于时空停滞中`);
+            }
+            if (gameState.roundNumber > until) {
+                return fail(`${target.name}的时空停滞已经消散`);
+            }
+            if (!target.position) {
+                return fail(`${target.name}没有可用的死亡位置记录`);
+            }
+
+            // 复活位置：优先回到死亡原位，被占则就近部署
+            let revivePos: Position = [target.position[0], target.position[1]];
+            if (gameState.board[revivePos[0]][revivePos[1]] !== null) {
+                const nearest = MovementSystem.findNearestEmptyPosition(target.position, gameState);
+                if (!nearest) return fail('场上没有可以部署的位置');
+                revivePos = nearest;
+            }
+
+            // 恢复到上一回合开始时的快照；无快照时以满生命复活
+            const snap = gameState.heroSnapshots?.[target.id];
+            target.currentHp = Math.max(1, Math.min(target.maxHp, snap ? snap.hp : target.maxHp));
+            target.effects = snap ? snap.effects.map(effect => ({ ...effect })) : [];
+            target.state = HeroState.ALIVE;
+            target.position = revivePos;
+            gameState.board[revivePos[0]][revivePos[1]] = target;
+            target.hasActedThisTurn = false;
+            target.hasMovedThisTurn = false;
+            target.counters['__dai_revived_once'] = 1;
+            delete target.counters['__dai_stasis_until'];
+            delete target.counters['__dai_stasis_pos'];
+
+            const output = result();
+            output.log.push(
+                `${caster.name}发动时空回溯，将${target.name}从时空停滞中唤回（${target.currentHp}/${target.maxHp}），时间线重新接续`
+            );
+            return output;
+        }
+
+        // 分支二：将存活角色回溯到上一回合开始时的状态
+        if (target.state !== HeroState.ALIVE) {
+            return fail('请选择场上存活的角色');
+        }
+        if (target.class === '通灵') {
+            return fail('通灵角色的命运纠缠着生死契约，无法被时空回溯改写');
+        }
+        const snap = gameState.heroSnapshots?.[target.id];
+        if (!snap) {
+            return fail(`${target.name}还没有可供回溯的状态记录`);
+        }
+
+        const desiredHp = Math.max(1, Math.min(target.maxHp, snap.hp));
+        const output = result();
+        if (desiredHp > target.currentHp) {
+            const healed = DamageCalculator.applyHeal(target, desiredHp - target.currentHp, gameState, caster);
+            output.healingDone?.push(healed);
+        } else if (desiredHp < target.currentHp) {
+            target.currentHp = desiredHp;
+        }
+        target.effects = snap.effects.map(effect => ({ ...effect }));
+        output.log.push(
+            `${caster.name}发动时空回溯，${target.name}回到了回合开始时的状态（生命${target.currentHp}/${target.maxHp}）`
+        );
+        return output;
+    },
+};
+
+/**
+ * 时空旅者·戴尔技能2「时空置换」：
+ * 选择场上任意两个存活单位，交换它们的位置与当前生命值百分比。冷却：一回合。
+ */
+export const daiSkill2: Skill = {
+    id: 'dai_skill2',
+    name: '时空置换',
+    type: 'special',
+    description: '选择场上任意两个存活单位，交换位置与当前生命值百分比（冷却：一回合）',
+    rangeType: '全场',
+    range: 0,
+    targetType: 'any',
+    targetCount: 2,
+    execute: (caster, targets, gameState) => {
+        if (!caster.position) return fail('时空旅者尚未部署');
+        const cd = caster.counters['dai_skill2_cd'] ?? 0;
+        if (cd > 0) {
+            return fail(`时空置换冷却中（剩余${cd}回合）`);
+        }
+        const first = targets[0];
+        const second = targets[1];
+        if (!first || !second || first.id === second.id) {
+            return fail('请选择场上两个不同的存活单位');
+        }
+        if (!first.position || !second.position) {
+            return fail('两个单位都必须已部署在棋盘上');
+        }
+
+        // 交换棋盘位置
+        const posFirst: Position = [first.position[0], first.position[1]];
+        const posSecond: Position = [second.position[0], second.position[1]];
+        gameState.board[posFirst[0]][posFirst[1]] = second;
+        gameState.board[posSecond[0]][posSecond[1]] = first;
+        first.position = posSecond;
+        second.position = posFirst;
+
+        // 交换当前生命值百分比
+        const ratioFirst = first.currentHp / first.maxHp;
+        const ratioSecond = second.currentHp / second.maxHp;
+        first.currentHp = Math.max(1, Math.round(ratioSecond * first.maxHp));
+        second.currentHp = Math.max(1, Math.round(ratioFirst * second.maxHp));
+
+        // 进入冷却：本回合结束后需间隔一个完整回合才能再次使用
+        caster.counters['dai_skill2_cd'] = 2;
+
+        const output = result();
+        output.log.push(
+            `${caster.name}发动时空置换：${first.name}与${second.name}互换了位置与生命轨迹` +
+            `（${first.name} ${first.currentHp}/${first.maxHp}，${second.name} ${second.currentHp}/${second.maxHp}）`
+        );
+        return output;
+    },
+};
+
 export const EXTENDED_SKILLS: Record<string, Skill> = {
     skeletonking_skill1: skeletonkingSkill1,
     skeletonking_skill2: skeletonkingSkill2,
@@ -2108,4 +2253,6 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     shangguan_skill2: shangguanSkill2,
     chenyuan_skill1: chenyuanSkill1,
     chenyuan_skill2: chenyuanSkill2,
+    dai_skill1: daiSkill1,
+    dai_skill2: daiSkill2,
 };

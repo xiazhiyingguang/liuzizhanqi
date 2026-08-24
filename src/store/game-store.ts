@@ -1054,6 +1054,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
         }
 
+        // 时空旅者·戴尔：技能2「时空置换」冷却前置拦截（与莫问同模式）
+        if (skillId === 'dai_skill2') {
+            const cd = hero.counters['dai_skill2_cd'] || 0;
+            if (cd > 0) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: `${hero.name}的时空置换冷却中（剩余${cd}回合）`
+                });
+                return;
+            }
+        }
+
         const skill = getSkill(skillId);
         if (!skill) return;
 

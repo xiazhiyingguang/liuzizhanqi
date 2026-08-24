@@ -269,12 +269,26 @@ export class SkillSystem {
                 }
             }
 
-            const targets = this.getHeroesAtPositions(
+            let targets = this.getHeroesAtPositions(
                 finalTargetPositions,
                 caster,
                 skill.targetType,
                 gameState
             );
+            // 时空旅者·戴尔「时空回溯」：处于时空停滞的阵亡单位已不在棋盘上，
+            // 点击其死亡位置时改为从英雄列表中收集该单位作为复活目标
+            if (skill.id === 'dai_skill1') {
+                const stalled = [...gameState.player1Heroes, ...gameState.player2Heroes].find(hero =>
+                    hero.owner === caster.owner &&
+                    hero.state === HeroState.DEAD &&
+                    hero.counters['__dai_stasis_until'] !== undefined &&
+                    hero.position !== null &&
+                    finalTargetPositions.some(([row, col]) =>
+                        hero.position![0] === row && hero.position![1] === col
+                    )
+                );
+                if (stalled) targets = [stalled];
+            }
             const result = skill.execute(caster, targets, gameState);
             if (result.success) recordBattleSkillUse(gameState, caster, skill.id);
             if (

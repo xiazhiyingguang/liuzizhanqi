@@ -81,6 +81,30 @@ export class GameEngine {
         // 重置所有英雄的行动标记
         const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
         gameState.actionsRequiredThisTurn = allHeroes.filter(hero => hero.state === HeroState.ALIVE).length;
+
+        // 时空旅者·戴尔：回合开始为所有存活单位建立状态快照，供「时空回溯」恢复；
+        // 同时清理已过期的「时空停滞」标记
+        gameState.heroSnapshots = {};
+        for (const hero of allHeroes) {
+            if (hero.counters['__dai_stasis_until'] !== undefined) {
+                if (gameState.roundNumber > hero.counters['__dai_stasis_until']) {
+                    delete hero.counters['__dai_stasis_until'];
+                    delete hero.counters['__dai_stasis_pos'];
+                    this.addLog(gameState, {
+                        type: 'system',
+                        player: hero.owner,
+                        message: `${hero.name}的时空停滞消散了`
+                    });
+                }
+            }
+            if (hero.state === HeroState.ALIVE) {
+                gameState.heroSnapshots[hero.id] = {
+                    hp: hero.currentHp,
+                    effects: hero.effects.map(effect => ({ ...effect })),
+                };
+            }
+        }
+
         for (const hero of allHeroes) {
             if (hero.state !== HeroState.DEAD) {
                 hero.hasActedThisTurn = false;
@@ -111,6 +135,10 @@ export class GameEngine {
                     // 冷却按回合推进：使用技能1后必须间隔一个完整回合才能再次使用，
                     // 额外行动/再动不会提前结束冷却。
                     hero.counters['mowen_skill1_cd'] = Math.max(0, hero.counters['mowen_skill1_cd'] - 1);
+                }
+                if (hero.counters['dai_skill2_cd']) {
+                    // 时空旅者·戴尔技能2「时空置换」冷却，与莫问同节奏按回合推进
+                    hero.counters['dai_skill2_cd'] = Math.max(0, hero.counters['dai_skill2_cd'] - 1);
                 }
                 if (hero.passiveId === 'libai_passive' && hero.state === HeroState.ALIVE) {
                     // 记录上次/上上次停留位置（滚动）：供被动瞬移链使用

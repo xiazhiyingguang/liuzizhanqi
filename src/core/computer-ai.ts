@@ -601,7 +601,9 @@ function estimateThreatAtPosition(attacker: Hero, position: Position, defender: 
 
 /** 技能是否处于冷却中（目前只有莫问技能1有冷却系统）。 */
 function isSkillOnCooldown(hero: Hero, skill: Skill): boolean {
-    return skill.id === 'mowen_skill1' && (hero.counters['mowen_skill1_cd'] ?? 0) > 0;
+    if (skill.id === 'mowen_skill1' && (hero.counters['mowen_skill1_cd'] ?? 0) > 0) return true;
+    // 时空旅者·戴尔技能2「时空置换」冷却
+    return skill.id === 'dai_skill2' && (hero.counters['dai_skill2_cd'] ?? 0) > 0;
 }
 
 /** 估算 attacker 对 target 的最大单技能伤害（不含射程判定，供垫刀/斩杀规划用）。 */
@@ -651,6 +653,27 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
 
     if (skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2') {
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
+    }
+
+    // 时空旅者·戴尔技能1：处于时空停滞的己方阵亡单位不在棋盘上，
+    // 把其死亡位置插到候选最前，确保「复活」方案能进入模拟评估。
+    if (skill.id === 'dai_skill1') {
+        const stalled = heroesFor(state, caster.owner).filter(hero =>
+            hero.state === HeroState.DEAD &&
+            hero.position !== null &&
+            hero.counters['__dai_stasis_until'] !== undefined &&
+            state.roundNumber <= hero.counters['__dai_stasis_until']!
+        );
+        if (stalled.length > 0) {
+            const stallKeys = new Set(stalled.map(hero => `${hero.position![0]},${hero.position![1]}`));
+            const rest = SkillSystem.getValidTargetPositions(caster, skill)
+                .filter(isBoardPosition)
+                .filter(position => !stallKeys.has(`${position[0]},${position[1]}`));
+            return [
+                ...stalled.map(hero => [[hero.position![0], hero.position![1]] as Position]),
+                ...rest.map(position => [position]),
+            ];
+        }
     }
 
     // 凋零之主技能1：枚举全场所有对角位置对（构成 2x2 区域），按靠近敌人排序取前 24 个

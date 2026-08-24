@@ -44,6 +44,7 @@ export const EXTENDED_HERO_IDS = [
     'dilan',
     'shangguan',
     'chenyuan',
+    'dai',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -275,6 +276,17 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'chenyuan_passive',
         tianweiId: 'chenyuan_tianwei',
     },
+    dai: {
+        name: '时空旅者·戴尔',
+        class: '天师',
+        maxHp: 45,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'dai_skill1',
+        skill2Id: 'dai_skill2',
+        passiveId: 'dai_passive',
+        // 天威：无
+    },
 };
 
 export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; description: string }> = {
@@ -299,6 +311,7 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     dilan: { name: '帝兰', class: '天师', description: '操纵顺逆风、击退与羽化移动伤害。生命48，移动力3' },
     shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段连冲与墨意闪避。生命42，移动力3' },
     chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力1' },
+    dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯复活与状态还原、时空置换换位换血。生命45，移动力3' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {

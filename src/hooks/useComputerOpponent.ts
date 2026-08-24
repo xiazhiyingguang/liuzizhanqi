@@ -21,6 +21,7 @@ import {
 } from '../core/computer-ai';
 import { useGameStore } from '../store/game-store';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
+import { HeroState } from '../types/game';
 import { getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
 
@@ -120,6 +121,20 @@ function nextPlannedTarget(
         const fallback = allowed.find(isDiagonal);
         if (fallback) return fallback;
         return null;
+    }
+
+    // 时空旅者·戴尔技能1：优先点击己方时空停滞单位的死亡位置进行复活
+    if (skill.id === 'dai_skill1' && pending.length === 0) {
+        const stalled = [...state.player1Heroes, ...state.player2Heroes].find(hero =>
+            hero.owner === caster.owner &&
+            hero.state === HeroState.DEAD &&
+            hero.position !== null &&
+            hero.counters['__dai_stasis_until'] !== undefined &&
+            state.roundNumber <= hero.counters['__dai_stasis_until']!
+        );
+        if (stalled?.position && isAllowed(stalled.position)) {
+            return stalled.position;
+        }
     }
 
     const unused = plan?.targetPositions.find(position =>

@@ -1163,6 +1163,31 @@ export class DamageCalculator {
             }
         }
 
+        // 时空旅者·戴尔被动「时空停滞」：我方单位阵亡时（分身/召唤物/戴尔自身除外，
+        // 且每名英雄限一次）时间被凝固一回合，期间可被其技能1「时空回溯」复活
+        if (
+            target.passiveId !== 'dai_passive' &&
+            target.counters['__isClone'] !== 1 &&
+            target.counters['__isSummon'] !== 1 &&
+            !target.counters['__dai_revived_once']
+        ) {
+            const alliesOfTarget = target.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+            const dai = alliesOfTarget.find(
+                hero => hero.passiveId === 'dai_passive' && hero.state === HeroState.ALIVE
+            );
+            if (dai) {
+                target.counters['__dai_stasis_until'] = gameState.roundNumber + 1;
+                if (deathPosition) {
+                    target.counters['__dai_stasis_pos'] = deathPosition[0] * 6 + deathPosition[1];
+                }
+                this.addBattleLog(gameState, {
+                    type: 'system',
+                    player: target.owner,
+                    message: `${target.name}的时间被${dai.name}凝固，进入时空停滞（下个回合内可用时空回溯将其复活）`
+                });
+            }
+        }
+
         // 上官婉儿阵亡：其落下的毛笔随之消散
         if (target.passiveId === 'shangguan_passive' && (gameState.boardEffects?.length ?? 0) > 0) {
             const beforeCount = gameState.boardEffects!.length;
