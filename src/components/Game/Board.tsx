@@ -91,7 +91,11 @@ export default function Board() {
         e.preventDefault();
         e.stopPropagation();
 
-        if (isAiMode && currentPlayer === aiPlayer) return;
+        // 人机模式下 AI 回合禁止玩家操作；
+        // 但补员挂起期间回合尚未切边（currentPlayer 可能仍是 AI），
+        // 此时必须放行人类补员方的落位点击，否则替补永远无法上场。
+        const humanReinforcePending = reinforcingPlayer !== null && reinforcingPlayer !== aiPlayer;
+        if (isAiMode && currentPlayer === aiPlayer && !humanReinforcePending) return;
 
         const targetPos: Position = [row, col];
 
