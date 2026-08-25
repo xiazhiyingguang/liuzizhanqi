@@ -11,7 +11,7 @@ import { useGameStore } from '../../store/game-store';
 import HeroAvatar from '../ui/HeroAvatar';
 import InkButton from '../ui/InkButton';
 
-type SortKey = 'appearances' | 'pickRate' | 'winRate' | 'averageDamageDealt' | 'averageSurvivalRounds';
+type SortKey = 'pickRate' | 'winRate' | 'averageDamageDealt' | 'averageDamageTaken' | 'averageSurvivalRounds';
 
 interface CareerStatisticsPanelProps {
     data: CareerStatisticsData;
@@ -20,10 +20,10 @@ interface CareerStatisticsPanelProps {
 }
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-    { key: 'appearances', label: '登场次数' },
     { key: 'pickRate', label: '登场率' },
     { key: 'winRate', label: '胜率' },
     { key: 'averageDamageDealt', label: '平均输出' },
+    { key: 'averageDamageTaken', label: '平均承伤' },
     { key: 'averageSurvivalRounds', label: '存活轮数' },
 ];
 
@@ -91,15 +91,16 @@ function ValueMetric({ label, value, maximum, suffix = '' }: {
     );
 }
 
-function HeroRecordRow({ record, rank, maximumDamage, maximumSurvival }: {
+function HeroRecordRow({ record, rank, maximumDamage, maximumDamageTaken, maximumSurvival }: {
     record: HeroCareerMetrics;
     rank: number;
     maximumDamage: number;
+    maximumDamageTaken: number;
     maximumSurvival: number;
 }) {
     return (
         <article className="rounded-2xl border border-ink/[0.08] bg-white/45 px-4 py-3 transition-colors hover:bg-white/70">
-            <div className="grid min-w-[760px] grid-cols-[minmax(205px,1.35fr)_repeat(4,minmax(105px,1fr))] items-center gap-5">
+            <div className="grid min-w-[880px] grid-cols-[minmax(205px,1.35fr)_repeat(5,minmax(105px,1fr))] items-center gap-5">
                 <div className="flex min-w-0 items-center gap-3">
                     <span className="w-6 flex-none text-center font-title text-sm text-gold-dark">{rank}</span>
                     <div className="h-12 w-12 flex-none overflow-hidden rounded-xl border border-ink/10 bg-rice-dark/50">
@@ -133,11 +134,11 @@ function HeroRecordRow({ record, rank, maximumDamage, maximumSurvival }: {
                     tone="red"
                 />
                 <ValueMetric label="场均输出" value={record.averageDamageDealt} maximum={maximumDamage} />
+                <ValueMetric label="平均承伤" value={record.averageDamageTaken} maximum={maximumDamageTaken} />
                 <ValueMetric label="平均存活" value={record.averageSurvivalRounds} maximum={maximumSurvival} suffix="轮" />
             </div>
 
             <div className="ml-9 mt-2 flex min-w-[720px] flex-wrap gap-x-5 gap-y-1 border-t border-ink/[0.05] pt-2 text-[9px] text-ink-faint">
-                <span>场均承伤 <b className="font-mono font-normal text-ink-light">{formatNumber(record.averageDamageTaken, 1)}</b></span>
                 <span>场均恢复 <b className="font-mono font-normal text-ink-light">{formatNumber(record.averageHealingDone, 1)}</b></span>
                 <span>场均格挡 <b className="font-mono font-normal text-ink-light">{formatNumber(record.averageShieldAbsorbed, 1)}</b></span>
                 <span>累计输出 <b className="font-mono font-normal text-ink-light">{formatNumber(record.totalDamageDealt)}</b></span>
@@ -147,7 +148,7 @@ function HeroRecordRow({ record, rank, maximumDamage, maximumSurvival }: {
 }
 
 export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatisticsPanelProps) {
-    const [sortKey, setSortKey] = useState<SortKey>('appearances');
+    const [sortKey, setSortKey] = useState<SortKey>('pickRate');
     const [showClearConfirm, setShowClearConfirm] = useState(false);
 
     const records = useMemo(() => Object.values(data.heroes)
@@ -156,6 +157,7 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
     [data, sortKey]);
 
     const maximumDamage = Math.max(1, ...records.map(record => record.averageDamageDealt));
+    const maximumDamageTaken = Math.max(1, ...records.map(record => record.averageDamageTaken));
     const maximumSurvival = Math.max(1, ...records.map(record => record.averageSurvivalRounds));
     const averageRounds = data.totalMatches > 0 ? data.totalRounds / data.totalMatches : 0;
     const updatedLabel = data.updatedAt
@@ -242,6 +244,7 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
                                             record={record}
                                             rank={index + 1}
                                             maximumDamage={maximumDamage}
+                                            maximumDamageTaken={maximumDamageTaken}
                                             maximumSurvival={maximumSurvival}
                                         />
                                     ))}

@@ -40,7 +40,9 @@ describe('CareerStatisticsPanel', () => {
         expect(html).toContain('登场率');
         expect(html).toContain('胜率');
         expect(html).toContain('场均输出');
+        expect(html).toContain('平均承伤');
         expect(html).toContain('平均存活');
+        expect(html).not.toContain('登场次数');
         expect(html).toContain('25.0%');
         expect(html).toContain('50.0%');
     });
