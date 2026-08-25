@@ -39,6 +39,17 @@ export class GameEngine {
         if (row < 0 || row >= 6 || col < 0 || col >= 6) return false;
         if (gameState.board[row][col] !== null) return false;
 
+        // 替补制编制上限：场上真实存活已满4人时禁止复活。
+        // 否则会出现“死亡离场→替补补满4人→死者复活→第5人超员”的漏洞（与 resurrectHero 校验一致）。
+        if (this.countRealAliveOnBoard(gameState, hero.owner) >= 4) {
+            this.addLog(gameState, {
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}无法复活：${hero.owner === 'player1' ? '蓝方' : '红方'}场上编制已满`
+            });
+            return false;
+        }
+
         const reviveHp = Math.max(1, Math.min(hero.maxHp, Math.floor(hero.maxHp * hpPercent)));
         
         hero.currentHp = reviveHp;
@@ -532,6 +543,10 @@ export class GameEngine {
         if (gameState.phase === 'ended') return;
         const isAliveOnBoard = (hero: Hero) => {
             if (hero.state !== HeroState.ALIVE || !hero.position) return false;
+            // 召唤物为临时战术单位：不计入"场上仍有战力"，六名真实英雄全灭即判负
+            if (hero.counters?.['__isClone'] === 1 || hero.counters?.['__isSummon'] === 1) return false;
+            if (hero.id.startsWith('wukong-clone|') || hero.id.startsWith('mirror-clone|') ||
+                hero.id.startsWith('t-summon|')) return false;
             const [row, col] = hero.position;
             return gameState.board[row]?.[col] === hero;
         };
@@ -566,6 +581,33 @@ export class GameEngine {
                 player: 'player1',
                 message: '玩家2所有英雄阵亡，玩家1获胜！'
             });
+            return;
+        }
+
+        // 回合上限裁决：双方均采取保守策略时可能出现无限拉锯（如对称踱步互不进攻），
+        // 达到上限后按场上战力强制分出胜负，保证对局必然收敛。
+        const MAX_ROUNDS = 50;
+        if (gameState.phase !== 'ended' && gameState.roundNumber >= MAX_ROUNDS) {
+            const p1Count = this.countRealAliveOnBoard(gameState, 'player1');
+            const p2Count = this.countRealAliveOnBoard(gameState, 'player2');
+            let winner: Player;
+            if (p1Count !== p2Count) {
+                winner = p1Count > p2Count ? 'player1' : 'player2';
+            } else {
+                // 人数相同：比存活总战力（生命值+护盾）；仍持平按既有惯例判先手方告负
+                const totalPower = (heroes: Hero[]) =>
+                    heroes.filter(isAliveOnBoard).reduce((sum, h) => sum + h.currentHp + h.shield, 0);
+                const p1Power = totalPower(gameState.player1Heroes);
+                const p2Power = totalPower(gameState.player2Heroes);
+                winner = p1Power > p2Power ? 'player1' : 'player2';
+            }
+            gameState.winner = winner;
+            gameState.phase = 'ended';
+            this.addLog(gameState, {
+                type: 'system',
+                player: winner,
+                message: `对局达到回合上限（${MAX_ROUNDS}回合），按场上战力判定：${winner === 'player1' ? '玩家1' : '玩家2'}获胜！`
+            });
         }
     }
 
@@ -577,8 +619,10 @@ export class GameEngine {
             .filter(hero =>
                 hero.state === HeroState.ALIVE &&
                 hero.counters?.['__isClone'] !== 1 &&
+                hero.counters?.['__isSummon'] !== 1 && // 召唤物（玄龟/金乌等）为临时战术单位，不占替补制编制
                 !hero.id.startsWith('wukong-clone|') &&
                 !hero.id.startsWith('mirror-clone|') &&
+                !hero.id.startsWith('t-summon|') &&
                 hero.position &&
                 (() => {
                     const [row, col] = hero.position!;
@@ -923,6 +967,17 @@ export class GameEngine {
         gameState: GameState
     ): boolean {
         if (hero.state !== HeroState.TEMP_DEAD) return false;
+
+        // 替补制编制上限：场上真实存活已满4人时禁止复活。
+        // 否则会出现"死亡离场→替补补满4人→死者复活→第5人超员"的漏洞。
+        if (this.countRealAliveOnBoard(gameState, hero.owner) >= 4) {
+            this.addLog(gameState, {
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}无法复活：${hero.owner === 'player1' ? '蓝方' : '红方'}场上编制已满`
+            });
+            return false;
+        }
 
         let revivePosition: [number, number] | null = null;
         if (!hero.position) {

@@ -7,6 +7,7 @@ import { EffectManager } from './effect-manager';
 import { MovementSystem } from './movement-system';
 import { SkillSystem } from './skill-system';
 import { DamageCalculator } from './damage-calculator';
+import { GameEngine } from './game-engine';
 
 export interface ComputerDeployment {
     heroId: string;
@@ -657,13 +658,18 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
 
     // 时空旅者·戴尔技能1：处于时空停滞的己方阵亡单位不在棋盘上，
     // 把其死亡位置插到候选最前，确保「复活」方案能进入模拟评估。
+    // 替补制编制上限：场上真实存活已满4人时唤回必然被技能校验拒绝，
+    // 不生成该目标集（否则 AI 会反复执行必然失败的复活计划，形成决策死循环）。
     if (skill.id === 'dai_skill1') {
-        const stalled = heroesFor(state, caster.owner).filter(hero =>
-            hero.state === HeroState.DEAD &&
-            hero.position !== null &&
-            hero.counters['__dai_stasis_until'] !== undefined &&
-            state.roundNumber <= hero.counters['__dai_stasis_until']!
-        );
+        const canReviveStalled = GameEngine.countRealAliveOnBoard(state, caster.owner) < 4;
+        const stalled = canReviveStalled
+            ? heroesFor(state, caster.owner).filter(hero =>
+                hero.state === HeroState.DEAD &&
+                hero.position !== null &&
+                hero.counters['__dai_stasis_until'] !== undefined &&
+                state.roundNumber <= hero.counters['__dai_stasis_until']!
+            )
+            : [];
         if (stalled.length > 0) {
             const stallKeys = new Set(stalled.map(hero => `${hero.position![0]},${hero.position![1]}`));
             const rest = SkillSystem.getValidTargetPositions(caster, skill)
@@ -699,6 +705,8 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
     if (skill.id === 'baize_skill2' && (caster.counters['天禄'] ?? 0) >= 3) {
         const deadAllies = heroesFor(state, caster.owner).filter(hero => hero.state === HeroState.DEAD);
         if (deadAllies.length > 0) {
+            // 替补制编制上限：满编时复活必然被结算拒绝，不生成复活目标集（防 AI 死循环）
+            if (GameEngine.countRealAliveOnBoard(state, caster.owner) >= 4) return [];
             const empty: Position[][] = [];
             for (let row = 0; row < BOARD_SIZE; row++) {
                 for (let col = 0; col < BOARD_SIZE; col++) {
@@ -1065,16 +1073,9 @@ export function chooseComputerPendingBoardPosition(state: GameState, hero: Hero)
 }
 
 export function chooseComputerReviveTarget(state: GameState, player: Player): Hero | null {
-    // 替补制：场上真实存活已达四人上限时复活会超编，直接放弃复活（与 store 校验一致）
-    const realAliveOnBoard = heroesFor(state, player)
-        .filter(hero =>
-            hero.state === HeroState.ALIVE &&
-            hero.position !== null &&
-            hero.counters?.['__isClone'] !== 1 &&
-            !hero.id.startsWith('wukong-clone|') &&
-            !hero.id.startsWith('mirror-clone|')
-        ).length;
-    if (realAliveOnBoard >= 4) return null;
+    // 替补制：场上真实存活已达四人上限时复活会超编，直接放弃复活。
+    // 使用引擎权威口径（含召唤物排除与棋盘引用一致性校验），避免本地计数与结算口径漂移导致决策失误。
+    if (GameEngine.countRealAliveOnBoard(state, player) >= 4) return null;
 
     return heroesFor(state, player)
         .filter(hero => hero.state === HeroState.DEAD)

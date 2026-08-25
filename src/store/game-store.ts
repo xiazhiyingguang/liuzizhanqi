@@ -159,6 +159,40 @@ function finalizeLibaiChain(
     GameEngine.endHeroAction(hero, state);
 }
 
+/**
+ * 引擎回合流程权威字段的同步片段。
+ *
+ * 背景：action 内 `const state = get()` 取得的顶层对象，可能在引擎 mutate 之前
+ * 就因 addLog 等其他 set 而被浅拷贝换代；此后引擎写入该旧对象的挂起/切边值，
+ * 若收尾 set 不显式列出这些字段，Zustand 会以"最后一次 set 的产物"为基底合并，
+ * 导致引擎晚写入的值永久丢失（典型症状：补员挂起不同步 → AI 全员行动完后控制权悬空）。
+ *
+ * 因此：凡调用 GameEngine.endHeroAction / startNewTurn / advancePastBlockedPlayer /
+ * continueTurnFlow 等会 mutate 回合流程状态的代码路径，其收尾 set 必须展开本片段。
+ */
+function syncEngineFlowFields(state: GameState): Partial<GameStore> {
+    return {
+        currentPlayer: state.currentPlayer,
+        actionsThisTurn: state.actionsThisTurn,
+        roundNumber: state.roundNumber,
+        phase: state.phase,
+        winner: state.winner,
+        // 替补制补员挂起三件套 + 替补席
+        reinforcingPlayer: state.reinforcingPlayer,
+        reinforcementSelectableHeroId: state.reinforcementSelectableHeroId,
+        reinforceResumeContext: state.reinforceResumeContext,
+        player1BenchHeroIds: state.player1BenchHeroIds,
+        player2BenchHeroIds: state.player2BenchHeroIds,
+        // 额外行动 / 强制行动（continueTurnFlow 可能发起或收尾）
+        pendingExtraActionHeroIds: state.pendingExtraActionHeroIds,
+        performingExtraAction: state.performingExtraAction,
+        resumePlayer: state.resumePlayer,
+        pendingForcedActionHeroId: state.pendingForcedActionHeroId,
+        performingForcedAction: state.performingForcedAction,
+        forcedActionResumePlayer: state.forcedActionResumePlayer,
+    };
+}
+
 interface GameStore extends GameState {
     // 新增状态
     moveRange: Position[];
@@ -761,9 +795,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     });
                     GameEngine.endHeroAction(hero, state);
                     set({
-                        currentPlayer: state.currentPlayer,
-                        roundNumber: state.roundNumber,
-                        actionsThisTurn: state.actionsThisTurn,
+                        ...syncEngineFlowFields(state),
                         board: state.board.map(row => [...row]),
                         player1Heroes: [...state.player1Heroes],
                         player2Heroes: [...state.player2Heroes],
@@ -927,11 +959,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             if (hero.state !== HeroState.ALIVE) {
                 GameEngine.endHeroAction(hero, state);
                 set({
-                    currentPlayer: state.currentPlayer,
-                    actionsThisTurn: state.actionsThisTurn,
-                    roundNumber: state.roundNumber,
-                    phase: state.phase,
-                    winner: state.winner,
+                    ...syncEngineFlowFields(state),
                     board: state.board.map(row => [...row]),
                     player1Heroes: [...state.player1Heroes],
                     player2Heroes: [...state.player2Heroes],
@@ -1421,11 +1449,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             GameEngine.endHeroAction(hero, state);
 
             set({
-                currentPlayer: state.currentPlayer,
-                actionsThisTurn: state.actionsThisTurn,
-                roundNumber: state.roundNumber,
-                phase: state.phase,
-                winner: state.winner,
+                ...syncEngineFlowFields(state),
                 board: state.board.map(row => [...row]),
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
@@ -1492,11 +1516,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                         GameEngine.endHeroAction(hero, state);
 
                         set({
-                            currentPlayer: state.currentPlayer,
-                            actionsThisTurn: state.actionsThisTurn,
-                            roundNumber: state.roundNumber,
-                            phase: state.phase,
-                            winner: state.winner,
+                            ...syncEngineFlowFields(state),
                             board: state.board.map(row => [...row]),
                             player1Heroes: [...state.player1Heroes],
                             player2Heroes: [...state.player2Heroes],
@@ -1617,11 +1637,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     GameEngine.endHeroAction(hero, state);
 
                     set({
-                        currentPlayer: state.currentPlayer,
-                        actionsThisTurn: state.actionsThisTurn,
-                        roundNumber: state.roundNumber,
-                        phase: state.phase,
-                        winner: state.winner,
+                        ...syncEngineFlowFields(state),
                         board: state.board.map(row => [...row]),
                         player1Heroes: [...state.player1Heroes],
                         player2Heroes: [...state.player2Heroes],
@@ -1735,11 +1751,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     GameEngine.endHeroAction(hero, state);
 
                     set({
-                        currentPlayer: state.currentPlayer,
-                        actionsThisTurn: state.actionsThisTurn,
-                        roundNumber: state.roundNumber,
-                        phase: state.phase,
-                        winner: state.winner,
+                        ...syncEngineFlowFields(state),
                         board: state.board.map(row => [...row]),
                         player1Heroes: [...state.player1Heroes],
                         player2Heroes: [...state.player2Heroes],
@@ -1997,11 +2009,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             hero.hasActedThisTurn = true;
             GameEngine.endHeroAction(hero, state);
             set({
-                currentPlayer: state.currentPlayer,
-                actionsThisTurn: state.actionsThisTurn,
-                roundNumber: state.roundNumber,
-                phase: state.phase,
-                winner: state.winner,
+                ...syncEngineFlowFields(state),
                 board: state.board.map(row => [...row]),
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
@@ -2262,11 +2270,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 重要：不要创建新的英雄对象，因为伤害已经应用到原始对象上了
         // 只需要创建新的数组引用来触发 React 重新渲染
         set({
-            currentPlayer: state.currentPlayer,
-            actionsThisTurn: state.actionsThisTurn,
-            roundNumber: state.roundNumber,
-            phase: state.phase,
-            winner: state.winner,
+            ...syncEngineFlowFields(state),  // 引擎可能在 endHeroAction 中挂起补员/发起额外行动，必须同步
             board: state.board.map(row => [...row]),  // 浅拷贝，保持英雄对象引用
             player1Heroes: [...state.player1Heroes],  // 浅拷贝，保持英雄对象引用
             player2Heroes: [...state.player2Heroes],  // 浅拷贝，保持英雄对象引用
@@ -2498,10 +2502,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             if (!state.reinforcingPlayer && GameEngine.getAvailableHeroesForPlayer(state, state.currentPlayer).length === 0) {
                 GameEngine.advancePastBlockedPlayer(state);
                 set({
-                    currentPlayer: state.currentPlayer,
-                    roundNumber: state.roundNumber,
-                    phase: state.phase,
-                    winner: state.winner,
+                    ...syncEngineFlowFields(state),
                     board: state.board.map(row => [...row]),
                     player1Heroes: [...state.player1Heroes],
                     player2Heroes: [...state.player2Heroes],
@@ -2531,10 +2532,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (state.libaiChainState?.heroId === hero.id) {
             finalizeLibaiChain(hero, state, (entry) => get().addLog(entry));
             set({
-                currentPlayer: state.currentPlayer,
-                roundNumber: state.roundNumber,
-                phase: state.phase,
-                winner: state.winner,
+                ...syncEngineFlowFields(state),
                 board: state.board.map(row => [...row]),
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
@@ -2594,9 +2592,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             GameEngine.endHeroAction(hero, state);
 
             set({
-                currentPlayer: state.currentPlayer,
-                actionsThisTurn: state.actionsThisTurn,
-                roundNumber: state.roundNumber,
+                ...syncEngineFlowFields(state),
                 board: [...state.board],
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
@@ -2624,11 +2620,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         GameEngine.endHeroAction(hero, state);
 
         // GameEngine已经修改了state对象，现在需要触发Zustand的更新
-        // 重要：需要显式设置 GameEngine 更新的字段
+        // 重要：需要显式设置 GameEngine 更新的字段（回合流程权威字段统一由 syncEngineFlowFields 提供）
         set({
-            currentPlayer: state.currentPlayer,
-            actionsThisTurn: state.actionsThisTurn,
-            roundNumber: state.roundNumber,
+            ...syncEngineFlowFields(state),
             board: [...state.board],
             player1Heroes: [...state.player1Heroes],
             player2Heroes: [...state.player2Heroes],
@@ -2640,13 +2634,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             baizeReviveTargetHeroId: undefined,
             moveRange: [],
             skillRange: [],
-            wukongSkill2State: undefined,
-            // 替补制补员挂起状态（阵亡立即上场）
-            reinforcingPlayer: state.reinforcingPlayer,
-            reinforcementSelectableHeroId: null,
-            reinforceResumeContext: state.reinforceResumeContext,
-            player1BenchHeroIds: state.player1BenchHeroIds,
-            player2BenchHeroIds: state.player2BenchHeroIds
+            wukongSkill2State: undefined
         });
         const after = get();
         sendOnlineActionIfNeeded(after, {

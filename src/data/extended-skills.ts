@@ -2097,6 +2097,10 @@ export const daiSkill1: Skill = {
             if (!target.position) {
                 return fail(`${target.name}没有可用的死亡位置记录`);
             }
+            // 替补制编制上限：场上真实存活已满4人时禁止唤回，防止第5人超员
+            if (GameEngine.countRealAliveOnBoard(gameState, caster.owner) >= 4) {
+                return fail('我方场上编制已满，无法从时空停滞中唤回单位');
+            }
 
             // 复活位置：优先回到死亡原位，被占则就近部署
             let revivePos: Position = [target.position[0], target.position[1]];

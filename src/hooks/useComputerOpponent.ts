@@ -24,6 +24,7 @@ import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../
 import { HeroState } from '../types/game';
 import { getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
+import { GameEngine } from '../core/game-engine';
 
 const AI_PLAYER = 'player2' as const;
 const THINK_DELAY_MS = 430;
@@ -123,8 +124,10 @@ function nextPlannedTarget(
         return null;
     }
 
-    // 时空旅者·戴尔技能1：优先点击己方时空停滞单位的死亡位置进行复活
-    if (skill.id === 'dai_skill1' && pending.length === 0) {
+    // 时空旅者·戴尔技能1：优先点击己方时空停滞单位的死亡位置进行复活。
+    // 替补制编制上限：满编时唤回必然失败，跳过该分支（双保险，与 buildTargetSets 过滤一致）。
+    if (skill.id === 'dai_skill1' && pending.length === 0 &&
+        GameEngine.countRealAliveOnBoard(state, caster.owner) < 4) {
         const stalled = [...state.player1Heroes, ...state.player2Heroes].find(hero =>
             hero.owner === caster.owner &&
             hero.state === HeroState.DEAD &&
