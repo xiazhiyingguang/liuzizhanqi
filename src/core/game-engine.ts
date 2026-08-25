@@ -550,11 +550,18 @@ export class GameEngine {
             const [row, col] = hero.position;
             return gameState.board[row]?.[col] === hero;
         };
-        // 替补席仍有英雄 = 该方尚未全灭（还有可上场战力）
-        const p1HasBench = (gameState.player1BenchHeroIds?.length ?? 0) > 0;
-        const p2HasBench = (gameState.player2BenchHeroIds?.length ?? 0) > 0;
-        const p1AllDead = !gameState.player1Heroes.some(isAliveOnBoard) && !p1HasBench;
-        const p2AllDead = !gameState.player2Heroes.some(isAliveOnBoard) && !p2HasBench;
+        // 全灭判定的完整口径：场上无真实存活，且没有任何途径恢复战力——
+        // ① 替补可上场（存在补员需求）；② 魂灯标记的暂时阵亡将在下回合开始自动复活。
+        // 注意：全员暂时阵亡（如被技能集体暂离）且无上述途径时立即判负，
+        // 不再等待"击败6人"——该方已无人可行动，对局无法继续。
+        const p1CanReinforce = this.hasReinforcementNeed(gameState, 'player1');
+        const p2CanReinforce = this.hasReinforcementNeed(gameState, 'player2');
+        const hasScheduledRevive = (heroes: Hero[]) =>
+            heroes.some(hero => hero.state === HeroState.TEMP_DEAD && hero.counters['soul_lamp_revive_round'] !== undefined);
+        const p1AllDead = !gameState.player1Heroes.some(isAliveOnBoard) &&
+            !p1CanReinforce && !hasScheduledRevive(gameState.player1Heroes);
+        const p2AllDead = !gameState.player2Heroes.some(isAliveOnBoard) &&
+            !p2CanReinforce && !hasScheduledRevive(gameState.player2Heroes);
 
         if (p1AllDead && p2AllDead) {
             // 双方同时全灭（极罕见）：判平局处理为进攻方失败前的最后状态，这里按先手方判负
@@ -632,14 +639,39 @@ export class GameEngine {
     }
 
     /**
-     * 替补制补员调度：若存在"替补席非空且场上存活<4"的一方，将其设为 reinforcingPlayer 并返回 true（挂起当前流程等待补员交互）。
+     * 统计一方处于暂时阵亡的真实英雄数（排除克隆/召唤物）。
+     * 暂时阵亡保留编制等待回归，不消耗替补名额。
+     */
+    static countRealTempDead(gameState: GameState, player: Player): number {
+        return [...(player === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)]
+            .filter(hero =>
+                hero.state === HeroState.TEMP_DEAD &&
+                hero.counters?.['__isClone'] !== 1 &&
+                hero.counters?.['__isSummon'] !== 1 &&
+                !hero.id.startsWith('wukong-clone|') &&
+                !hero.id.startsWith('mirror-clone|') &&
+                !hero.id.startsWith('t-summon|')
+            ).length;
+    }
+
+    /**
+     * 该方是否存在补员需求：替补席非空且「场上存活 + 暂时阵亡」未满编4人。
+     * 暂时阵亡占住编制等待回归（技能复活/魂灯），只有真阵亡(DEAD)留下的空位才由替补填补。
+     */
+    static hasReinforcementNeed(gameState: GameState, player: Player): boolean {
+        const bench = player === 'player1' ? gameState.player1BenchHeroIds : gameState.player2BenchHeroIds;
+        if ((bench?.length ?? 0) === 0) return false;
+        return this.countRealAliveOnBoard(gameState, player) + this.countRealTempDead(gameState, player) < 4;
+    }
+
+    /**
+     * 替补制补员调度：若存在"替补席非空且存在补员需求"的一方，将其设为 reinforcingPlayer 并返回 true（挂起当前流程等待补员交互）。
      * 先检查 player1 后 player2；无待补员时清除标记并返回 false。
      */
     static beginPendingReinforcement(gameState: GameState): boolean {
         if (gameState.phase === 'ended') return false;
         for (const player of ['player1', 'player2'] as Player[]) {
-            const bench = player === 'player1' ? gameState.player1BenchHeroIds : gameState.player2BenchHeroIds;
-            if ((bench?.length ?? 0) > 0 && this.countRealAliveOnBoard(gameState, player) < 4) {
+            if (this.hasReinforcementNeed(gameState, player)) {
                 gameState.reinforcingPlayer = player;
                 gameState.reinforcementSelectableHeroId = null;
                 return true;

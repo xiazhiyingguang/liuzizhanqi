@@ -721,8 +721,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const bench = player === 'player1' ? state.player1BenchHeroIds : state.player2BenchHeroIds;
         if (!bench?.includes(heroId)) return false;
 
-        // 补员前再次校验仍需补员（防止竞态下重复上场）
-        if (GameEngine.countRealAliveOnBoard(state, player) >= 4) return false;
+        // 补员前再次校验仍需补员（防止竞态下重复上场）；
+        // 口径与调度一致：「场上存活+暂时阵亡」已满编4人则不再放行
+        if (!GameEngine.hasReinforcementNeed(state, player)) return false;
 
         const hero = createHero(heroId, player, position);
         hero.hasActedThisTurn = false;  // 当轮即可行动
