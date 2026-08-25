@@ -214,6 +214,36 @@
     margin-bottom: 8px;
 }
 
+/* 左侧阵容列表：卡片自然高度，富余时均分撑满（上限钳制），不足时滚动，绝不裁切内容 */
+.hero-roster-item {
+    flex: 1 0 auto;
+    min-height: 56px;
+    max-height: 96px;
+}
+
+.hero-roster-list {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(26, 26, 26, 0.16) transparent;
+}
+
+.hero-roster-list::-webkit-scrollbar {
+    width: 5px;
+}
+
+.hero-roster-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.hero-roster-list::-webkit-scrollbar-thumb {
+    background: rgba(26, 26, 26, 0.14);
+    border-radius: 999px;
+}
+
+/* 名单内血条略加高，与右侧数值同行对齐 */
+.hp-bar-lg.hp-bar-roster {
+    height: 7px;
+}
+
 @media (max-width: 1180px) {
     .battle-workspace {
         grid-template-columns: 186px minmax(475px, 1fr) 290px;
