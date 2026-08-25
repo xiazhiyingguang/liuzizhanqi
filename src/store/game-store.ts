@@ -333,7 +333,10 @@ function createMatchId(): string {
     return `match-${Date.now().toString(36)}-${randomPart}`;
 }
 
-const initialState: GameState = {
+// 必须是工厂函数而非共享常量：引擎在局内会原地修改这些容器（如冰晶技能直接 push 进
+// boardEffects 数组）。若各处重置都展开同一个模块级常量，第一局写入的数组/对象引用会
+// 被原样带进后续对局（典型症状：第二轮游戏棋盘上残留上一局的雪花等区域效果图标）。
+const createInitialState = (): GameState => ({
     board: createEmptyBoard(),
     player1Heroes: [],
     player2Heroes: [],
@@ -392,10 +395,10 @@ const initialState: GameState = {
     libaiChainState: undefined,
     shangguanDashState: undefined,
     pendingBoardAction: undefined
-};
+});
 
 export const useGameStore = create<GameStore>((set, get) => ({
-    ...initialState,
+    ...createInitialState(),
     moveRange: [],
     skillRange: [],
     wukongSkill2State: undefined,
@@ -404,7 +407,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     initGame: () => {
         const onlineContext = get();
         set({
-            ...initialState,
+            ...createInitialState(),
             matchId: createMatchId(),
             phase: 'hero-select',
             isOnlineMode: onlineContext.isOnlineMode,
@@ -2663,7 +2666,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     resetGame: () => {
         set({
-            ...initialState,
+            ...createInitialState(),
             moveRange: [],
             skillRange: [],
             wukongSkill2State: undefined,
