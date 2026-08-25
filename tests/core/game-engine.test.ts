@@ -275,8 +275,8 @@ describe('GameEngine victory and revival', () => {
         GameEngine.startNewTurn(state);
 
         expect(target.state).toBe(HeroState.ALIVE);
-        // 暂时阵亡时生命(10) + 两层亡灵之魂×20%最大生命（47×0.2≈9，两层+18）= 28
-        expect(target.currentHp).toBe(28);
+        // 暂时阵亡时生命(10) + 已损生命(37)×两层亡灵之魂20%（floor(37×0.4)=14）= 24
+        expect(target.currentHp).toBe(24);
         expect(target.counters['soul_lamp_revive_round']).toBeUndefined();
         expect(state.deathCounters.player1Resurrections).toBe(1);
     });

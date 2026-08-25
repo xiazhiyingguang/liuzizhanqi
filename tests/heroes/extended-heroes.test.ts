@@ -307,9 +307,26 @@ describe('extended heroes', () => {
         expect(state.boardEffects?.[0].type).toBe('dark-circle');
         GameEngine.resurrectHero(lamp, 1, state);
         soulLampSkill2.execute!(lamp, [ally], state);
-        expect(lamp.state).toBe(HeroState.DEAD);
+        // 队友(2,1)在暗夜法阵(2,2)一格内暂离 → 施放者被联动立即复活，而非真实死亡
         expect(ally.state).toBe(HeroState.TEMP_DEAD);
         expect(ally.counters['soul_lamp_revive_round']).toBe(2);
+        expect(lamp.state).toBe(HeroState.ALIVE);
+    });
+
+    it('缚魂轮转目标不在法阵内时，施放者仅暂时阵亡并于下轮轮转回归', () => {
+        const state = makeGameState();
+        const lamp = addHero(state, 'soul_lamp', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [5, 4]);
+        addHero(state, 'baize', 'player2', [0, 0]);
+
+        soulLampSkill2.execute!(lamp, [ally], state);
+
+        // 缚魂灯的技能代价均为暂时阵亡而非真实死亡：不腾出编制、不触发替补补员
+        expect(lamp.state).toBe(HeroState.TEMP_DEAD);
+        expect(ally.state).toBe(HeroState.TEMP_DEAD);
+        expect(lamp.counters['soul_lamp_revive_round']).toBe(2);
+        expect(ally.counters['soul_lamp_revive_round']).toBe(2);
+        expect(GameEngine.beginPendingReinforcement(state)).toBe(false);
     });
 
     it('缚魂灯暂时阵亡给受益者临时吸血，复活后移除，真实死亡后永久', () => {

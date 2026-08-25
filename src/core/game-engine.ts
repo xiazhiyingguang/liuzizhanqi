@@ -84,8 +84,12 @@ export class GameEngine {
                 .filter(candidate => candidate.state !== HeroState.ALIVE).length;
             const missingHealRate = Math.min(1, soulCount * 0.2);
             if (this.resurrectHero(hero, 0.01, gameState)) {
-                // 在暂时阵亡时的生命值基础上，额外恢复（亡灵之魂×20% × 最大生命），上限为最大生命
-                hero.currentHp = Math.max(1, Math.min(hero.maxHp, hero.currentHp + Math.floor(hero.maxHp * missingHealRate)));
+                // 按设计口径：复活时恢复「亡灵之魂×20%」的已损生命值，比例上限100%（最多补满）
+                const lostHp = Math.max(0, hero.maxHp - hero.currentHp);
+                hero.currentHp = Math.max(1, Math.min(
+                    hero.maxHp,
+                    hero.currentHp + Math.floor(lostHp * missingHealRate)
+                ));
             }
         }
 

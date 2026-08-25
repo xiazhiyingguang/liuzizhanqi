@@ -442,7 +442,7 @@ export const soulLampSkill2: Skill = {
     id: 'soul_lamp_skill2',
     name: '缚魂轮转',
     type: 'special',
-    description: '令一名存活队友暂时阵亡并在下一轮复活，自己真实死亡',
+    description: '令一名存活队友暂时阵亡并于下一轮复活，自身也暂时阵亡轮转回归',
     rangeType: '全场',
     range: 6,
     targetType: 'ally',
@@ -450,10 +450,18 @@ export const soulLampSkill2: Skill = {
     execute: (caster, targets, gameState) => {
         const target = targets[0];
         if (!target) return fail('没有友方目标');
+        // 缚魂灯的技能代价均为暂时阵亡而非真实死亡（不腾出编制、不触发替补补员）；
+        // 先置自身暂离：随后的队友暂离若落在暗夜法阵一格范围内，会立即将自己复苏
+        GameEngine.tempDeath(caster, gameState);
         GameEngine.tempDeath(target, gameState);
-        target.counters['soul_lamp_revive_round'] = gameState.roundNumber + 1;
-        DamageCalculator.forceDeath(caster, caster, gameState);
-        return result([`${target.name}将在下一轮复活，${caster.name}真实死亡`]);
+        if (target.state === HeroState.TEMP_DEAD) {
+            target.counters['soul_lamp_revive_round'] = gameState.roundNumber + 1;
+        }
+        // 未被法阵联动立即复活时，同样于下一轮轮转回归，避免永久滞留暂离
+        if (caster.state === HeroState.TEMP_DEAD) {
+            caster.counters['soul_lamp_revive_round'] = gameState.roundNumber + 1;
+        }
+        return result([`${target.name}将于下一轮复活，${caster.name}暂时阵亡轮转`]);
     },
 };
 
