@@ -231,8 +231,8 @@ describe('Liuli', () => {
 
         const result = liuliSkill2.execute!(liuli, [liuli], state);
 
-        expect(result.healingDone).toEqual([16]);
-        expect(liuli.currentHp).toBe(36);
+        expect(result.healingDone).toEqual([19]);
+        expect(liuli.currentHp).toBe(39);
         expect(EffectManager.getCounter(liuli, '禅定')).toBe(0);
     });
 });

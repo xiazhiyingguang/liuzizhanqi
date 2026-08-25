@@ -47,7 +47,7 @@ export const HERO_ABILITY_RATINGS: Record<string, HeroAbilityRatings> = {
     赏金猎人: ratings(6, 7, 4, 1, 9, 8, 6),
     阴阳师: ratings(7, 6, 6, 6, 9, 6, 8),
     缚魂灯: ratings(1, 4, 4, 1, 10, 7, 8),
-    琉璃: ratings(1, 9, 4, 1, 9, 3, 3),
+    琉璃: ratings(1, 10, 4, 1, 9, 3, 3),
     英雄X: ratings(4, 8, 5, 9, 6, 7, 4),
     '沉渊·镇岳': ratings(3, 9, 2, 8, 9, 6, 3),
     白泽: ratings(1, 6, 4, 1, 10, 10, 7),

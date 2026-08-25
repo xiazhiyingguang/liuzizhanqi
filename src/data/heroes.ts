@@ -843,7 +843,7 @@ export function createHero(
         liuli: {
             name: '琉璃',
             class: '霸魁',
-            maxHp: 55,
+            maxHp: 65,
             moveRange: 2,
             skill1Id: 'liuli_skill1',
             skill2Id: 'liuli_skill2',
@@ -1052,7 +1052,7 @@ export function getHeroInfo(heroId: string) {
         liuli: {
             name: '琉璃',
             class: '霸魁',
-            description: '援护友军。生命55，移动力2'
+            description: '援护友军。生命65，移动力2'
         },
         baize: {
             name: '白泽',
