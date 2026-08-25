@@ -70,6 +70,13 @@ export function useOnlineSync() {
                     break;
                 }
 
+                case 'reposition-deploy-hero': {
+                    if (action.data?.heroId && action.data?.position) {
+                        store.repositionDeployHeroForPlayer(playerKey, action.data.heroId, action.data.position);
+                    }
+                    break;
+                }
+
                 case 'confirm-deployment': {
                     store.confirmDeploymentForPlayer(playerKey);
                     break;

@@ -212,6 +212,9 @@ interface GameStore extends GameState {
     // 部署
     deployHero: (heroId: string, position: Position) => void;
     deployHeroForPlayer: (playerKey: Player, heroId: string, position: Position) => boolean;
+    /** 布阵阶段调整已上阵英雄位置：目标空格为移动，目标为己方英雄则交换 */
+    repositionDeployHero: (heroId: string, position: Position) => void;
+    repositionDeployHeroForPlayer: (playerKey: Player, heroId: string, position: Position) => boolean;
     confirmDeployment: () => void;
     confirmDeploymentForPlayer: (playerKey: Player) => boolean;
 
@@ -562,6 +565,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const heroListKey = isPlayer1 ? 'player1Heroes' : 'player2Heroes';
         const currentHeroes = state[heroListKey];
         if (currentHeroes.some(h => h.id.startsWith(`${heroId}-${playerKey}-`))) return false;
+        // 首发硬上限 4 人：UI 已禁用替补按钮，此处兜底拦截联机消息等旁路上阵
+        if (currentHeroes.length >= 4) return false;
 
         const hero = createHero(heroId, playerKey, position);
         const newBoard = state.board.map(r => [...r]);
@@ -614,6 +619,66 @@ export const useGameStore = create<GameStore>((set, get) => ({
             });
         }
 
+        return true;
+    },
+
+    // ===== 布阵阶段位置调整：空格=移动，己方英雄=交换，无需撤下重放 =====
+
+    repositionDeployHero: (heroId: string, position: Position) => {
+        const state = get();
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localPlayerKey = getLocalPlayerKey(state);
+            if (!localPlayerKey) return;
+            const changed = get().repositionDeployHeroForPlayer(localPlayerKey, heroId, position);
+            if (changed) sendOnlineActionIfNeeded(get(), { type: 'reposition-deploy-hero', data: { heroId, position } });
+            return;
+        }
+        const selectingPlayer = state.selectingPlayer;
+        const changed = get().repositionDeployHeroForPlayer(selectingPlayer, heroId, position);
+        if (changed) sendOnlineActionIfNeeded(get(), { type: 'reposition-deploy-hero', data: { heroId, position } });
+    },
+
+    repositionDeployHeroForPlayer: (playerKey: Player, heroId: string, position: Position) => {
+        const state = get();
+        if (state.phase !== 'deploy' || !isValidBoardPosition(position)) return false;
+        const readyKey = playerKey === 'player1' ? 'player1ReadyDeploy' : 'player2ReadyDeploy';
+        if (state[readyKey]) return false;
+
+        const [toRow, toCol] = position;
+        if (playerKey === 'player1' && toCol >= 3) return false;
+        if (playerKey !== 'player1' && toCol < 3) return false;
+
+        const isPlayer1 = playerKey === 'player1';
+        const heroListKey = isPlayer1 ? 'player1Heroes' : 'player2Heroes';
+        const currentHeroes = state[heroListKey];
+        const movingHero = currentHeroes.find(h => h.id === heroId);
+        if (!movingHero || !movingHero.position) return false;
+        if (movingHero.position[0] === toRow && movingHero.position[1] === toCol) return false;
+
+        const [fromRow, fromCol] = movingHero.position;
+        const targetHero = state.board[toRow][toCol];
+
+        // 目标是对方英雄：布阵期双方各在自己半场，正常不可达，防御性拒绝
+        if (targetHero && targetHero.owner !== playerKey) return false;
+
+        const newBoard = state.board.map(r => [...r]);
+        let updatedHeroes = currentHeroes;
+
+        const movedMoving = { ...movingHero, position: [toRow, toCol] as Position };
+        updatedHeroes = updatedHeroes.map(h => (h.id === movingHero.id ? movedMoving : h));
+        newBoard[toRow][toCol] = movedMoving;
+
+        if (targetHero) {
+            // 交换两名己方英雄的位置
+            const movedTarget = { ...targetHero, position: [fromRow, fromCol] as Position };
+            updatedHeroes = updatedHeroes.map(h => (h.id === targetHero.id ? movedTarget : h));
+            newBoard[fromRow][fromCol] = movedTarget;
+        } else {
+            // 移动到空格
+            newBoard[fromRow][fromCol] = null;
+        }
+
+        set({ board: newBoard, [heroListKey]: updatedHeroes });
         return true;
     },
 

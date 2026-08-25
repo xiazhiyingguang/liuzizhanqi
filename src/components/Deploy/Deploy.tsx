@@ -14,6 +14,7 @@ export default function Deploy() {
         player2SelectedHeroIds,
         board,
         deployHero,
+        repositionDeployHero,
         isOnlineMode,
         isAiMode,
         localPlayerNumber,
@@ -22,6 +23,8 @@ export default function Deploy() {
     } = useGameStore();
 
     const [selectedHeroId, setSelectedHeroId] = useState<string | null>(null);
+    // 布阵调整模式：选中棋盘上己方英雄后，可点空格移动或点另一己方英雄交换
+    const [adjustingHeroId, setAdjustingHeroId] = useState<string | null>(null);
 
     const localPlayerKey = localPlayerNumber === 1 ? 'player1' : localPlayerNumber === 2 ? 'player2' : null;
     const viewPlayer = isAiMode ? 'player1' : (isOnlineMode && localPlayerKey ? localPlayerKey : selectingPlayer);
@@ -41,12 +44,39 @@ export default function Deploy() {
 
     const handleCellClick = (row: number, col: number) => {
         if (!canDeploy) return;
-        if (!selectedHeroId) return;
         if (isP1 && col >= 3) return;
         if (!isP1 && col < 3) return;
-        if (board[row][col] !== null) return;
-        deployHero(selectedHeroId, [row, col]);
-        setSelectedHeroId(null);
+        const cellHero = board[row][col];
+
+        // 调整模式：点自己=取消，点空格=移动，点另一己方英雄=交换
+        if (adjustingHeroId) {
+            if (cellHero?.id === adjustingHeroId) {
+                setAdjustingHeroId(null);
+                return;
+            }
+            if (!cellHero || cellHero.owner === viewPlayer) {
+                repositionDeployHero(adjustingHeroId, [row, col]);
+                setAdjustingHeroId(null);
+            }
+            return;
+        }
+
+        // 候选英雄待上阵：只能放到空格；点已放英雄则转入调整模式
+        if (selectedHeroId) {
+            if (!cellHero) {
+                deployHero(selectedHeroId, [row, col]);
+                setSelectedHeroId(null);
+            } else if (cellHero.owner === viewPlayer) {
+                setSelectedHeroId(null);
+                setAdjustingHeroId(cellHero.id);
+            }
+            return;
+        }
+
+        // 空闲状态：点击己方已放英雄进入调整模式
+        if (cellHero && cellHero.owner === viewPlayer) {
+            setAdjustingHeroId(cellHero.id);
+        }
     };
 
     return (
@@ -86,13 +116,15 @@ export default function Deploy() {
                         const isDeployed = board.flat().some(
                             h => h && h.owner === viewPlayer && h.name === info.name
                         );
-                        const isActive = selectedHeroId === heroId && canDeploy;
+                        // 首发已满4人：剩余英雄锁定为替补，禁止再上阵
+                        const isBenchLocked = !isDeployed && deployedCount >= 4;
+                        const isActive = selectedHeroId === heroId && canDeploy && !isBenchLocked;
 
                         return (
                             <button
                                 key={heroId}
                                 data-testid={`deploy-hero-${heroId}`}
-                                disabled={isDeployed || !canDeploy}
+                                disabled={isDeployed || isBenchLocked || !canDeploy}
                                 onClick={() => setSelectedHeroId(heroId)}
                                 className="relative"
                             >
@@ -100,7 +132,7 @@ export default function Deploy() {
                                     game-card p-3 text-center min-w-[90px] transition-all
                                     ${isDeployed ? 'opacity-25 grayscale' : ''}
                                     ${isActive ? 'game-card-selected scale-105' : ''}
-                                    ${canDeploy ? 'cursor-pointer' : 'cursor-not-allowed'}
+                                    ${!isDeployed && !isBenchLocked && canDeploy ? 'cursor-pointer' : 'cursor-not-allowed'}
                                 `}>
                                     <div className={`
                                         w-12 h-12 rounded-xl mx-auto mb-1.5 flex items-center justify-center
@@ -135,7 +167,13 @@ export default function Deploy() {
                 </div>
 
                 {/* 提示 */}
-                {selectedHeroId && (
+                {adjustingHeroId && (
+                    <p className="text-gold-dark text-sm font-body mb-3 animate-gentle-pulse">
+                        正在调整「{board.flat().find(h => h?.id === adjustingHeroId)?.name ?? ''}」：
+                        点击空格移动，点击其他己方英雄交换位置，再点它取消
+                    </p>
+                )}
+                {!adjustingHeroId && selectedHeroId && (
                     <p className="text-gold-dark text-sm font-body mb-3 animate-gentle-pulse">
                         点击{isP1 ? '左侧' : '右侧'}区域放置「{getHeroInfo(selectedHeroId).name}」
                     </p>
@@ -152,6 +190,10 @@ export default function Deploy() {
                                     (viewPlayer === 'player2' && !isPlayer1Zone)
                                 );
                                 const hero = board[row][col];
+                                // 调整模式视觉反馈：选中格金色描边，可移动/交换的格子呼吸高亮
+                                const isAdjustingCell = adjustingHeroId !== null && hero?.id === adjustingHeroId;
+                                const isAdjustTarget = adjustingHeroId !== null &&
+                                    (!hero || (hero.owner === viewPlayer && hero.id !== adjustingHeroId));
 
                                 return (
                                     <div
@@ -160,12 +202,11 @@ export default function Deploy() {
                                         onClick={() => handleCellClick(row, col)}
                                         className={`
                                             battle-cell w-[72px] h-[72px] flex items-center justify-center transition-all duration-150
-                                            ${isActiveZone
-                                                ? selectedHeroId
-                                                    ? 'cell-move cursor-pointer'
-                                                    : ''
-                                                : 'opacity-40'
-                                            }
+                                            ${!isActiveZone ? 'opacity-40' : ''}
+                                            ${isActiveZone && selectedHeroId && !hero ? 'cell-move cursor-pointer' : ''}
+                                            ${isAdjustingCell ? 'ring-2 ring-gold shadow-[0_0_12px_rgba(212,168,67,0.45)]' : ''}
+                                            ${isAdjustTarget && isActiveZone ? 'cell-move cursor-pointer' : ''}
+                                            ${isActiveZone && hero && !selectedHeroId && !adjustingHeroId && hero.owner === viewPlayer ? 'cursor-pointer' : ''}
                                             ${hero
                                                 ? isP1 ? 'cell-p1' : 'cell-p2'
                                                 : ''
