@@ -284,6 +284,15 @@ class AudioManager {
             case 'lead':
                 this.playLead(ctx, time, freq, seconds, event.velocity, gain, active.delaySend);
                 break;
+            case 'stab':
+                this.playStab(ctx, time, freq, seconds, event.velocity, gain);
+                break;
+            case 'tom':
+                this.playTom(ctx, time, event.velocity, gain);
+                break;
+            case 'crash':
+                this.playCrash(ctx, time, event.velocity, gain);
+                break;
         }
     }
 
@@ -429,25 +438,100 @@ class AudioManager {
         dest: AudioNode,
         delaySend: GainNode,
     ): void {
-        const osc = ctx.createOscillator();
-        osc.type = 'square';
-        osc.frequency.value = freq;
+        // 双失谐锯齿厚声部：比单方波更宽更亮，接近合成铜管领奏
+        const detuneCents = 8;
+        const oscA = ctx.createOscillator();
+        oscA.type = 'sawtooth';
+        oscA.frequency.value = freq;
+        oscA.detune.value = -detuneCents;
+        const oscB = ctx.createOscillator();
+        oscB.type = 'sawtooth';
+        oscB.frequency.value = freq;
+        oscB.detune.value = detuneCents;
         const lowpass = ctx.createBiquadFilter();
         lowpass.type = 'lowpass';
-        lowpass.frequency.value = 1900;
-        lowpass.Q.value = 2;
+        lowpass.frequency.value = 2400;
+        lowpass.Q.value = 1.2;
         const env = ctx.createGain();
-        const peak = velocity * 0.2;
+        const peak = velocity * 0.17;
         env.gain.setValueAtTime(0, time);
         env.gain.linearRampToValueAtTime(peak, time + 0.02);
         env.gain.setValueAtTime(peak, time + Math.max(0.02, seconds * 0.6));
         env.gain.linearRampToValueAtTime(0, time + seconds);
-        osc.connect(lowpass);
+        oscA.connect(lowpass);
+        oscB.connect(lowpass);
         lowpass.connect(env);
         env.connect(dest);
         env.connect(delaySend);
+        oscA.start(time);
+        oscB.start(time);
+        oscA.stop(time + seconds + 0.05);
+        oscB.stop(time + seconds + 0.05);
+    }
+
+    /** 铜管式和弦刺击：双失谐锯齿叠音 + 滤波下扫，短促有力 */
+    private playStab(ctx: AudioContext, time: number, freq: number, seconds: number, velocity: number, dest: AudioNode): void {
+        const detuneCents = 10;
+        const oscA = ctx.createOscillator();
+        oscA.type = 'sawtooth';
+        oscA.frequency.value = freq;
+        oscA.detune.value = -detuneCents;
+        const oscB = ctx.createOscillator();
+        oscB.type = 'sawtooth';
+        oscB.frequency.value = freq;
+        oscB.detune.value = detuneCents;
+        const lowpass = ctx.createBiquadFilter();
+        lowpass.type = 'lowpass';
+        lowpass.frequency.setValueAtTime(3000, time);
+        lowpass.frequency.exponentialRampToValueAtTime(700, time + Math.max(0.12, seconds));
+        lowpass.Q.value = 1;
+        const env = ctx.createGain();
+        const peak = velocity * 0.09; // 三音和弦叠加，单振峰值压低防过载
+        env.gain.setValueAtTime(0, time);
+        env.gain.linearRampToValueAtTime(peak, time + 0.012);
+        env.gain.exponentialRampToValueAtTime(0.001, time + Math.max(0.18, seconds * 1.1));
+        oscA.connect(lowpass);
+        oscB.connect(lowpass);
+        lowpass.connect(env);
+        env.connect(dest);
+        oscA.start(time);
+        oscB.start(time);
+        const stopAt = time + Math.max(0.24, seconds * 1.15) + 0.05;
+        oscA.stop(stopAt);
+        oscB.stop(stopAt);
+    }
+
+    /** 太鼓式低音战鼓：正弦下扫，比底鼓更低更沉更长 */
+    private playTom(ctx: AudioContext, time: number, velocity: number, dest: AudioNode): void {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(120, time);
+        osc.frequency.exponentialRampToValueAtTime(55, time + 0.25);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(velocity * 0.42, time);
+        env.gain.exponentialRampToValueAtTime(0.001, time + 0.45);
+        osc.connect(env);
+        env.connect(dest);
         osc.start(time);
-        osc.stop(time + seconds + 0.05);
+        osc.stop(time + 0.5);
+    }
+
+    /** 镲片：高通白噪声长衰减，用于乐段起始强调（噪声缓冲仅 0.3 秒，循环覆盖衰减期） */
+    private playCrash(ctx: AudioContext, time: number, velocity: number, dest: AudioNode): void {
+        const noise = ctx.createBufferSource();
+        noise.buffer = this.noiseBuffer;
+        noise.loop = true;
+        const highpass = ctx.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = 4500;
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(velocity * 0.12, time);
+        env.gain.exponentialRampToValueAtTime(0.001, time + 1.1);
+        noise.connect(highpass);
+        highpass.connect(env);
+        env.connect(dest);
+        noise.start(time);
+        noise.stop(time + 1.15);
     }
 }
 
