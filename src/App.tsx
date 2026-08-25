@@ -10,12 +10,15 @@ import CareerStatistics from './components/CareerStatistics/CareerStatistics';
 import { useOnlineSync } from './hooks/useOnlineSync';
 import { useComputerOpponent } from './hooks/useComputerOpponent';
 import { useCareerStatisticsRecorder } from './hooks/useCareerStatisticsRecorder';
+import { useBgmController } from './hooks/useBgmController';
+import BgmControl from './components/ui/BgmControl';
 
 function App() {
     const phase = useGameStore(state => state.phase);
     useOnlineSync();
     useComputerOpponent();
     useCareerStatisticsRecorder();
+    useBgmController(phase);
 
     return (
         <div className="w-full h-full ink-paper">
@@ -28,6 +31,7 @@ function App() {
             {phase === 'deploy' && <Deploy />}
             {phase === 'battle' && <BattleScene />}
             {phase === 'ended' && <BattleScene />}
+            <BgmControl />
         </div>
     );
 }
