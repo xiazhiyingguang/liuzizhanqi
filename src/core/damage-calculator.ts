@@ -1701,6 +1701,21 @@ export class DamageCalculator {
     }
 
     /**
+     * 当前实际暴击率（含灵犀/猎砂/暴击率类增益），供英雄信息卡展示。
+     * 与战斗判定共用同一口径，但不包含单次攻击的临时加成（如夜枭潜行层数）。
+     */
+    static getDisplayedCritRate(hero: Hero): number {
+        return this.getCritRate(hero);
+    }
+
+    /**
+     * 当前暴击伤害倍率（基础1.5倍，即额外+50%伤害），供英雄信息卡展示。
+     */
+    static getDisplayedCritDamage(hero: Hero): number {
+        return this.getCritDamage(hero);
+    }
+
+    /**
      * 获取修正值（从效果和计数器中提取）
      */
     private static getModifiers(hero: Hero, type: string): number[] {
