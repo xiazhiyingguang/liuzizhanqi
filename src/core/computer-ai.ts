@@ -652,7 +652,7 @@ function targetPriority(state: GameState, caster: Hero, skill: Skill, position: 
 function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position[][] {
     if (!caster.position) return [];
 
-    if (skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2') {
+    if (skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2' || skill.id === 'zuizhendao_skill1') {
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
     }
 
@@ -775,6 +775,11 @@ function configureSimulationChoices(
         } else {
             caster.counters['__dilan_skill2_dir'] = dirCode;
         }
+    }
+    if (skill.id === 'zuizhendao_skill1' && caster.position) {
+        const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
+        caster.counters['__zuizhendao_skill1_dir'] =
+            direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
     }
     if (skill.id === 'baize_skill2') {
         const dead = heroesFor(state, caster.owner)

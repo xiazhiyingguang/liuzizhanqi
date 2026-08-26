@@ -1210,7 +1210,9 @@ export const zuizhendaoSkill1: Skill = {
             output.damageDealt?.push(damage.finalDamage);
             EffectManager.addCounter(caster, '醉意', 1);
         }
-        output.log.push(`${caster.name}拾刀后获得${plan.enemies.length}层醉意`);
+        output.log.push(plan.enemies.length > 0
+            ? `${caster.name}拾刀后获得${plan.enemies.length}层醉意`
+            : `${caster.name}拾刀路径上没有踩到敌人，未造成伤害`);
         return output;
     },
 };

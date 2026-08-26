@@ -1,4 +1,4 @@
-import { GameState, Hero, HeroState, BattleLogEntry, Player } from '../types/game';
+import { GameState, Hero, HeroState, BattleLogEntry, Player, Position } from '../types/game';
 import { MovementSystem } from './movement-system';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
@@ -1024,7 +1024,9 @@ export class GameEngine {
             if (occupant === null || occupant === hero) {
                 revivePosition = [row, col];
             } else {
-                revivePosition = MovementSystem.findNearestEmptyPosition(hero.position, gameState);
+                // 原位置被占据：随机在周围一格（3x3 邻域）内选择空位复活
+                revivePosition = this.randomAdjacentEmptyPosition(hero.position, gameState)
+                    ?? MovementSystem.findNearestEmptyPosition(hero.position, gameState);
             }
         }
 
@@ -1041,9 +1043,9 @@ export class GameEngine {
         hero.currentHp = reviveHp;
         hero.state = HeroState.ALIVE;
         hero.position = revivePosition;
-        // 复活后本回合可正常行动
-        hero.hasActedThisTurn = false;
-        hero.hasMovedThisTurn = false;
+        // 复活不刷新本回合出手机会：回合开始时所有非死亡英雄（含暂时阵亡）的行动标记
+        // 已统一重置，此处若再重置为 false，会让"已出手→暂时阵亡→当回合复活"的英雄
+        // 无限获得额外行动。回合开始触发的魂灯复活不受影响（重置循环在其之后执行）。
         gameState.board[revivePosition[0]][revivePosition[1]] = hero;
         delete hero.counters['soul_lamp_revive_round'];
         this.recordResurrection(hero, gameState);
@@ -1065,6 +1067,21 @@ export class GameEngine {
         });
 
         return true;
+    }
+
+    /**
+     * 在目标位置周围一格（3x3 邻域）内随机挑选一个空位。
+     * 用于暂时阵亡英雄复活时原位置被占据的场景；无空位时返回 null 由调用方兜底。
+     */
+    private static randomAdjacentEmptyPosition(
+        center: Position,
+        gameState: GameState
+    ): Position | null {
+        const candidates = MovementSystem.getAreaPositions(center, 3)
+            .filter(([row, col]) => gameState.board[row][col] === null);
+        if (candidates.length === 0) return null;
+        const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+        return shuffled[0];
     }
 
     private static recordResurrection(hero: Hero, gameState: GameState): void {

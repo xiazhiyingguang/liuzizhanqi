@@ -22,7 +22,7 @@ import {
 import { useGameStore } from '../store/game-store';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
-import { getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
+import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
 import { GameEngine } from '../core/game-engine';
 
@@ -264,20 +264,27 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'zuizhendao_skill1' && caster.passiveId === 'zuizhendao_passive') {
-        // 评估四个掷刀方向，选直线路径敌人收益最高的方向格执行
+        // 按技能真实机制评估四个掷刀方向：以 computeMaxEnemyPath 的实际踩敌数计分。
+        // 此前只数直线上有没有敌人，直线空时会随机方向掷空刀（0 伤害），
+        // 也无法发现"绕路可踩多个敌人"的更优方向。
         if (!caster.position) return;
         let bestDirPos: Position | null = null;
-        let bestScore = -1;
+        let bestScore = 0; // 0 起步：所有方向都踩不到敌人时不再掷刀
         for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
             const dirPos: Position = [caster.position[0] + dr, caster.position[1] + dc];
             const end: Position = [caster.position[0] + dr * 3, caster.position[1] + dc * 3];
             if (end[0] < 0 || end[0] >= 6 || end[1] < 0 || end[1] >= 6) continue;
             const occupant = state.board[end[0]][end[1]];
             if (occupant && occupant !== caster) continue; // 刀落点需为空位
-            let score = 0;
-            for (let i = 1; i <= 3; i++) {
-                const h = state.board[caster.position[0] + dr * i]?.[caster.position[1] + dc * i];
-                if (h && h.owner !== caster.owner && h.state === 'alive') score += 4;
+            const plan = computeMaxEnemyPath(caster.position, end, state, caster.owner);
+            if (!plan) continue;
+            let score = plan.enemies.length * 4; // 与技能一致的真实踩敌收益
+            for (const enemy of plan.enemies) {
+                // 斩杀判定：掷刀固定 4 伤害且护盾先抵扣
+                if (enemy.currentHp + enemy.shield <= 4) {
+                    score += 20;
+                    break;
+                }
             }
             if (score > bestScore) {
                 bestScore = score;
