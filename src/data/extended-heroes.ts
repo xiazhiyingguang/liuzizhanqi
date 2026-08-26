@@ -305,11 +305,11 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     schrodinger: { name: '量子观测者·薛定谔', class: '化识', description: '概率坍缩与量子纠缠。生命43，移动力2' },
     lilith: { name: '恐惧编织者·莉莉丝', class: '猎户', description: '恐惧控制与情绪能量。生命38，移动力3' },
     libai: { name: '李太白', class: '武曲', description: '醉意累积与脚印瞬移连击。生命40，移动力2' },
-    zuizhendao: { name: '醉枕刀', class: '武曲', description: '掷刀穿敌、换位斩与醉意闪避反击。生命46，移动力2' },
+    zuizhendao: { name: '醉枕刀', class: '武曲', description: '醉掷寒锋穿敌、醉影换位与醉意闪避反击。生命46，移动力2' },
     feixue: { name: '绯雪', class: '武曲', description: '破冰爆发、寒天收割与击杀追猎。生命45，移动力2' },
     fengling: { name: '风铃', class: '猎户', description: '强制锁敌、沙丘伏击与单体猎杀。生命45，移动力2' },
     dilan: { name: '帝兰', class: '天师', description: '操纵顺逆风、击退与羽化移动伤害。生命48，移动力3' },
-    shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段连冲与墨意闪避。生命42，移动力3' },
+    shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段笔走龙蛇与墨意闪避。生命42，移动力3' },
     chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力1' },
     dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯复活与状态还原、时空置换换位换血。生命45，移动力3' },
 };

@@ -32,7 +32,7 @@ function getDeadAllies(gameState: GameState, owner: Hero['owner']): Hero[] {
 
 export const baizeSkill1: Skill = {
     id: 'baize_skill1',
-    name: '技能1',
+    name: '瑞泽',
     type: 'heal',
     description: '恢复我方血量最低单位生命，为目标+1白泽之力，自身+1天禄',
     rangeType: '全场',
@@ -72,7 +72,7 @@ export const baizeSkill1: Skill = {
 
 export const baizeSkill2: Skill = {
     id: 'baize_skill2',
-    name: '技能2',
+    name: '天禄归生',
     type: 'special',
     description: '天禄不足时治疗；天禄充足时消耗复活阵亡单位',
     rangeType: '全场',
@@ -140,7 +140,7 @@ export const baizeSkill2: Skill = {
 
 export const wukongSkill1: Skill = {
     id: 'wukong_skill1',
-    name: '技能1',
+    name: '毫毛化身',
     type: 'summon',
     description: '在周围一格内释放一个分身',
     rangeType: 'area',
@@ -152,7 +152,7 @@ export const wukongSkill1: Skill = {
 
 export const wukongSkill2: Skill = {
     id: 'wukong_skill2',
-    name: '技能2',
+    name: '大圣合击',
     type: 'special',
     description: '释放前只能移动一格，然后对一格内的一名敌人造成8伤害；分身可分别选择目标',
     rangeType: 'area',
@@ -270,7 +270,7 @@ export const huifengSkill1: Skill = {
 
 export const huifengSkill2: Skill = {
     id: 'huifeng_skill2',
-    name: '留痕',
+    name: '风过留痕',
     type: 'special',
     description: '跳到相邻空位，在原地留下持续3回合的刃痕',
     rangeType: 'cross',
@@ -343,7 +343,7 @@ export const xuanxiaoSkill1: Skill = {
 
 export const xuanxiaoSkill2: Skill = {
     id: 'xuanxiao_skill2',
-    name: '再动',
+    name: '惊鸿再舞',
     type: 'special',
     description: '令一格内一名友方英雄立即行动一次',
     rangeType: 'area',
@@ -445,7 +445,7 @@ export const changliSkill2: Skill = {
 // 墨阑技能1：十字10伤害，进入"为道"状态
 export const moranSkill1: Skill = {
     id: 'moran_skill1',
-    name: '技能1',
+    name: '入道',
     type: 'damage',
     description: '对周围十字范围内的一人造成10点伤害，使自身进入"为道"状态',
     rangeType: 'cross',
@@ -523,7 +523,7 @@ export const moranSkill1: Skill = {
 // 墨阑技能2：十字15伤害
 export const moranSkill2: Skill = {
     id: 'moran_skill2',
-    name: '技能2',
+    name: '墨断',
     type: 'damage',
     description: '对周围十字范围内的一人造成15点伤害',
     rangeType: 'cross',
@@ -587,7 +587,7 @@ export const moranSkill2: Skill = {
 // 震霄技能1：消耗20%生命，直线攻击造成8伤害
 export const zhenxiaoSkill1: Skill = {
     id: 'zhenxiao_skill1',
-    name: '技能1',
+    name: '雷血开锋',
     type: 'damage',
     description: '消耗当前生命20%，对一个方向造成8点伤害',
     rangeType: 'line', // 实际上是特殊范围，但在UI上可能复用line的选择逻辑
@@ -633,7 +633,7 @@ export const zhenxiaoSkill1: Skill = {
 // 震霄技能2：形成束缚格，进入"金银错"状态
 export const zhenxiaoSkill2: Skill = {
     id: 'zhenxiao_skill2',
-    name: '技能2',
+    name: '金银错',
     type: 'special',
     description: '消耗当前生命20%，形成束缚格，进入"金银错"状态',
     rangeType: 'area',
@@ -683,7 +683,7 @@ export const zhenxiaoSkill2: Skill = {
 // 琉璃技能1：援护周围一格范围内的所有友方
 export const liuliSkill1: Skill = {
     id: 'liuli_skill1',
-    name: '援护',
+    name: '映月承锋',
     type: 'buff',
     description: '援护周围一格范围内的友方受到的任意伤害一回，添加1"禅定"',
     rangeType: 'area',
@@ -781,7 +781,7 @@ export const liuliSkill2: Skill = {
 // 暗影猎手·夜枭技能1：标记
 export const nightowlSkill1: Skill = {
     id: 'nightowl_skill1',
-    name: '死亡标记',
+    name: '死契之瞳',
     type: 'debuff',
     description: '标记3格范围内的一个敌方单位，持续3回合，首次攻击必暴，击杀刷新',
     rangeType: 'single',
@@ -911,7 +911,7 @@ export const nightowlSkill2: Skill = {
 
 export const mirrorSkill1: Skill = {
     id: 'mirror_skill1',
-    name: '开锋',
+    name: '破镜分光',
     type: 'summon',
     description: '在中心对称位置召唤镜像，将当前生命值分为一半给本体与镜像，本体与镜像各恢复4点生命值。若当前生命值超过20，获得1层破镜之刃（立即释放）',
     rangeType: '全场',
@@ -1130,7 +1130,7 @@ export const mirrorSkill2: Skill = {
 
 export const mowenSkill1: Skill = {
     id: 'mowen_skill1',
-    name: '技能1',
+    name: '时光回溯',
     type: 'damage',
     description: '对一格内单体敌人造成8点伤害，随后回溯至上一回合末生命值状态（冷却：2个自己回合）',
     rangeType: 'area',
@@ -1192,7 +1192,7 @@ export const mowenSkill1: Skill = {
 
 export const mowenSkill2: Skill = {
     id: 'mowen_skill2',
-    name: '技能2',
+    name: '逆时斩',
     type: 'damage',
     description: '消耗自身20%当前生命值，对一格内敌人造成(12 + 已损生命值*0.3)伤害（不属于基础攻击力）',
     rangeType: 'area',
@@ -1243,7 +1243,7 @@ export const mowenSkill2: Skill = {
 
 export const guyingSkill1: Skill = {
     id: 'guying_skill1',
-    name: '技能1',
+    name: '踏雪留影',
     type: 'damage',
     description: '选择一个直线方向，攻击路径上第一个敌人并移动到其身后，造成8点伤害并附加寒天',
     rangeType: 'line',
@@ -1382,7 +1382,7 @@ export const guyingSkill1: Skill = {
 
 export const guyingSkill2: Skill = {
     id: 'guying_skill2',
-    name: '技能2',
+    name: '寒星碎',
     type: 'damage',
     description: '对周围一格范围内单体目标造成伤害，若目标处于冰冻则伤害提升50%',
     rangeType: 'area',

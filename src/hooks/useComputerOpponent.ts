@@ -221,7 +221,7 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'shangguan_skill2' && caster.passiveId === 'shangguan_passive') {
-        // 连冲（含多段挂起）：扫描四方向选收益最高的一段执行；无可冲方向则结束行动
+        // 笔走龙蛇（含多段挂起）：扫描四方向选收益最高的一段执行；无可冲方向则结束行动
         if (!caster.position) return;
         const dash = state.shangguanDashState?.heroId === caster.id ? state.shangguanDashState : undefined;
         const hitTargets = dash ? [...dash.hitTargets] : [];
@@ -245,7 +245,7 @@ function executeSelectedSkillStep(
                 score += second.kind === 'enemy' ? 8 : 4;
                 break;
             }
-            // 落点安危：连冲会强制位移，落点比原地更危险时要谨慎（可能因此放弃冲锋保命）
+            // 落点安危：笔走龙蛇会强制位移，落点比原地更危险时要谨慎（可能因此放弃冲锋保命）
             const landingDelta =
                 (scoreComputerPosition(state, caster, scan.landPos)
                     - scoreComputerPosition(state, caster, caster.position)) * 0.35;
@@ -264,12 +264,12 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'zuizhendao_skill1' && caster.passiveId === 'zuizhendao_passive') {
-        // 按技能真实机制评估四个掷刀方向：以 computeMaxEnemyPath 的实际踩敌数计分。
+        // 按技能真实机制评估四个醉掷寒锋方向：以 computeMaxEnemyPath 的实际踩敌数计分。
         // 此前只数直线上有没有敌人，直线空时会随机方向掷空刀（0 伤害），
         // 也无法发现"绕路可踩多个敌人"的更优方向。
         if (!caster.position) return;
         let bestDirPos: Position | null = null;
-        let bestScore = 0; // 0 起步：所有方向都踩不到敌人时不再掷刀
+        let bestScore = 0; // 0 起步：所有方向都踩不到敌人时不再醉掷寒锋
         for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
             const dirPos: Position = [caster.position[0] + dr, caster.position[1] + dc];
             const end: Position = [caster.position[0] + dr * 3, caster.position[1] + dc * 3];
@@ -280,7 +280,7 @@ function executeSelectedSkillStep(
             if (!plan) continue;
             let score = plan.enemies.length * 4; // 与技能一致的真实踩敌收益
             for (const enemy of plan.enemies) {
-                // 斩杀判定：掷刀固定 4 伤害且护盾先抵扣
+                // 斩杀判定：醉掷寒锋固定 4 伤害且护盾先抵扣
                 if (enemy.currentHp + enemy.shield <= 4) {
                     score += 20;
                     break;
@@ -351,7 +351,7 @@ function executeLibaiChainStep(
     let bestSkillId: string | null = null;
     let bestDamage = 0;
 
-    // 技能2 候选：醉斩（矩形范围，需要方向）
+    // 技能2 候选：谪仙醉斩（矩形范围，需要方向）
     if (zuiyi >= 1) {
         let bestDir = 0;
         let bestCount = 0;

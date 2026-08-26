@@ -324,7 +324,7 @@ export interface GameState {
         pending: Position[]; // 尚未使用的历史位置
         awaitingPosition: boolean; // true=等待选择历史位置瞬移（此时禁止施法/移动）；false=已瞬移，等待攻击
     };
-    // 上官婉儿连冲：命中敌人/毛笔后暂停，等待玩家选择新方向继续冲刺
+    // 上官婉儿笔走龙蛇：命中敌人/毛笔后暂停，等待玩家选择新方向继续冲刺
     shangguanDashState?: {
         heroId: string;
         hitTargets: string[]; // 已命中目标（敌方英雄 id / 毛笔效果 id），不可重复

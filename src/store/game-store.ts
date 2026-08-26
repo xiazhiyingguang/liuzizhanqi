@@ -1268,12 +1268,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 moveRange: [],
                 activeHero: hero
             });
-            get().addLog({ type: 'system', player: hero.owner, message: '请选择醉斩的方向（上下左右）' });
+            get().addLog({ type: 'system', player: hero.owner, message: '请选择谪仙醉斩的方向（上下左右）' });
             return;
         }
 
         if (skill.id === 'shangguan_skill2') {
-            // 连冲：先选冲刺方向（上下左右相邻格），命中敌人/毛笔后可继续选新方向
+            // 笔走龙蛇：先选冲刺方向（上下左右相邻格），命中敌人/毛笔后可继续选新方向
             if (!hero.position) return;
             const [cr, cc] = hero.position;
             const dirPositions: Position[] = [];
@@ -1289,7 +1289,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 moveRange: [],
                 activeHero: hero
             });
-            get().addLog({ type: 'system', player: hero.owner, message: '请选择连冲的方向（上下左右）' });
+            get().addLog({ type: 'system', player: hero.owner, message: '请选择笔走龙蛇的方向（上下左右）' });
             return;
         }
 
@@ -1320,7 +1320,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
 
         if (skill.id === 'zuizhendao_skill1') {
-            // 先选择掷刀方向（上下左右），方向确定后自动计算路径并掷刀
+            // 先选择醉掷寒锋方向（上下左右），方向确定后自动计算路径并醉掷寒锋
             if (!hero.position) return;
             const [cr, cc] = hero.position;
             const dirPositions: Position[] = [];
@@ -1336,7 +1336,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 moveRange: [],
                 activeHero: hero
             });
-            get().addLog({ type: 'system', player: hero.owner, message: '请选择掷刀的方向（上下左右）' });
+            get().addLog({ type: 'system', player: hero.owner, message: '请选择醉掷寒锋的方向（上下左右）' });
             return;
         }
 
@@ -2000,7 +2000,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
-        // 上官婉儿技能2：多段连冲。每段点击相邻方向格冲刺；命中敌人/毛笔后停下，
+        // 上官婉儿技能2：多段笔走龙蛇。每段点击相邻方向格冲刺；命中敌人/毛笔后停下，
         // 若仍有可命中的目标则等待玩家选新方向继续，否则正常结束行动。
         // （全程快照同步，不走 action 回放，避免接收端重放结算）
         if (skill.id === 'shangguan_skill2') {
@@ -2014,14 +2014,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 get().addLog({
                     type: 'system',
                     player: hero.owner,
-                    message: '请点击相邻的方向格选择连冲方向'
+                    message: '请点击相邻的方向格选择笔走龙蛇方向'
                 });
                 return;
             }
             const dirR = isDirUp ? -1 : isDirDown ? 1 : 0;
             const dirC = isDirLeft ? -1 : isDirRight ? 1 : 0;
 
-            // 处于连冲中则延续已命中列表；否则这是第一段
+            // 处于笔走龙蛇中则延续已命中列表；否则这是第一段
             const activeDash =
                 state.shangguanDashState?.heroId === hero.id ? state.shangguanDashState : undefined;
             const hitTargets: string[] = activeDash ? [...activeDash.hitTargets] : [];
@@ -2031,9 +2031,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 get().addLog({
                     type: 'system',
                     player: hero.owner,
-                    message: outcome.message ?? '该方向无法连冲'
+                    message: outcome.message ?? '该方向无法笔走龙蛇'
                 });
-                // 第一段失败不消耗行动次数；连冲中失败保留状态等待换方向
+                // 第一段失败不消耗行动次数；笔走龙蛇中失败保留状态等待换方向
                 sendOnlineStateIfNeeded(get());
                 return;
             }
@@ -2043,7 +2043,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 get().addLog({
                     type: 'damage',
                     player: hero.owner,
-                    message: `连冲撞击${outcome.hitName}，造成${outcome.damage}点固定伤害${outcome.killed ? '，目标阵亡' : ''}`
+                    message: `笔走龙蛇撞击${outcome.hitName}，造成${outcome.damage}点固定伤害${outcome.killed ? '，目标阵亡' : ''}`
                 });
             } else {
                 get().addLog({
@@ -2084,13 +2084,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 get().addLog({
                     type: 'system',
                     player: hero.owner,
-                    message: '可选择新方向继续连冲，或结束行动'
+                    message: '可选择新方向继续笔走龙蛇，或结束行动'
                 });
                 sendOnlineStateIfNeeded(get());
                 return;
             }
 
-            // 无法继续连冲：标记已行动并结束（触发行动结束后毛笔移动）
+            // 无法继续笔走龙蛇：标记已行动并结束（触发行动结束后毛笔移动）
             hero.hasActedThisTurn = true;
             GameEngine.endHeroAction(hero, state);
             set({
@@ -2121,7 +2121,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
             const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
             if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
-                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定醉斩方向' });
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定谪仙醉斩方向' });
                 return;
             }
             hero.counters['__libai_skill2_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
@@ -2158,7 +2158,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
         }
 
-        // 醉枕刀技能1：先选方向（点击上下左右方向格），方向确定后自动掷刀
+        // 醉枕刀技能1：先选方向（点击上下左右方向格），方向确定后自动醉掷寒锋
         if (skill.id === 'zuizhendao_skill1') {
             if (!hero.position) return;
             const [cr, cc] = hero.position;
@@ -2167,11 +2167,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
             const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
             const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
             if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
-                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定掷刀方向' });
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定醉掷寒锋方向' });
                 return;
             }
             hero.counters['__zuizhendao_skill1_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
-            get().addLog({ type: 'system', player: hero.owner, message: '掷刀方向已确定，正在掷刀' });
+            get().addLog({ type: 'system', player: hero.owner, message: '醉掷寒锋方向已确定，正在醉掷寒锋' });
         }
 
         // 通用多目标选择：依次点击；可选目标技能再次点击已选目标即可提前释放。
@@ -2255,7 +2255,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             });
         }
 
-        // 醉枕刀：技能成功后清除掷刀方向
+        // 醉枕刀：技能成功后清除醉掷寒锋方向
         if (hero.passiveId === 'zuizhendao_passive') {
             delete hero.counters['__zuizhendao_skill1_dir'];
         }
@@ -2625,7 +2625,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const skill = state.selectedSkill;
         const beforePlayer = state.currentPlayer;
 
-        // 上官婉儿连冲挂起时结束行动：清理连冲状态后正常走结束流程
+        // 上官婉儿笔走龙蛇挂起时结束行动：清理笔走龙蛇状态后正常走结束流程
         // （不提前return——必须让 GameEngine.endHeroAction 执行以触发行动结束后的毛笔移动）
         if (state.shangguanDashState?.heroId === hero.id) {
             set({ shangguanDashState: undefined });

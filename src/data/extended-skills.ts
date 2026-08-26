@@ -226,7 +226,7 @@ export const jetzmiSkill2: Skill = {
 
 export const pipaSkill1: Skill = {
     id: 'pipa_skill1',
-    name: '音符',
+    name: '五弦流转',
     type: 'buff',
     description: '为两格内所有友方施加音符，攻击时附伤并为琵琶增加和弦',
     rangeType: 'single',
@@ -252,7 +252,7 @@ export const pipaSkill1: Skill = {
 
 export const pipaSkill2: Skill = {
     id: 'pipa_skill2',
-    name: '和弦爆发',
+    name: '裂帛和弦',
     type: 'damage',
     description: '消耗所有和弦，对两格内敌人造成和弦×3伤害',
     rangeType: 'single',
@@ -296,7 +296,7 @@ export const bountySkill1: Skill = {
 
 export const bountySkill2: Skill = {
     id: 'bounty_skill2',
-    name: '猎杀',
+    name: '衔令追猎',
     type: 'damage',
     description: '对两格内敌人造成8伤害；若为最低血量敌人则恢复6生命',
     rangeType: 'single',
@@ -335,7 +335,7 @@ function updateYangLine(caster: Hero, target: Hero): void {
 
 export const yinyangSkill1: Skill = {
     id: 'yinyang_skill1',
-    name: '阳线',
+    name: '纯阳一线',
     type: 'buff',
     description: '连接友方提高攻击与防御；重复连接时恢复已损生命',
     rangeType: 'single',
@@ -371,7 +371,7 @@ export const yinyangSkill1: Skill = {
 
 export const yinyangSkill2: Skill = {
     id: 'yinyang_skill2',
-    name: '阴线',
+    name: '玄阴一线',
     type: 'debuff',
     description: '连接敌方降低攻击与防御；重复连接时损失现有生命',
     rangeType: 'single',
@@ -467,7 +467,7 @@ export const soulLampSkill2: Skill = {
 
 export const heroXSkill1: Skill = {
     id: 'hero_x_skill1',
-    name: '震怒打击',
+    name: '天神震怒',
     type: 'damage',
     description: '随机攻击一名敌人造成8伤害并施加震怒',
     rangeType: '全场',
@@ -926,7 +926,7 @@ export const wangcaiSkill2: Skill = {
 
 export const schrodingerSkill1: Skill = {
     id: 'schrodinger_skill1',
-    name: '叠加态攻击',
+    name: '生死叠加',
     type: 'damage',
     description: '攻击一个方向的3×3范围，每个敌人50%受6伤害或免疫',
     rangeType: 'line',
@@ -1045,7 +1045,7 @@ export const lilithSkill2: Skill = {
  */
 export const libaiSkill1: Skill = {
     id: 'libai_skill1',
-    name: '醉剑',
+    name: '青莲醉剑',
     type: 'damage',
     description: '对一格十字内的单体目标造成7点伤害，自己获得一层醉意',
     rangeType: 'cross',
@@ -1096,7 +1096,7 @@ export function getLibaiFrontRect(caster: Hero): Position[] {
  */
 export const libaiSkill2: Skill = {
     id: 'libai_skill2',
-    name: '醉斩',
+    name: '谪仙谪仙醉斩',
     type: 'damage',
     description: '对前方2x3范围内的所有敌方角色造成醉意数x4伤害，醉意清空',
     rangeType: 'line',
@@ -1105,7 +1105,7 @@ export const libaiSkill2: Skill = {
     targetCount: 'all',
     execute: (caster, _targets, gameState) => {
         const zuiyi = EffectManager.getCounter(caster, '醉意');
-        if (zuiyi < 1) return fail('醉意不足，无法释放醉斩');
+        if (zuiyi < 1) return fail('醉意不足，无法释放谪仙醉斩');
         const rect = getLibaiFrontRect(caster);
         if (rect.length === 0) return fail('未选择方向');
         const targets = rect.map(([r, c]) => gameState.board[r][c])
@@ -1117,13 +1117,13 @@ export const libaiSkill2: Skill = {
             output.damageDealt?.push(damage.finalDamage);
         }
         EffectManager.addCounter(caster, '醉意', -zuiyi);
-        output.log.push(`${caster.name}释放醉斩，消耗了${zuiyi}层醉意`);
+        output.log.push(`${caster.name}释放谪仙醉斩，消耗了${zuiyi}层醉意`);
         return output;
     },
 };
 
 /**
- * 计算醉枕刀掷刀的最优路径：≤7步从起点到终点，踩过敌人最多（不重复踩同一格子）。
+ * 计算醉枕刀醉掷寒锋的最优路径：≤7步从起点到终点，踩过敌人最多（不重复踩同一格子）。
  * 可通行：空位与敌方格子；友方格子不可通行。返回路径（不含起点）与踩过的敌人。
  */
 export function computeMaxEnemyPath(
@@ -1174,11 +1174,11 @@ export function computeMaxEnemyPath(
 }
 
 /**
- * 醉枕刀技能1：向前方三格掷刀，7步内沿踩敌最多的路径拾刀
+ * 醉枕刀技能1：向前方三格醉掷寒锋，7步内沿踩敌最多的路径拾刀
  */
 export const zuizhendaoSkill1: Skill = {
     id: 'zuizhendao_skill1',
-    name: '掷刀',
+    name: '醉掷寒锋',
     type: 'damage',
     description: '向前方三格掷出刀，7步内沿踩敌最多的路径拾刀；沿途敌人受4伤害，每穿过1个敌人获得1层醉意',
     rangeType: 'line',
@@ -1187,7 +1187,7 @@ export const zuizhendaoSkill1: Skill = {
     targetCount: 1,
     execute: (caster, _targets, gameState) => {
         const dirCode = caster.counters['__zuizhendao_skill1_dir'];
-        if (dirCode === undefined || !caster.position) return fail('未选择掷刀方向');
+        if (dirCode === undefined || !caster.position) return fail('未选择醉掷寒锋方向');
         const [cr, cc] = caster.position;
         const step = dirCode === 0 ? [-1, 0] : dirCode === 1 ? [1, 0] : dirCode === 2 ? [0, -1] : [0, 1];
         const end: Position = [cr + step[0] * 3, cc + step[1] * 3];
@@ -1227,7 +1227,7 @@ export const zuizhendaoSkill1: Skill = {
  */
 export const zuizhendaoSkill2: Skill = {
     id: 'zuizhendao_skill2',
-    name: '换位斩',
+    name: '醉影换位',
     type: 'damage',
     description: '与任意距离的友方交换位置，随后对周围一圈敌方角色造成8点伤害，每命中1个获得1层醉意',
     rangeType: '全场',
@@ -1700,7 +1700,7 @@ export interface ShangguanDashScan {
 }
 
 /**
- * 只读扫描一个连冲方向（不修改状态）：
+ * 只读扫描一个笔走龙蛇方向（不修改状态）：
  * - 友方英雄、已命中过的敌方英雄、已借力过的毛笔均视为阻挡；
  * - 路径上第一个"未命中的敌方英雄或毛笔"即本段目标；
  * - 落点为目标身后一格；若该格越界/被英雄占据/有毛笔，则停在目标前一格
@@ -1789,7 +1789,7 @@ function shangguanLandingPos(
     return [fallbackR, fallbackC];
 }
 
-/** 一段连冲的结算结果 */
+/** 一段笔走龙蛇的结算结果 */
 export interface ShangguanDashOutcome {
     success: boolean;
     message?: string;
@@ -1801,7 +1801,7 @@ export interface ShangguanDashOutcome {
 }
 
 /**
- * 执行一段连冲：
+ * 执行一段笔走龙蛇：
  * - 命中敌方英雄：6点固定伤害（不可闪避）；
  * - 命中毛笔：借力（毛笔不受伤、不消失）；
  * - 随后把婉儿移动到落点（落点等于当前位置时不移动）。
@@ -1816,7 +1816,7 @@ export function performShangguanDashSegment(
 ): ShangguanDashOutcome {
     const scan = scanShangguanDashDirection(caster, dirR, dirC, hitTargets, gameState);
     if (!scan.ok || !scan.targetPos || !scan.landPos || !caster.position) {
-        return { success: false, message: scan.reason ?? '该方向无法连冲' };
+        return { success: false, message: scan.reason ?? '该方向无法笔走龙蛇' };
     }
 
     const output: ShangguanDashOutcome = { success: true, hitKind: scan.kind, hitId: scan.targetId, hitName: scan.targetName };
@@ -1851,7 +1851,7 @@ export function performShangguanDashSegment(
     return output;
 }
 
-/** 是否还存在可继续的连冲方向（任一方向上有未命中的敌人或毛笔） */
+/** 是否还存在可继续的笔走龙蛇方向（任一方向上有未命中的敌人或毛笔） */
 export function hasShangguanDashOption(
     caster: Hero,
     hitTargets: string[],
@@ -1929,16 +1929,16 @@ export const shangguanSkill1: Skill = {
 };
 
 /**
- * 上官婉儿技能2：连冲（多段）
+ * 上官婉儿技能2：笔走龙蛇（多段）
  * 每段朝选定方向冲刺，命中路径上最近的敌人（6点固定伤害）或毛笔（借力）后停下，
- * 落点为目标身后一格；玩家可继续选新方向连冲，同一目标不可重复命中。
+ * 落点为目标身后一格；玩家可继续选新方向笔走龙蛇，同一目标不可重复命中。
  * 多段交互由 game-store 的 shangguanDashState 管理。
  */
 export const shangguanSkill2: Skill = {
     id: 'shangguan_skill2',
-    name: '连冲',
+    name: '笔走龙蛇',
     type: 'damage',
-    description: '朝选定方向冲刺，撞上敌人造成6点固定伤害或借毛笔借力后停在目标身后一格；命中后可选择新方向继续连冲，同一目标不可重复。',
+    description: '朝选定方向冲刺，撞上敌人造成6点固定伤害或借毛笔借力后停在目标身后一格；命中后可选择新方向继续笔走龙蛇，同一目标不可重复。',
     rangeType: 'line',
     range: 4,
     targetType: 'any',
@@ -1946,20 +1946,20 @@ export const shangguanSkill2: Skill = {
     execute: (caster, _targets, gameState) => {
         if (!caster.position) return fail('婉儿不在场上');
         const clicked = encodedTarget(caster);
-        if (!clicked) return fail('未选择连冲方向');
+        if (!clicked) return fail('未选择笔走龙蛇方向');
         const [hr, hc] = caster.position;
         const isAdj =
             (Math.abs(clicked[0] - hr) === 1 && clicked[1] === hc) ||
             (Math.abs(clicked[1] - hc) === 1 && clicked[0] === hr);
-        if (!isAdj) return fail('请点击相邻的方向格选择连冲方向');
+        if (!isAdj) return fail('请点击相邻的方向格选择笔走龙蛇方向');
         const dirR = Math.sign(clicked[0] - hr);
         const dirC = Math.sign(clicked[1] - hc);
 
         const outcome = performShangguanDashSegment(caster, dirR, dirC, [], gameState);
-        if (!outcome.success) return fail(outcome.message ?? '该方向无法连冲');
+        if (!outcome.success) return fail(outcome.message ?? '该方向无法笔走龙蛇');
 
         const output = result();
-        output.log.push(`${caster.name}发动连冲`);
+        output.log.push(`${caster.name}发动笔走龙蛇`);
         if (outcome.hitKind === 'enemy') {
             output.damageDealt?.push(outcome.damage ?? 0);
             output.log.push(`撞击${outcome.hitName}，造成${outcome.damage}点固定伤害`);
