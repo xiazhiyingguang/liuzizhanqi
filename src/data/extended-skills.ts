@@ -581,7 +581,7 @@ export const witherLordSkill1: Skill = {
             hero.owner !== caster.owner && hero.state === HeroState.ALIVE
         );
         if (!enemies.length) return fail('2x2区域内没有敌人');
-        const base = 5 + resonanceCount(caster.owner, gameState) * 2;
+        const base = 5 + resonanceCount(caster.owner, gameState);
         const output = result();
         for (const target of enemies) {
             const damage = damageOne(caster, target, base, gameState, true);
