@@ -8,16 +8,16 @@ import {
 
 describe('resolveSkillFx', () => {
     it('技能级档案精确命中各自的专属特效', () => {
-        expect(resolveSkillFx('wukong', 'wukong_skill1').kind).toBe('wukong-clone');
-        expect(resolveSkillFx('wukong', 'wukong_skill2').kind).toBe('wukong-staff');
-        expect(resolveSkillFx('feixue', 'feixue_skill1').kind).toBe('feixue-blade');
-        expect(resolveSkillFx('feixue', 'feixue_skill2').kind).toBe('feixue-stomp');
-        expect(resolveSkillFx('soul_lamp', 'soul_lamp_skill1').kind).toBe('soul-lamp-array');
-        expect(resolveSkillFx('soul_lamp', 'soul_lamp_skill2').kind).toBe('soul-lamp-cycle');
-        expect(resolveSkillFx('libai', 'libai_skill1').kind).toBe('libai-slash');
-        expect(resolveSkillFx('libai', 'libai_skill2').kind).toBe('libai-flurry');
-        expect(resolveSkillFx('feynman', 'feynman_skill1').kind).toBe('feynman-beam');
-        expect(resolveSkillFx('feynman', 'feynman_skill2').kind).toBe('feynman-burst');
+        expect(resolveSkillFx('wukong_skill1').kind).toBe('wukong-clone');
+        expect(resolveSkillFx('wukong_skill2').kind).toBe('wukong-staff');
+        expect(resolveSkillFx('feixue_skill1').kind).toBe('feixue-blade');
+        expect(resolveSkillFx('feixue_skill2').kind).toBe('feixue-stomp');
+        expect(resolveSkillFx('soul_lamp_skill1').kind).toBe('soul-lamp-array');
+        expect(resolveSkillFx('soul_lamp_skill2').kind).toBe('soul-lamp-cycle');
+        expect(resolveSkillFx('libai_skill1').kind).toBe('libai-slash');
+        expect(resolveSkillFx('libai_skill2').kind).toBe('libai-flurry');
+        expect(resolveSkillFx('feynman_skill1').kind).toBe('feynman-beam');
+        expect(resolveSkillFx('feynman_skill2').kind).toBe('feynman-burst');
     });
 
     it('所有档案均带正数存活时长', () => {
@@ -26,11 +26,14 @@ describe('resolveSkillFx', () => {
         }
     });
 
-    it('未定制技能回落英雄级兜底，未知英雄回落墨韵波纹', () => {
-        expect(resolveSkillFx('wukong').kind).toBe('wukong-staff');
-        expect(resolveSkillFx('wukong', 'unknown_skill').kind).toBe('wukong-staff');
-        expect(resolveSkillFx('some-unknown-hero').kind).toBe('ink');
-        expect(resolveSkillFx('').kind).toBe('ink');
+    it('未定制技能由技能 ID 推导英雄级兜底，未知技能回落墨韵波纹', () => {
+        // wukong_skill3（假想未定制技能）应推导出英雄 wukong 的兜底
+        expect(resolveSkillFx('wukong_skill3').kind).toBe('wukong-staff');
+        expect(resolveSkillFx('libai_skill9').kind).toBe('libai-slash');
+        expect(resolveSkillFx('moran_skill1').kind).toBe('ink');
+        expect(resolveSkillFx('unknown-skill')).toEqual({ kind: 'ink', durationMs: 750 });
+        expect(resolveSkillFx(undefined)).toEqual({ kind: 'ink', durationMs: 750 });
+        expect(resolveSkillFx()).toEqual({ kind: 'ink', durationMs: 750 });
     });
 });
 

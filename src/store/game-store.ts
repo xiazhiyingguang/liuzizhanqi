@@ -2756,7 +2756,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         const angleDeg = computeFxAngleDeg(casterFromPos, targetPos);
         get().pushSkillFx({
-            profile: resolveSkillFx(hero.id, skill.id),
+            profile: resolveSkillFx(skill.id),
             owner: hero.owner,
             fromPos: casterFromPos,
             targetPos,

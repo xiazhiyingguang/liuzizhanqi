@@ -1,8 +1,11 @@
 /**
  * 英雄技能特效档案（技能级定制）。
  *
- * 档案精确到"英雄 × 技能"：每个技能有专属的视觉方案（kind）与时长；
- * 未匹配到技能级档案的英雄回落到英雄级兜底，再回落到通用墨韵波纹。
+ * 档案精确到"英雄 × 技能"：每个技能有专属的视觉方案（kind）与时长。
+ * 档案以裸技能 ID 为键（如 `wukong_skill1`）——运行时 Hero.id 形如
+ * `wukong-player1-<时间戳>`，不能直接用作键；而技能 ID 全局唯一且
+ * 按约定 `${heroId}_skill${n}` 命名，未命中技能级档案时可由技能 ID
+ * 推导英雄 ID 查英雄级兜底，最后回落通用墨韵波纹。
  *
  * 特效信号由 game-store 的 executeSkill 包装层在"真实施法成功"时派发
  * （本地玩家、人机 AI、联机远端动作重放共用同一条入口，因此所有对局
@@ -54,18 +57,18 @@ export interface SkillFxEvent {
     bornAt: number;
 }
 
-/** 技能级档案（键为 `heroId:skillId`） */
+/** 技能级档案（键为裸技能 ID） */
 export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
-    'wukong:wukong_skill1': { kind: 'wukong-clone', durationMs: 1300 },
-    'wukong:wukong_skill2': { kind: 'wukong-staff', durationMs: 980 },
-    'feixue:feixue_skill1': { kind: 'feixue-blade', durationMs: 900 },
-    'feixue:feixue_skill2': { kind: 'feixue-stomp', durationMs: 1000 },
-    'soul_lamp:soul_lamp_skill1': { kind: 'soul-lamp-array', durationMs: 1250 },
-    'soul_lamp:soul_lamp_skill2': { kind: 'soul-lamp-cycle', durationMs: 1150 },
-    'libai:libai_skill1': { kind: 'libai-slash', durationMs: 800 },
-    'libai:libai_skill2': { kind: 'libai-flurry', durationMs: 1000 },
-    'feynman:feynman_skill1': { kind: 'feynman-beam', durationMs: 900 },
-    'feynman:feynman_skill2': { kind: 'feynman-burst', durationMs: 1000 },
+    wukong_skill1: { kind: 'wukong-clone', durationMs: 1300 },
+    wukong_skill2: { kind: 'wukong-staff', durationMs: 980 },
+    feixue_skill1: { kind: 'feixue-blade', durationMs: 900 },
+    feixue_skill2: { kind: 'feixue-stomp', durationMs: 1000 },
+    soul_lamp_skill1: { kind: 'soul-lamp-array', durationMs: 1250 },
+    soul_lamp_skill2: { kind: 'soul-lamp-cycle', durationMs: 1150 },
+    libai_skill1: { kind: 'libai-slash', durationMs: 800 },
+    libai_skill2: { kind: 'libai-flurry', durationMs: 1000 },
+    feynman_skill1: { kind: 'feynman-beam', durationMs: 900 },
+    feynman_skill2: { kind: 'feynman-burst', durationMs: 1000 },
 };
 
 /** 英雄级兜底档案（该英雄的技能未逐一定制时） */
@@ -79,13 +82,20 @@ const HERO_FX_FALLBACKS: Record<string, SkillFxProfile> = {
 
 const DEFAULT_SKILL_FX_PROFILE: SkillFxProfile = { kind: 'ink', durationMs: 750 };
 
-/** 解析技能特效档案：先查技能级，再查英雄级，最后回落通用墨韵波纹 */
-export function resolveSkillFx(heroId: string, skillId?: string): SkillFxProfile {
+/** 从技能 ID 推导英雄模板 ID（`wukong_skill1` → `wukong`） */
+function heroIdFromSkillId(skillId: string): string {
+    return skillId.replace(/_skill\d+$/, '');
+}
+
+/** 解析技能特效档案：先查技能级，再查英雄级兜底，最后回落通用墨韵波纹 */
+export function resolveSkillFx(skillId?: string): SkillFxProfile {
     if (skillId) {
-        const exact = SKILL_FX_PROFILES[`${heroId}:${skillId}`];
+        const exact = SKILL_FX_PROFILES[skillId];
         if (exact) return exact;
+        const heroFallback = HERO_FX_FALLBACKS[heroIdFromSkillId(skillId)];
+        if (heroFallback) return heroFallback;
     }
-    return HERO_FX_FALLBACKS[heroId] ?? DEFAULT_SKILL_FX_PROFILE;
+    return DEFAULT_SKILL_FX_PROFILE;
 }
 
 /**
