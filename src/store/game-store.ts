@@ -2467,6 +2467,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!chain || !isValidBoardPosition(position)) return;
         const hero = [...state.player1Heroes, ...state.player2Heroes].find(item => item.id === chain.heroId);
         if (!hero || hero.state !== HeroState.ALIVE || !hero.position) return;
+        // 联机模式下只有链英雄所属方（且为当前行动方）能操作链；
+        // 否则对手点击同步过来的高亮位置会在本地操纵对方李太白，
+        // 且该状态无法通过服务器校验回传，造成两端分叉卡死。
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localKey = getLocalPlayerKey(state);
+            if (!localKey || hero.owner !== localKey || state.currentPlayer !== localKey) {
+                get().addLog({ type: 'system', player: state.currentPlayer, message: '等待对方完成醉步留痕' });
+                return;
+            }
+        }
         const idx = chain.pending.findIndex(([r, c]) => r === position[0] && c === position[1]);
         if (idx === -1) {
             get().addLog({ type: 'system', player: hero.owner, message: '请选择高亮的历史位置' });
@@ -2534,6 +2544,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!chain) return;
         const hero = [...state.player1Heroes, ...state.player2Heroes].find(item => item.id === chain.heroId);
         if (!hero) return;
+        // 联机模式下只有链英雄所属方（且为当前行动方）能跳过链攻击（与瞬移选择同一套校验）
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localKey = getLocalPlayerKey(state);
+            if (!localKey || hero.owner !== localKey || state.currentPlayer !== localKey) {
+                get().addLog({ type: 'system', player: state.currentPlayer, message: '等待对方完成醉步留痕' });
+                return;
+            }
+        }
         if (chain.pending.length > 0) {
             // 还有历史位置：回到选位置阶段（恢复等待瞬移标记，禁止原地施法）
             set({

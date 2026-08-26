@@ -149,6 +149,82 @@ describe('局域网房间服务器', () => {
         expect(rooms.has(created.roomId)).toBe(false);
     });
 
+    it('补员挂起期间接受补员方的 reinforce-deploy 与状态同步', async () => {
+        const player1 = await connectClient();
+        const player2 = await connectClient();
+
+        const created = await emitAck<{ success: boolean; roomId: string }>(player1, 'create-room');
+        await emitAck<any>(player1, 'join-room', { roomId: created.roomId, playerName: '甲' });
+        const startForPlayer2 = once(player2, 'game-start');
+        await emitAck<any>(player2, 'join-room', { roomId: created.roomId, playerName: '乙' });
+        await startForPlayer2;
+
+        const emptyBoard = Array.from({ length: 6 }, () => Array(6).fill(null));
+        // 直接把房间推进到战斗阶段（player1 行动方）
+        const room = rooms.get(created.roomId)!;
+        room.phase = 'battle';
+        room.currentPlayer = 'player1';
+        room.gameState = { board: emptyBoard, phase: 'battle', currentPlayer: 'player1', reinforcingPlayer: null };
+
+        // 玩家1（行动方）提交"击杀触发对方补员"的权威快照
+        const pendingState = {
+            board: emptyBoard,
+            phase: 'battle',
+            currentPlayer: 'player1',
+            reinforcingPlayer: 'player2'
+        };
+        const reinforceBroadcast = once<any>(player2, 'action-broadcast');
+        action(player1, created.roomId, 'end-turn', { heroId: 'moran-player1-1' }, pendingState);
+        const pending = await reinforceBroadcast;
+        expect(pending.gameState.reinforcingPlayer).toBe('player2');
+        expect(room.gameState?.reinforcingPlayer).toBe('player2');
+
+        // 修复前：reinforce-deploy 不在服务器白名单，会被 reject('未知操作类型') 并把补员方
+        // 回滚到"等待补员"，形成无限补员死锁；修复后应接受补员方提交。
+        const deployedState = {
+            board: emptyBoard,
+            phase: 'battle',
+            currentPlayer: 'player2',
+            reinforcingPlayer: null
+        };
+        const deployBroadcast = once<any>(player1, 'action-broadcast');
+        action(player2, created.roomId, 'reinforce-deploy', { heroId: 'baize-player2-1', position: [0, 4] }, deployedState);
+        const deployed = await deployBroadcast;
+        expect(deployed.gameState).toEqual(deployedState);
+        expect(room.currentPlayer).toBe('player2');
+        expect(room.gameState?.reinforcingPlayer).toBeNull();
+
+        // 非补员挂起时提交 reinforce-deploy 仍应被拒绝
+        const rejected = once<any>(player2, 'action-rejected');
+        action(player2, created.roomId, 'reinforce-deploy', { heroId: 'baize-player2-1', position: [1, 4] }, {
+            board: emptyBoard,
+            phase: 'battle',
+            currentPlayer: 'player2',
+            reinforcingPlayer: null
+        });
+        expect((await rejected).message).toBe('当前不是你的补员回合');
+
+        // 补员挂起期间，补员方（非当前行动方）的 sync-game-state 也应被放行并广播
+        room.gameState = { board: emptyBoard, phase: 'battle', currentPlayer: 'player1', reinforcingPlayer: 'player2' };
+        room.currentPlayer = 'player1';
+        const syncedState = {
+            board: emptyBoard,
+            phase: 'battle',
+            currentPlayer: 'player1',
+            reinforcingPlayer: 'player2',
+            reinforcementSelectableHeroId: 'baize'
+        };
+        const syncBroadcast = once<any>(player1, 'game-state-update');
+        player2.emit('sync-game-state', { roomId: created.roomId, gameState: syncedState });
+        const synced = await syncBroadcast;
+        expect(synced.gameState.reinforcementSelectableHeroId).toBe('baize');
+        expect(synced.revision).toBeGreaterThan(0);
+
+        await emitAck(player1, 'leave-room', { roomId: created.roomId });
+        player1.disconnect();
+        player2.disconnect();
+    });
+
     it('让双方用相同四位数字自动创建并加入房间', async () => {
         const player1 = await connectClient();
         const player2 = await connectClient();

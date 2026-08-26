@@ -513,6 +513,16 @@ io.on('connection', (socket) => {
             return acceptAndBroadcast(gameState);
         }
 
+        if (action.type === 'reinforce-deploy') {
+            // 击杀触发的补员挂起期间，补员方虽非当前行动方，但必须允许其提交补员结果，
+            // 否则补员操作会被拒绝并把客户端回滚到"等待补员"，形成无限补员死锁。
+            if (room.phase !== 'battle') return reject('当前不在战斗阶段');
+            const pendingReinforcer = room.gameState?.reinforcingPlayer;
+            if (pendingReinforcer !== playerKey) return reject('当前不是你的补员回合');
+            if (!isPlainGameState(gameState)) return reject('缺少有效的战斗状态');
+            return acceptAndBroadcast(gameState);
+        }
+
         return reject('未知操作类型');
     });
 
@@ -524,7 +534,11 @@ io.on('connection', (socket) => {
         if (!['battle', 'ended'].includes(room.phase)) return;
 
         const playerKey = mapPlayerNumberToKey(playerNumber);
-        if (room.phase === 'battle' && room.currentPlayer !== playerKey) return;
+        // 击杀触发的补员挂起期间，补员方（非当前行动方）也需要同步补员相关状态，
+        // 否则其 sync 会被静默丢弃，导致两端补员状态分叉。
+        const isActor = room.currentPlayer === playerKey;
+        const isPendingReinforcer = gameState?.reinforcingPlayer === playerKey;
+        if (room.phase === 'battle' && !isActor && !isPendingReinforcer) return;
 
         updateRoomFromGameState(room, gameState);
         room.lastActionAt = Date.now();

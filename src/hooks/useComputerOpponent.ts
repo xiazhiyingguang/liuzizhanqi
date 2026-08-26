@@ -309,7 +309,14 @@ function executeLibaiChainStep(
     const chain = state.libaiChainState;
     if (!chain) return;
     const libai = [...state.player1Heroes, ...state.player2Heroes].find(hero => hero.id === chain.heroId);
-    if (!libai || libai.owner !== aiPlayer || libai.state !== 'alive') return;
+    if (!libai || libai.owner !== aiPlayer) return;
+    if (libai.state !== 'alive') {
+        // 李太白在链中阵亡（如瞬移/归位触发反伤）：清链并结束其行动，
+        // 避免步进器反复进入链分支空转，只能依赖重复计数兜底。
+        useGameStore.setState({ selectedHero: libai });
+        useGameStore.getState().endHeroAction();
+        return;
+    }
 
     const isPickingPosition = state.skillRange.length > 0 && state.selectedSkill === null;
     if (isPickingPosition) {
