@@ -436,15 +436,17 @@ io.on('connection', (socket) => {
             const selected = room.heroSelections[playerKey];
             const index = selected.indexOf(heroId);
             if (index >= 0) selected.splice(index, 1);
-            else if (selected.length < 4) selected.push(heroId);
-            else return reject('最多选择4位英雄');
+            // 替补制：与客户端一致，可选 6 位（首发 4 + 替补 2），上限必须同步否则第 5/6 位会被拒且不转发，
+            // 对端收不到完整名单会导致双方确认后永远卡在"等待对方"
+            else if (selected.length < 6) selected.push(heroId);
+            else return reject('最多选择6位英雄');
             return acceptAndBroadcast();
         }
 
         if (action.type === 'confirm-hero-selection') {
             if (room.phase !== 'hero-select') return reject('当前不在英雄选择阶段');
             if (room.heroSelectReady[playerKey]) return reject('你已经确认了英雄选择');
-            if (room.heroSelections[playerKey].length !== 4) return reject('必须选择4位英雄');
+            if (room.heroSelections[playerKey].length !== 6) return reject('必须选择6位英雄');
             room.heroSelectReady[playerKey] = true;
             if (room.heroSelectReady.player1 && room.heroSelectReady.player2) {
                 room.phase = 'deploy';

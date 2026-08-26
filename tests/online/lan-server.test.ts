@@ -83,11 +83,18 @@ describe('局域网房间服务器', () => {
         });
         expect(fullRoom).toMatchObject({ success: false, error: '房间已满' });
 
-        const heroes1 = ['moran', 'zhenxiao', 'mirror', 'baize'];
-        const heroes2 = ['wukong', 'liuli', 'soul_lamp', 'lilith'];
+        // 替补制：与客户端一致，双方各选 6 位（首发 4 + 替补 2）
+        const heroes1 = ['moran', 'zhenxiao', 'mirror', 'baize', 'wukong', 'liuli'];
+        const heroes2 = ['wukong', 'liuli', 'soul_lamp', 'lilith', 'moran', 'zhenxiao'];
         for (const heroId of heroes1) action(player1, created.roomId, 'select-hero', { heroId });
         for (const heroId of heroes2) action(player2, created.roomId, 'select-hero', { heroId });
         await new Promise(resolve => setTimeout(resolve, 50));
+
+        // 超出 6 位上限应被明确拒绝
+        const overLimit = once<any>(player1, 'action-rejected');
+        action(player1, created.roomId, 'select-hero', { heroId: 'soul_lamp' });
+        expect((await overLimit).message).toBe('最多选择6位英雄');
+
         action(player1, created.roomId, 'confirm-hero-selection');
         action(player2, created.roomId, 'confirm-hero-selection');
 
