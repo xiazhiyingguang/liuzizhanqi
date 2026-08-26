@@ -6,6 +6,7 @@ import {
     chooseComputerMove,
     chooseComputerSkillPlan,
     chooseComputerTeam,
+    resetCachedComputerTeam,
     scoreComputerPosition,
 } from '../../src/core/computer-ai';
 import { addHero, makeGameState } from '../helpers/game-state';
@@ -21,6 +22,17 @@ describe('computer AI', () => {
         expect(Math.max(...ratings.map(item => item.输出))).toBeGreaterThanOrEqual(8);
         expect(Math.max(...ratings.map(item => item.生存))).toBeGreaterThanOrEqual(8);
         expect(Math.max(...ratings.map(item => item.支援))).toBeGreaterThanOrEqual(8);
+    });
+
+    it('多次选将应产生多样的阵容而不是固定一套', () => {
+        const seenCores = new Set<string>();
+        for (let round = 0; round < 60; round++) {
+            const team = chooseComputerTeam(['moran', 'huifeng', 'mirror', 'nightowl']);
+            // 前四人即首发核心
+            seenCores.add([...team.slice(0, 4)].sort().join(','));
+            resetCachedComputerTeam();
+        }
+        expect(seenCores.size).toBeGreaterThanOrEqual(3);
     });
 
     it('把电脑四名英雄部署到右半区的四个不同位置', () => {

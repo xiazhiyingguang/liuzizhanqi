@@ -22,13 +22,13 @@ export interface ComputerSkillPlan {
 
 const BOARD_SIZE = 6;
 /** 选将候选池大小：只从分数最高的阵容里随机挑选，保住强度上限的同时让每局选将不同。 */
-const TEAM_CANDIDATE_POOL_SIZE = 16;
+const TEAM_CANDIDATE_POOL_SIZE = 24;
 /** 候选池内阵容之间至少不同的英雄数，避免每局都是同一套核心（如长离+阴阳师）。 */
-const TEAM_MIN_DIFFERENCE = 2;
-/** 候选池中单个英雄的最大出现次数（控制高分英雄的重复率，让阵容更多样）。 */
-const TEAM_MAX_HERO_USAGE = 8;
-/** 选将温度采样：分数每差 10 分，被选中权重降约 63%，兼顾强度与多样性。 */
-const TEAM_SOFTMAX_TEMPERATURE = 10;
+const TEAM_MIN_DIFFERENCE = 3;
+/** 候选池中单个英雄的最大出现次数（控制高分英雄的重复率，让全部英雄都有出场机会）。 */
+const TEAM_MAX_HERO_USAGE = 4;
+/** 选将温度采样：分数每差 30 分，被选中权重降约 63%，低分阵容也有可观出场率。 */
+const TEAM_SOFTMAX_TEMPERATURE = 30;
 /** 替补制：每方替补席人数（六人选将，四人首发）。 */
 const BENCH_SIZE = 2;
 /** 最近一次使用过的技能会减分，促使 AI 轮换使用不同技能。 */
@@ -171,19 +171,25 @@ function isWukongCloneOf(hero: Hero, wukongId: string): boolean {
 }
 
 const RECENT_HERO_USAGE_KEY = 'six-chess-ai-recent-hero-usage';
-/** 跨局记忆保留的最近局数（每局 4 个英雄）。 */
+/** 跨局记忆保留的最近局数（每局 6 个英雄：四人首发加两人替补）。 */
 const RECENT_HERO_USAGE_GAMES = 6;
-/** 选将时对近期用过的英雄施加的减分。 */
-const RECENT_HERO_SCORE_PENALTY = 7;
+/** 选将时对近期用过的英雄施加的减分（相对总分差约百级，18 分足以把熟面孔排到池外轮换）。 */
+const RECENT_HERO_SCORE_PENALTY = 18;
 
-/** 读取最近几局电脑用过的英雄（localStorage 不可用时静默降级为无记忆）。 */
-function loadRecentHeroUsage(): string[] {
+/** 读取最近几局电脑用过的英雄（按局分组；localStorage 不可用时静默降级为无记忆）。 */
+function loadRecentHeroUsageByGame(): string[][] {
     try {
         if (typeof window === 'undefined') return [];
         const raw = window.localStorage.getItem(RECENT_HERO_USAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : [];
         if (!Array.isArray(parsed)) return [];
-        return parsed.flat().filter((id): id is string => typeof id === 'string');
+        // 兼容旧版扁平格式：整体视为一段历史
+        const games = parsed.every((item): item is string[] => Array.isArray(item))
+            ? parsed
+            : [parsed];
+        return games
+            .map(game => game.filter((id): id is string => typeof id === 'string'))
+            .slice(-RECENT_HERO_USAGE_GAMES);
     } catch {
         return [];
     }
@@ -192,15 +198,39 @@ function loadRecentHeroUsage(): string[] {
 function saveRecentHeroUsage(team: string[]): void {
     try {
         if (typeof window === 'undefined') return;
-        const recent = loadRecentHeroUsage();
-        recent.push(...team);
+        const games = loadRecentHeroUsageByGame();
+        games.push(team);
         window.localStorage.setItem(
             RECENT_HERO_USAGE_KEY,
-            JSON.stringify(recent.slice(-RECENT_HERO_USAGE_GAMES * 4))
+            JSON.stringify(games.slice(-RECENT_HERO_USAGE_GAMES))
         );
     } catch {
         // 忽略存储异常
     }
+}
+
+/** 久未出场补偿：每闲置一局加 8 分（封顶 32），保证冷门英雄最终也会被 AI 轮换选用。 */
+const IDLE_ROTATION_BONUS_PER_GAME = 8;
+const IDLE_ROTATION_BONUS_CAP = 32;
+
+/**
+ * 统计每个英雄距离上次出场的局数并折算补偿分：
+ * 连续出场为 0 分（叠加近期减分形成强轮换压力），闲置越久补偿越高。
+ */
+function computeIdleRotationBonuses(games: string[][]): Map<string, number> {
+    const bonuses = new Map<string, number>();
+    for (const id of AVAILABLE_HERO_IDS) {
+        let idleGames = games.length;
+        for (let ago = 1; ago <= games.length; ago++) {
+            if (games[games.length - ago].includes(id)) {
+                idleGames = ago - 1;
+                break;
+            }
+        }
+        const bonus = Math.min(IDLE_ROTATION_BONUS_CAP, idleGames * IDLE_ROTATION_BONUS_PER_GAME);
+        if (bonus > 0) bonuses.set(id, bonus);
+    }
+    return bonuses;
 }
 
 function ratingsForHero(hero: Hero): HeroAbilityRatings {
@@ -215,7 +245,8 @@ function averageRating(heroIds: string[], key: keyof HeroAbilityRatings): number
 function teamScore(
     team: string[],
     opponentHeroIds: string[],
-    recentHeroes: ReadonlySet<string>
+    recentHeroes: ReadonlySet<string>,
+    idleBonuses?: ReadonlyMap<string, number>
 ): number {
     const ratings = team.map(ratingsForHeroId);
     const sum = (key: keyof HeroAbilityRatings) => ratings.reduce((total, item) => total + item[key], 0);
@@ -246,9 +277,11 @@ function teamScore(
     score += (sum('输出') + sum('控制')) * Math.max(0, opponentSurvival - 6) * 0.16;
     score += (sum('控制') + sum('覆盖')) * Math.max(0, opponentMobility - 6) * 0.18;
 
-    // 跨局多样性：最近几局用过的英雄减分，避免玩家每局都面对同一套阵容。
+    // 跨局多样性：最近几局用过的英雄减分，闲置越久的英雄补偿越高，
+    // 两股力共同驱动 AI 的英雄池轮换，避免玩家每局都面对同一批角色。
     for (const id of team) {
         if (recentHeroes.has(id)) score -= RECENT_HERO_SCORE_PENALTY;
+        score += idleBonuses?.get(id) ?? 0;
     }
 
     return score;
@@ -297,7 +330,9 @@ export function chooseComputerTeam(opponentHeroIds: string[]): string[] {
         return [...cachedDesiredTeam];
     }
 
-    const recentHeroes = new Set(loadRecentHeroUsage());
+    const gamesHistory = loadRecentHeroUsageByGame();
+    const recentHeroes = new Set(gamesHistory.flat());
+    const idleBonuses = computeIdleRotationBonuses(gamesHistory);
     const candidates: { team: string[]; score: number }[] = [];
 
     for (let a = 0; a < AVAILABLE_HERO_IDS.length - 3; a++) {
@@ -311,7 +346,7 @@ export function chooseComputerTeam(opponentHeroIds: string[]): string[] {
                         AVAILABLE_HERO_IDS[d],
                     ];
                     if (!passesTeamConstraints(team)) continue;
-                    candidates.push({ team, score: teamScore(team, opponentHeroIds, recentHeroes) });
+                    candidates.push({ team, score: teamScore(team, opponentHeroIds, recentHeroes, idleBonuses) });
                 }
             }
         }
@@ -329,8 +364,8 @@ export function chooseComputerTeam(opponentHeroIds: string[]): string[] {
     const bench = AVAILABLE_HERO_IDS
         .filter(id => !coreIds.has(id))
         .sort((left, right) =>
-            teamScore([...picked.team, right], opponentHeroIds, recentHeroes) -
-            teamScore([...picked.team, left], opponentHeroIds, recentHeroes))
+            teamScore([...picked.team, right], opponentHeroIds, recentHeroes, idleBonuses) -
+            teamScore([...picked.team, left], opponentHeroIds, recentHeroes, idleBonuses))
         .slice(0, BENCH_SIZE);
     const fullTeam = [...picked.team, ...bench];
 
