@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/game-store';
 import type { AiDifficulty } from '../../types/game';
+import type { UiClickSound } from '../../audio/audio-manager';
 import './main-menu.css';
 
 type MenuChoiceProps = {
@@ -11,6 +12,8 @@ type MenuChoiceProps = {
     tone?: 'primary' | 'secondary' | 'quiet';
     disabled?: boolean;
     onClick?: () => void;
+    /** 点击音效类别：推进流程的选项用 primary，返回类用 cancel，其余默认 tap */
+    sfx?: UiClickSound;
 };
 
 function MenuChoice({
@@ -21,11 +24,13 @@ function MenuChoice({
     tone = 'secondary',
     disabled = false,
     onClick,
+    sfx,
 }: MenuChoiceProps) {
     return (
         <button
             type="button"
             data-testid={testId}
+            data-sfx={sfx}
             className={`main-menu-choice main-menu-choice-${tone}`}
             disabled={disabled}
             onClick={onClick}
@@ -206,6 +211,7 @@ export default function MainMenu() {
                                 title="宗师电脑"
                                 subtitle="全力博弈 · 步步紧逼"
                                 tone="primary"
+                                sfx="primary"
                                 onClick={() => startAiGame('master')}
                             />
                             <MenuChoice
@@ -213,6 +219,7 @@ export default function MainMenu() {
                                 index="贰"
                                 title="普通电脑"
                                 subtitle="偶有失误 · 稳扎稳打"
+                                sfx="primary"
                                 onClick={() => startAiGame('normal')}
                             />
                             <MenuChoice
@@ -220,6 +227,7 @@ export default function MainMenu() {
                                 index="叁"
                                 title="简单电脑"
                                 subtitle="常出失误 · 适合入门"
+                                sfx="primary"
                                 onClick={() => startAiGame('easy')}
                             />
                             <MenuChoice
@@ -228,6 +236,7 @@ export default function MainMenu() {
                                 title="返回主菜单"
                                 subtitle="再想想 · 换个玩法"
                                 tone="quiet"
+                                sfx="cancel"
                                 onClick={() => setShowDifficultyPicker(false)}
                             />
                         </>

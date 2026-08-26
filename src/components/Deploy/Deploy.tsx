@@ -124,6 +124,7 @@ export default function Deploy() {
                             <button
                                 key={heroId}
                                 data-testid={`deploy-hero-${heroId}`}
+                                data-sfx="tab"
                                 disabled={isDeployed || isBenchLocked || !canDeploy}
                                 onClick={() => setSelectedHeroId(heroId)}
                                 className="relative"
@@ -250,6 +251,7 @@ export default function Deploy() {
                         data-testid="confirm-deployment"
                         variant="primary"
                         size="lg"
+                        sfx="primary"
                         onClick={confirmDeployment}
                         disabled={!isComplete || !canDeploy}
                         className="min-w-[200px]"

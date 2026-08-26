@@ -195,6 +195,7 @@ export default function BattleScene() {
                 <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="exit-battle-title">
                     <button
                         type="button"
+                        data-sfx="cancel"
                         className="absolute inset-0 bg-ink/50 backdrop-blur-sm"
                         aria-label="取消退出"
                         onClick={() => setShowExitConfirm(false)}
@@ -207,10 +208,10 @@ export default function BattleScene() {
                             当前对局进度不会保留。
                         </p>
                         <div className="mt-7 flex justify-center gap-3">
-                            <InkButton variant="ghost" onClick={() => setShowExitConfirm(false)}>
+                            <InkButton variant="ghost" sfx="cancel" onClick={() => setShowExitConfirm(false)}>
                                 继续对局
                             </InkButton>
-                            <InkButton variant="primary" onClick={leaveBattle}>
+                            <InkButton variant="primary" sfx="primary" onClick={leaveBattle}>
                                 确认退出
                             </InkButton>
                         </div>

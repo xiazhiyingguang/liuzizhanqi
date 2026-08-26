@@ -160,6 +160,7 @@ export default function WeaponCodex() {
                 <div className="weapon-codex-header-inner">
                     <button
                         type="button"
+                        data-sfx="cancel"
                         onClick={() => useGameStore.setState({ phase: 'menu' })}
                         className="weapon-codex-back"
                     >
@@ -197,6 +198,7 @@ export default function WeaponCodex() {
                                 <button
                                     key={system}
                                     type="button"
+                                    data-sfx="tab"
                                     className={selectedSystem === system ? 'is-active' : ''}
                                     onClick={() => chooseSystem(system)}
                                 >
@@ -215,6 +217,7 @@ export default function WeaponCodex() {
                                 <button
                                     key={weapon.id}
                                     type="button"
+                                    data-sfx="tab"
                                     className={`weapon-list-item${selected ? ' is-selected' : ''}`}
                                     style={selected ? { borderColor: `${theme.color}45`, boxShadow: `inset 3px 0 0 ${theme.color}` } : undefined}
                                     onClick={() => setSelectedWeaponId(weapon.id)}
@@ -232,7 +235,7 @@ export default function WeaponCodex() {
                             <div className="weapon-list-empty">
                                 <span>空</span>
                                 <p>没有找到相符的武器</p>
-                                <button type="button" onClick={() => { setQuery(''); chooseSystem('全部'); }}>清除筛选</button>
+                                <button type="button" data-sfx="tab" onClick={() => { setQuery(''); chooseSystem('全部'); }}>清除筛选</button>
                             </div>
                         )}
                     </div>

@@ -174,6 +174,7 @@ export function BattleStatisticsPanel({ gameState, onClose }: BattleStatisticsPa
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="battle-statistics-title">
             <button
                 type="button"
+                data-sfx="cancel"
                 className="absolute inset-0 bg-ink/65 backdrop-blur-md"
                 aria-label="关闭伤害统计"
                 onClick={onClose}
@@ -220,7 +221,7 @@ export function BattleStatisticsPanel({ gameState, onClose }: BattleStatisticsPa
                 </div>
 
                 <div className="flex justify-center border-t border-gold/15 px-5 py-4">
-                    <InkButton variant="secondary" size="sm" onClick={onClose}>
+                    <InkButton variant="secondary" size="sm" sfx="cancel" onClick={onClose}>
                         返回结算
                     </InkButton>
                 </div>

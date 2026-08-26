@@ -28,6 +28,7 @@ export default function BgmControl() {
         >
             <button
                 type="button"
+                data-sfx="toggle"
                 onClick={handleToggleMute}
                 title={muted ? '开启背景音乐' : '静音背景音乐'}
                 aria-label={muted ? '开启背景音乐' : '静音背景音乐'}

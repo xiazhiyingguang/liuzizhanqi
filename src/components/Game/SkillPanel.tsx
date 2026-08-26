@@ -59,7 +59,7 @@ export default function SkillPanel() {
             !h.effects.some(e => e.type === 'stun' && e.duration > 0)
         );
         return (
-            <div className="ink-panel p-4 h-full flex flex-col">
+            <div className="ink-panel p-4 h-full flex flex-col" data-sfx="skill">
                 <h3 className="font-title text-base text-ink mb-3">操作</h3>
                 {hasActionable ? (
                     <p className="text-ink-faint text-sm font-body text-center py-8">
@@ -84,7 +84,7 @@ export default function SkillPanel() {
 
     if (selectedHero.owner !== currentPlayer) {
         return (
-            <div className="ink-panel p-4 h-full flex flex-col">
+            <div className="ink-panel p-4 h-full flex flex-col" data-sfx="skill">
                 <h3 className="font-title text-base text-ink mb-3">操作</h3>
                 <p className="text-ink-faint text-sm font-body text-center py-8">
                     无法操作对方英雄
@@ -121,7 +121,7 @@ export default function SkillPanel() {
         .filter(([name]) => /[\u3400-\u9fff]/.test(name));
 
     return (
-        <div className="ink-panel p-4 h-full flex flex-col overflow-hidden">
+        <div className="ink-panel p-4 h-full flex flex-col overflow-hidden" data-sfx="skill">
             {/* 英雄头部 */}
             <div className="flex items-center gap-2.5 mb-3 flex-shrink-0">
                 <div className={`

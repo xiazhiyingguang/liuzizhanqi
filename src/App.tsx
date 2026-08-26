@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useGameStore } from './store/game-store';
 import MainMenu from './components/Menu/MainMenu';
 import OnlineMenu from './components/Online/OnlineMenu';
@@ -11,6 +12,7 @@ import { useOnlineSync } from './hooks/useOnlineSync';
 import { useComputerOpponent } from './hooks/useComputerOpponent';
 import { useCareerStatisticsRecorder } from './hooks/useCareerStatisticsRecorder';
 import { useBgmController } from './hooks/useBgmController';
+import { installClickSounds } from './audio/click-sound';
 import BgmControl from './components/ui/BgmControl';
 
 function App() {
@@ -19,6 +21,9 @@ function App() {
     useComputerOpponent();
     useCareerStatisticsRecorder();
     useBgmController(phase);
+
+    // 全局按钮点击音效：捕获阶段委托，按 data-sfx 标签区分音色
+    useEffect(() => installClickSounds(), []);
 
     return (
         <div className="w-full h-full ink-paper">

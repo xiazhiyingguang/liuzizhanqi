@@ -332,6 +332,7 @@ export default function HeroCodex() {
                 <div className="mx-auto flex max-w-[1480px] items-center gap-4">
                     <button
                         type="button"
+                        data-sfx="cancel"
                         onClick={() => useGameStore.setState({ phase: 'menu' })}
                         className="group flex h-10 items-center gap-2 rounded-lg border border-ink/10 bg-white/45 px-3 text-sm text-ink-light transition hover:border-ink/20 hover:bg-white/80 hover:text-ink"
                     >
@@ -368,6 +369,7 @@ export default function HeroCodex() {
                                 <button
                                     key={heroClass}
                                     type="button"
+                                    data-sfx="tab"
                                     onClick={() => chooseClass(heroClass)}
                                     className={`rounded-full px-2.5 py-1 text-xs transition ${
                                         selectedClass === heroClass
@@ -392,6 +394,7 @@ export default function HeroCodex() {
                                         <button
                                             key={hero.id}
                                             type="button"
+                                            data-sfx="tab"
                                             onClick={() => setSelectedHeroId(hero.id)}
                                             className={`group flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${
                                                 selected
@@ -428,6 +431,7 @@ export default function HeroCodex() {
                                 <p className="mt-2 text-sm text-ink-faint">没有找到相符的英雄</p>
                                 <button
                                     type="button"
+                                    data-sfx="tab"
                                     onClick={() => { setQuery(''); chooseClass('全部'); }}
                                     className="mt-3 text-xs text-vermillion hover:underline"
                                 >

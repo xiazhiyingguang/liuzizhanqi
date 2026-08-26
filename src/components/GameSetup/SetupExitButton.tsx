@@ -49,6 +49,7 @@ export function SetupExitButtonView({ stage, isOnlineMode }: SetupExitButtonView
                 >
                     <button
                         type="button"
+                        data-sfx="cancel"
                         className="absolute inset-0 bg-ink/50 backdrop-blur-sm"
                         aria-label="取消返回"
                         onClick={() => setShowConfirm(false)}
@@ -63,10 +64,10 @@ export function SetupExitButtonView({ stage, isOnlineMode }: SetupExitButtonView
                             {isOnlineMode && ' 退出后将同时离开当前联机房间。'}
                         </p>
                         <div className="mt-7 flex justify-center gap-3">
-                            <InkButton variant="ghost" onClick={() => setShowConfirm(false)}>
+                            <InkButton variant="ghost" sfx="cancel" onClick={() => setShowConfirm(false)}>
                                 继续{stage}
                             </InkButton>
-                            <InkButton data-testid="confirm-setup-exit" variant="primary" onClick={leaveSetup}>
+                            <InkButton data-testid="confirm-setup-exit" variant="primary" sfx="primary" onClick={leaveSetup}>
                                 确认返回
                             </InkButton>
                         </div>

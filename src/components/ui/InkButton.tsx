@@ -1,9 +1,12 @@
 import { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { UiClickSound } from '../../audio/audio-manager';
 
 interface InkButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     variant?: 'primary' | 'secondary' | 'ghost';
     size?: 'sm' | 'md' | 'lg';
     children: ReactNode;
+    /** 点击音效类别：渲染为 data-sfx 标签供全局点击委托读取 */
+    sfx?: UiClickSound;
 }
 
 const baseClasses = 'inline-flex items-center justify-center transition-all duration-200 font-body select-none';
@@ -41,12 +44,14 @@ export default function InkButton({
     children,
     className = '',
     disabled,
+    sfx,
     ...props
 }: InkButtonProps) {
     return (
         <button
             className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
             disabled={disabled}
+            data-sfx={sfx}
             {...props}
         >
             {children}

@@ -288,7 +288,7 @@ export default function OnlineMenu() {
                     </div>
                 )}
 
-                <button type="button" onClick={handleBack} className="mx-auto mt-5 block text-sm text-ink-faint hover:text-ink font-body">
+                <button type="button" data-sfx="cancel" onClick={handleBack} className="mx-auto mt-5 block text-sm text-ink-faint hover:text-ink font-body">
                     ← 返回主菜单
                 </button>
             </div>

@@ -1,6 +1,9 @@
 import { GamePhase } from '../types/game';
 import { BgmInstrument, BgmNote, BgmTrack, battleBgm, menuBgm, midiToFrequency, trackById } from './bgms';
 
+/** UI 点击音效类别：按交互语义区分音色（data-sfx 标签对应） */
+export type UiClickSound = 'tap' | 'primary' | 'cancel' | 'toggle' | 'tab' | 'skill';
+
 interface ScheduledNote extends BgmNote {
     instrument: BgmInstrument;
 }
@@ -116,6 +119,38 @@ class AudioManager {
     /** 技能音效预留通道：后续音效节点 connect 到该总线即可与 BGM 独立控音 */
     getSfxBus(): GainNode | null {
         return this.sfxGain;
+    }
+
+    /**
+     * UI 点击音效入口：由全局 pointerdown 委托调用。
+     * 首次点击时顺带解锁 AudioContext；若恢复尚未完成则本次静默跳过，下一次起正常发声。
+     */
+    playUiClick(kind: UiClickSound): void {
+        this.unlock();
+        const ctx = this.ctx;
+        const bus = this.sfxGain;
+        if (!ctx || !bus || !this.noiseBuffer || ctx.state !== 'running') return;
+        const time = ctx.currentTime + 0.01;
+        switch (kind) {
+            case 'tap':
+                this.playUiTap(ctx, time, bus);
+                break;
+            case 'primary':
+                this.playUiPrimary(ctx, time, bus);
+                break;
+            case 'cancel':
+                this.playUiCancel(ctx, time, bus);
+                break;
+            case 'toggle':
+                this.playUiToggle(ctx, time, bus);
+                break;
+            case 'tab':
+                this.playUiTab(ctx, time, bus);
+                break;
+            case 'skill':
+                this.playUiSkill(ctx, time, bus);
+                break;
+        }
     }
 
     dispose(): void {
@@ -532,6 +567,136 @@ class AudioManager {
         env.connect(dest);
         noise.start(time);
         noise.stop(time + 1.15);
+    }
+
+    /** 普通按钮：短促木鱼叩击，干净不抢戏 */
+    private playUiTap(ctx: AudioContext, time: number, dest: AudioNode): void {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1600, time);
+        osc.frequency.exponentialRampToValueAtTime(950, time + 0.05);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.14, time);
+        env.gain.exponentialRampToValueAtTime(0.001, time + 0.07);
+        osc.connect(env);
+        env.connect(dest);
+        osc.start(time);
+        osc.stop(time + 0.09);
+    }
+
+    /** 关键确认（开战/确认部署/退出确认）：低音“咚”接高音“叮”，有推进感 */
+    private playUiPrimary(ctx: AudioContext, time: number, dest: AudioNode): void {
+        const thump = ctx.createOscillator();
+        thump.type = 'sine';
+        thump.frequency.setValueAtTime(240, time);
+        thump.frequency.exponentialRampToValueAtTime(100, time + 0.11);
+        const thumpEnv = ctx.createGain();
+        thumpEnv.gain.setValueAtTime(0.26, time);
+        thumpEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.17);
+        thump.connect(thumpEnv);
+        thumpEnv.connect(dest);
+        thump.start(time);
+        thump.stop(time + 0.2);
+
+        const ping = ctx.createOscillator();
+        ping.type = 'triangle';
+        ping.frequency.value = 1318;
+        const pingEnv = ctx.createGain();
+        pingEnv.gain.setValueAtTime(0.0001, time);
+        pingEnv.gain.linearRampToValueAtTime(0.09, time + 0.06);
+        pingEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.28);
+        ping.connect(pingEnv);
+        pingEnv.connect(dest);
+        ping.start(time);
+        ping.stop(time + 0.32);
+    }
+
+    /** 返回/关闭：柔和下滑“噗”，与前进感的 tap 形成方向对比 */
+    private playUiCancel(ctx: AudioContext, time: number, dest: AudioNode): void {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(560, time);
+        osc.frequency.exponentialRampToValueAtTime(300, time + 0.09);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.12, time);
+        env.gain.exponentialRampToValueAtTime(0.001, time + 0.13);
+        osc.connect(env);
+        env.connect(dest);
+        osc.start(time);
+        osc.stop(time + 0.16);
+    }
+
+    /** 开关切换：高低两声短促“咔哒”，模拟机械开关 */
+    private playUiToggle(ctx: AudioContext, time: number, dest: AudioNode): void {
+        const blip = (freq: number, at: number, peak: number): void => {
+            const osc = ctx.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.value = freq;
+            const env = ctx.createGain();
+            env.gain.setValueAtTime(peak, at);
+            env.gain.exponentialRampToValueAtTime(0.001, at + 0.04);
+            osc.connect(env);
+            env.connect(dest);
+            osc.start(at);
+            osc.stop(at + 0.05);
+        };
+        blip(880, time, 0.1);
+        blip(1320, time + 0.05, 0.08);
+    }
+
+    /** 页签/筛选/列表选择：极轻的纸捻沙声，密集点击也不烦 */
+    private playUiTab(ctx: AudioContext, time: number, dest: AudioNode): void {
+        const noise = ctx.createBufferSource();
+        noise.buffer = this.noiseBuffer;
+        const bandpass = ctx.createBiquadFilter();
+        bandpass.type = 'bandpass';
+        bandpass.frequency.value = 2800;
+        bandpass.Q.value = 1.1;
+        const noiseEnv = ctx.createGain();
+        noiseEnv.gain.setValueAtTime(0.07, time);
+        noiseEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+        noise.connect(bandpass);
+        bandpass.connect(noiseEnv);
+        noiseEnv.connect(dest);
+        noise.start(time);
+        noise.stop(time + 0.06);
+
+        const tick = ctx.createOscillator();
+        tick.type = 'sine';
+        tick.frequency.value = 2100;
+        const tickEnv = ctx.createGain();
+        tickEnv.gain.setValueAtTime(0.04, time);
+        tickEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
+        tick.connect(tickEnv);
+        tickEnv.connect(dest);
+        tick.start(time);
+        tick.stop(time + 0.04);
+    }
+
+    /** 战斗操作（移动/技能/结束行动）：弹指拨弦声，带一点金属泛音 */
+    private playUiSkill(ctx: AudioContext, time: number, dest: AudioNode): void {
+        const pluck = ctx.createOscillator();
+        pluck.type = 'triangle';
+        pluck.frequency.setValueAtTime(720, time);
+        pluck.frequency.exponentialRampToValueAtTime(640, time + 0.12);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.13, time);
+        env.gain.exponentialRampToValueAtTime(0.001, time + 0.14);
+        pluck.connect(env);
+        env.connect(dest);
+        pluck.start(time);
+        pluck.stop(time + 0.17);
+
+        const harmonic = ctx.createOscillator();
+        harmonic.type = 'sine';
+        harmonic.frequency.value = 1440;
+        const harmonicEnv = ctx.createGain();
+        harmonicEnv.gain.setValueAtTime(0.04, time);
+        harmonicEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+        harmonic.connect(harmonicEnv);
+        harmonicEnv.connect(dest);
+        harmonic.start(time);
+        harmonic.stop(time + 0.06);
     }
 }
 

@@ -175,6 +175,7 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
                 <div className="flex items-center gap-4">
                     <button
                         type="button"
+                        data-sfx="cancel"
                         onClick={onBack}
                         className="rounded-lg border border-ink/10 bg-white/45 px-3 py-2 text-sm text-ink-light transition hover:border-ink/25 hover:bg-white/75"
                     >
@@ -222,6 +223,7 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
                                     <button
                                         key={option.key}
                                         type="button"
+                                        data-sfx="tab"
                                         onClick={() => setSortKey(option.key)}
                                         className={`rounded-full border px-3 py-1.5 text-[10px] transition ${
                                             sortKey === option.key
@@ -271,6 +273,7 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="clear-career-title">
                     <button
                         type="button"
+                        data-sfx="cancel"
                         className="absolute inset-0 bg-ink/55 backdrop-blur-sm"
                         aria-label="取消清空记录"
                         onClick={() => setShowClearConfirm(false)}
@@ -279,9 +282,10 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
                         <h2 id="clear-career-title" className="font-title text-2xl text-ink">清空全部弈谱？</h2>
                         <p className="mt-3 text-sm leading-6 text-ink-faint">所有长期对局与英雄统计将被永久删除，此操作无法撤销。</p>
                         <div className="mt-7 flex justify-center gap-3">
-                            <InkButton variant="ghost" onClick={() => setShowClearConfirm(false)}>保留记录</InkButton>
+                            <InkButton variant="ghost" sfx="cancel" onClick={() => setShowClearConfirm(false)}>保留记录</InkButton>
                             <InkButton
                                 variant="primary"
+                                sfx="primary"
                                 onClick={() => {
                                     onClear();
                                     setShowClearConfirm(false);
