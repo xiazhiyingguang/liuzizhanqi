@@ -125,7 +125,7 @@ export const skeletonkingSkill2: Skill = {
     id: 'skeletonking_skill2',
     name: '亡灵唤回',
     type: 'damage',
-    description: '对一格内敌人造成7+亡灵共鸣×2伤害，50%复活随机暂时阵亡友方',
+    description: '对一格内敌人造成7+亡灵共鸣×1伤害，50%复活随机暂时阵亡友方',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
@@ -134,7 +134,7 @@ export const skeletonkingSkill2: Skill = {
     execute: (caster, targets, gameState) => {
         const target = targets[0];
         if (!target) return fail('没有可攻击目标');
-        const base = 7 + resonanceCount(caster.owner, gameState) * 2;
+        const base = 7 + resonanceCount(caster.owner, gameState);
         const damage = damageOne(caster, target, base, gameState, false, false, true);
         const output = result([`${caster.name}造成${damage.finalDamage}点伤害`]);
         output.damageDealt?.push(damage.finalDamage);
@@ -169,7 +169,7 @@ export const jetzmiSkill1: Skill = {
             if (caster.owner === 'player1') gameState.deathCounters.player1Dead -= 2;
             else gameState.deathCounters.player2Dead -= 2;
         }
-        const base = kingForm ? 3 * resonance : 6 + resonance;
+        const base = kingForm ? resonance : 6 + resonance;
         const output = result();
         for (const target of chosen) {
             const damage = damageOne(caster, target, base, gameState, false, false, true);

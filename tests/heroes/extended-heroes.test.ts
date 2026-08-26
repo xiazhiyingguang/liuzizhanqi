@@ -53,7 +53,7 @@ describe('extended heroes', () => {
         skeletonkingSkill1.execute!(caster, [enemy], state);
         expect(enemy.currentHp).toBe(enemy.maxHp - 10);
         skeletonkingSkill2.execute!(caster, [enemy], state);
-        expect(enemy.currentHp).toBe(enemy.maxHp - 23);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 20); // 10 + (7 + 共鸣3×1) = 20
     });
 
     it('骸骨君王亡灵唤回复活暂时阵亡友方时恢复其阵亡时的生命值', () => {

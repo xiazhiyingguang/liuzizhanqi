@@ -90,10 +90,10 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position): n
         case 'skeletonking_skill1':
             return 8 + (caster.counters['亡灵之力'] ?? 0) * 2;
         case 'skeletonking_skill2':
-            return 7 + (caster.counters['亡灵共鸣'] ?? 0) * 2;
+            return 7 + (caster.counters['亡灵共鸣'] ?? 0);
         case 'jetzmi_skill1':
             return caster.counters['jetzmi_form'] === 1
-                ? (caster.counters['亡灵共鸣'] ?? 0) * 3
+                ? (caster.counters['亡灵共鸣'] ?? 0)
                 : 6 + (caster.counters['亡灵共鸣'] ?? 0);
         case 'pipa_skill2':
             return (caster.counters['和弦'] ?? 0) * 3;
