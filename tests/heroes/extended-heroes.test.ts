@@ -469,18 +469,43 @@ describe('extended heroes', () => {
         expect(outside.currentHp).toBe(outside.maxHp);
     });
 
-    it('凋零之主施加并引爆凋零，三条生命会拦截致死', () => {
+    it('凋零之主施加并引爆凋零，两条生命会拦截致死', () => {
         const state = makeGameState();
         const caster = addHero(state, 'wither_lord', 'player1', [2, 2]);
         const enemy = addHero(state, 'baize', 'player2', [2, 3]);
+        vi.spyOn(Math, 'random').mockReturnValue(0.99); // 规避25%随机阵亡
         SkillSystem.executeSkill(caster, witherLordSkill1, [[2, 3], [3, 4]], state);
         expect(EffectManager.hasEffect(enemy, '凋零')).toBe(true);
+        expect(caster.counters['wither_applied_total']).toBe(0); // 仅施加不累计被动层数
         const before = enemy.currentHp;
         witherLordSkill2.execute!(caster, [enemy], state);
         expect(enemy.currentHp).toBeLessThan(before);
+        expect(caster.counters['wither_applied_total']).toBe(1); // 引爆1层
         DamageCalculator.forceDeath(caster, enemy, state);
         expect(caster.state).toBe(HeroState.ALIVE);
+        expect(caster.counters['wither_lives']).toBe(1); // 初始2条，消耗1条
+    });
+
+    it('凋零之主只有用技能二引爆满6层凋零才获得一条生命', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'wither_lord', 'player1', [2, 2]);
+        addHero(state, 'baize', 'player2', [2, 3]);
+        addHero(state, 'liuli', 'player2', [3, 4]);
+        vi.spyOn(Math, 'random').mockReturnValue(0.99); // 规避25%随机阵亡
+        // 技能1两次共施加4层：不计数、不加命
+        SkillSystem.executeSkill(caster, witherLordSkill1, [[2, 3], [3, 4]], state);
+        SkillSystem.executeSkill(caster, witherLordSkill1, [[2, 3], [3, 4]], state);
+        expect(caster.counters['wither_applied_total']).toBe(0);
         expect(caster.counters['wither_lives']).toBe(2);
+        // 引爆4层：累计4，未满6层不加命
+        witherLordSkill2.execute!(caster, [], state);
+        expect(caster.counters['wither_applied_total']).toBe(4);
+        expect(caster.counters['wither_lives']).toBe(2);
+        // 再施加2层后引爆共6层：获得一条生命
+        SkillSystem.executeSkill(caster, witherLordSkill1, [[2, 3], [3, 4]], state);
+        witherLordSkill2.execute!(caster, [], state);
+        expect(caster.counters['wither_applied_total']).toBe(0);
+        expect(caster.counters['wither_lives']).toBe(3);
     });
 
     it('T型帛画可分别召唤金乌和玄龟，召唤物加入行动列表', () => {

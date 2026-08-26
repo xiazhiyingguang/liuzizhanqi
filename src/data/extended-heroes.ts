@@ -336,7 +336,7 @@ export function initializeExtendedHero(hero: Hero): void {
             hero.counters['增势'] = 0;
             break;
         case 'wither_lord_passive':
-            hero.counters['wither_lives'] = 3;
+            hero.counters['wither_lives'] = 2;
             hero.counters['wither_applied_total'] = 0;
             hero.counters['wither_skill2_death_chance'] = 0.25;
             break;

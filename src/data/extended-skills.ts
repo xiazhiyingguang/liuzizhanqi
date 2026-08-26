@@ -590,16 +590,11 @@ export const witherLordSkill1: Skill = {
                 type: 'debuff', name: '凋零', duration: -1, stackCount: 1,
                 sourceHeroId: caster.id, description: '可由凋零引爆',
             });
-            EffectManager.addCounter(caster, 'wither_applied_total', 1);
         }
         caster.counters['wither_skill2_death_chance'] = Math.min(
             1,
             (caster.counters['wither_skill2_death_chance'] ?? 0.25) + 0.25
         );
-        while (caster.counters['wither_applied_total'] >= 6) {
-            caster.counters['wither_applied_total'] -= 6;
-            EffectManager.addCounter(caster, 'wither_lives', 1);
-        }
         return output;
     },
 };
@@ -620,6 +615,7 @@ export const witherLordSkill2: Skill = {
         if (!targets.length) return fail('场上没有可引爆的凋零');
         const output = result();
         const percentPerStack = 0.1 + currentDeadCount(caster.owner, gameState) * 0.02;
+        let consumedStacks = 0;
         for (const target of targets) {
             const effect = target.effects.find(item => item.name === '凋零' && item.sourceHeroId === caster.id)!;
             const stacks = effect.stackCount ?? 1;
@@ -627,6 +623,15 @@ export const witherLordSkill2: Skill = {
             const damage = damageOne(caster, target, amount, gameState, true, true);
             output.damageDealt?.push(damage.finalDamage);
             target.effects = target.effects.filter(item => item !== effect);
+            consumedStacks += stacks;
+        }
+        // 引爆凋零才会累计被动层数：每满6层获得一条生命
+        if (consumedStacks > 0) {
+            caster.counters['wither_applied_total'] = (caster.counters['wither_applied_total'] ?? 0) + consumedStacks;
+            while (caster.counters['wither_applied_total'] >= 6) {
+                caster.counters['wither_applied_total'] -= 6;
+                EffectManager.addCounter(caster, 'wither_lives', 1);
+            }
         }
         const chance = caster.counters['wither_skill2_death_chance'] ?? 0.25;
         caster.counters['wither_skill2_death_chance'] = 0.25;

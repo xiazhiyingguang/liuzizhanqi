@@ -341,7 +341,7 @@ const WRITING: Record<string, CodexWriting> = {
         difficulty: 3,
         tags: ['范围叠层', '百分比伤害', '多条生命'],
         resource: '凋零层数与剩余生命条数',
-        passive: { name: '不灭凋零', description: '初始拥有3条生命；致死时消耗一条生命并恢复。累计施加每6层凋零，额外获得一条生命。' },
+        passive: { name: '不灭凋零', description: '初始拥有2条生命；致死时消耗一条生命并恢复。使用技能二引爆凋零时，每累计引爆6层凋零，额外获得一条生命。' },
         tianwei: { name: '天威 · 续命', description: '击杀敌人后增加一条生命。' },
         tips: ['先用凋零领域命中多名敌人快速累计层数，再选择高层目标引爆。', '引爆会提高自身的死亡风险，不要把多条生命当成无限资源。'],
     },
