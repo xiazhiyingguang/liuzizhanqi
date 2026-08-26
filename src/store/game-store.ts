@@ -11,7 +11,12 @@ import { sendPlayerAction, syncGameState } from '../services/socket-service';
 import { checkYinyangLinks } from '../data/extended-heroes';
 import { getDilanFrontRect, getLibaiFrontRect, hasShangguanDashOption, performShangguanDashSegment } from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
-import { resolveSkillFx, type SkillFxEvent } from '../core/skill-fx';
+import {
+    computeFxAngleDeg,
+    computeFxDirection,
+    resolveSkillFx,
+    type SkillFxEvent,
+} from '../core/skill-fx';
 
 /** 技能特效事件的自增序号（仅本地视觉层使用） */
 let skillFxSeq = 0;
@@ -2749,11 +2754,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const castHappened = freshLogs.some(entry => entry.type !== 'system');
         if (!castHappened) return;
 
+        const angleDeg = computeFxAngleDeg(casterFromPos, targetPos);
         get().pushSkillFx({
-            profile: resolveSkillFx(hero.id),
+            profile: resolveSkillFx(hero.id, skill.id),
             owner: hero.owner,
             fromPos: casterFromPos,
             targetPos,
+            angleDeg,
+            direction: computeFxDirection(angleDeg),
         });
     },
 
