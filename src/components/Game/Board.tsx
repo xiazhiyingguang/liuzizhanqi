@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useGameStore } from '../../store/game-store';
 import { Position } from '../../types/game';
+import type { SkillFxEvent } from '../../core/skill-fx';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroStatusPopover from './HeroStatusPopover';
+import { SkillFxLifecycle, SkillFxVisual } from './SkillFxLayer';
 
 type FloatingDamage = {
     id: number;
@@ -17,6 +19,7 @@ export default function Board() {
         board,
         boardEffects,
         battleLog,
+        skillFx,
         selectedHero,
         highlightedPositions,
         selectHeroForAction,
@@ -154,8 +157,26 @@ export default function Board() {
         return skillRange.length > 0 && isHighlighted(row, col);
     };
 
+    // 命中本格的技能特效事件：起手格渲染光环，目标格渲染主效
+    const skillFxAtCell = (row: number, col: number): Array<{
+        event: SkillFxEvent;
+        variant: 'caster' | 'target';
+    }> => {
+        const hits: Array<{ event: SkillFxEvent; variant: 'caster' | 'target' }> = [];
+        for (const event of skillFx) {
+            if (event.fromPos[0] === row && event.fromPos[1] === col) {
+                hits.push({ event, variant: 'caster' });
+            }
+            if (event.targetPos[0] === row && event.targetPos[1] === col) {
+                hits.push({ event, variant: 'target' });
+            }
+        }
+        return hits;
+    };
+
     return (
         <div className="battle-board-shell">
+            <SkillFxLifecycle />
             <div className="battle-field battle-board-frame">
                 <div className="battle-board-grid">
                     {board.map((row, rowIndex) =>
@@ -406,6 +427,15 @@ export default function Board() {
                                                 {damage.kind === 'heal' ? `+${damage.amount}` : damage.amount}
                                             </div>
                                         ))}
+
+                                    {/* 英雄技能特效：起手格光环 + 目标格主效 */}
+                                    {skillFxAtCell(rowIndex, colIndex).map(({ event, variant }) => (
+                                        <SkillFxVisual
+                                            key={`${event.id}-${variant}`}
+                                            event={event}
+                                            variant={variant}
+                                        />
+                                    ))}
                                 </div>
                             );
                         })

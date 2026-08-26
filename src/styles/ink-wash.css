@@ -957,3 +957,294 @@
         animation: none;
     }
 }
+
+/* ============================================================
+   英雄技能特效（skill-fx）
+   由 SkillFxLayer 渲染在对应格内：起手格光环 + 目标格主效。
+   动画时长与 src/core/skill-fx.ts 各档案 durationMs 对齐；
+   阵营色走 currentColor，英雄主题色走 --fx-glow。
+   ============================================================ */
+
+/* 英雄主题光晕色 */
+.skill-fx-kind-wukong    { --fx-glow: rgba(232, 179, 60, 0.5); }
+.skill-fx-kind-feixue    { --fx-glow: rgba(140, 200, 255, 0.5); }
+.skill-fx-kind-soul-lamp { --fx-glow: rgba(74, 222, 128, 0.45); }
+.skill-fx-kind-libai     { --fx-glow: rgba(150, 205, 255, 0.5); }
+.skill-fx-kind-feynman   { --fx-glow: rgba(160, 107, 216, 0.5); }
+.skill-fx-kind-ink       { --fx-glow: rgba(26, 26, 26, 0.3); }
+
+/* 施法方阵营色（光环描边取 currentColor） */
+.skill-fx-owner-p1 { color: rgba(63, 143, 107, 0.9); }
+.skill-fx-owner-p2 { color: rgba(192, 57, 43, 0.9); }
+
+/* —— 目标格主效容器 —— */
+.skill-fx {
+    position: absolute;
+    inset: 0;
+    z-index: 29;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.skill-fx-anchor {
+    position: absolute;
+    inset: 0;
+}
+
+/* —— 起手格光环（通用结构，色调随阵营/英雄变化）—— */
+.skill-fx-caster-halo {
+    position: absolute;
+    inset: 6%;
+    z-index: 28;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    pointer-events: none;
+    opacity: 0;
+    box-shadow:
+        0 0 10px var(--fx-glow, rgba(212, 168, 67, 0.4)),
+        inset 0 0 8px var(--fx-glow, rgba(212, 168, 67, 0.22));
+    animation: fx-halo-pulse 720ms ease-out forwards;
+}
+
+@keyframes fx-halo-pulse {
+    0% { opacity: 0; transform: scale(0.55); }
+    30% { opacity: 1; transform: scale(1); }
+    70% { opacity: 0.75; transform: scale(1.04); }
+    100% { opacity: 0; transform: scale(1.16); }
+}
+
+/* —— 孙悟空：金色棍风交叉斜斩 + 迸溅金屑 —— */
+.fx-slash {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 132%;
+    height: 3px;
+    margin: -1.5px 0 0 -66%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, #ffe9a8 30%, #e8b33c 50%, #ffe9a8 70%, transparent);
+    box-shadow: 0 0 8px rgba(232, 179, 60, 0.75);
+    opacity: 0;
+    animation: fx-slash-sweep 480ms ease-out forwards;
+}
+
+.fx-slash-a { --rot: -32deg; }
+.fx-slash-b { --rot: 42deg; animation-delay: 150ms; }
+
+@keyframes fx-slash-sweep {
+    0% { opacity: 0; transform: rotate(var(--rot, -32deg)) scaleX(0.15); }
+    35% { opacity: 1; transform: rotate(var(--rot, -32deg)) scaleX(1); }
+    100% { opacity: 0; transform: rotate(var(--rot, -32deg)) scaleX(1.08); }
+}
+
+/* 粒子通用结构：金屑（悟空）与紫金粒子环（费曼）共用飞行轨迹 */
+.fx-sparks b,
+.fx-orbit b {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    margin: -2.5px 0 0 -2.5px;
+    border-radius: 50%;
+    opacity: 0;
+    transform: rotate(var(--fx-angle, 0deg)) translateY(12%) scale(0.4);
+    animation: fx-particle-fly 540ms cubic-bezier(0.16, 0.84, 0.44, 1) forwards;
+}
+
+.fx-sparks b {
+    background: radial-gradient(circle, #ffedbe, #e8b33c 70%);
+    box-shadow: 0 0 6px rgba(232, 179, 60, 0.85);
+}
+
+.fx-orbit b {
+    width: 6px;
+    height: 6px;
+    margin: -3px 0 0 -3px;
+    background: radial-gradient(circle, #f3e7ff, #a06bd8 62%, #d4a843);
+    box-shadow: 0 0 7px rgba(160, 107, 216, 0.85);
+    animation-duration: 620ms;
+}
+
+@keyframes fx-particle-fly {
+    0% { opacity: 0; transform: rotate(var(--fx-angle, 0deg)) translateY(calc(var(--board-cell-size) * 0.1)) scale(0.4); }
+    22% { opacity: 1; }
+    100% { opacity: 0; transform: rotate(var(--fx-angle, 0deg)) translateY(calc(var(--board-cell-size) * -0.54)) scale(1); }
+}
+
+.fx-sparks,
+.fx-orbit {
+    position: absolute;
+    inset: 0;
+}
+
+/* —— 绯雪：冰晶绽放 + 冰蓝扩散环 —— */
+.fx-frost-flower {
+    position: absolute;
+    left: 14%;
+    top: 14%;
+    width: 72%;
+    height: 72%;
+    color: #bfe6ff;
+    filter: drop-shadow(0 0 6px rgba(120, 190, 255, 0.8));
+    opacity: 0;
+    transform: scale(0.25) rotate(-60deg);
+    animation: fx-frost-bloom 850ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+
+@keyframes fx-frost-bloom {
+    0% { opacity: 0; transform: scale(0.25) rotate(-60deg); }
+    30% { opacity: 1; transform: scale(1.12) rotate(8deg); }
+    62% { opacity: 0.95; transform: scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: scale(1.28) rotate(14deg); }
+}
+
+.fx-frost-ring {
+    position: absolute;
+    inset: 12%;
+    border-radius: 50%;
+    border: 2px solid rgba(140, 200, 255, 0.75);
+    box-shadow:
+        0 0 10px rgba(140, 200, 255, 0.5),
+        inset 0 0 8px rgba(140, 200, 255, 0.35);
+    opacity: 0;
+    animation: fx-ring-expand 800ms ease-out forwards;
+}
+
+@keyframes fx-ring-expand {
+    0% { opacity: 0; transform: scale(0.3); }
+    25% { opacity: 0.95; }
+    100% { opacity: 0; transform: scale(1.5); }
+}
+
+/* —— 缚魂灯：符文法阵旋转 + 幽绿鬼火上浮 —— */
+.fx-rune-ring {
+    position: absolute;
+    inset: 10%;
+    border-radius: 50%;
+    border: 2px dashed rgba(122, 235, 180, 0.65);
+    box-shadow:
+        0 0 12px rgba(74, 222, 128, 0.35),
+        inset 0 0 10px rgba(74, 222, 128, 0.25);
+    opacity: 0;
+    animation: fx-rune-spin 1080ms linear forwards;
+}
+
+@keyframes fx-rune-spin {
+    0% { opacity: 0; transform: rotate(0deg) scale(0.5); }
+    20% { opacity: 0.95; transform: rotate(90deg) scale(1); }
+    80% { opacity: 0.85; transform: rotate(360deg) scale(1); }
+    100% { opacity: 0; transform: rotate(500deg) scale(1.18); }
+}
+
+.fx-wisp {
+    position: absolute;
+    left: 50%;
+    bottom: 18%;
+    width: 9px;
+    height: 13px;
+    margin-left: -4.5px;
+    border-radius: 50% 50% 46% 46%;
+    background: radial-gradient(circle at 50% 32%, #d8ffe9, #4ade80 58%, rgba(20, 83, 45, 0.2));
+    box-shadow: 0 0 8px rgba(74, 222, 128, 0.75);
+    opacity: 0;
+    animation: fx-wisp-rise 900ms ease-out forwards;
+}
+
+.fx-wisp-a { --wisp-dx: 0px; }
+.fx-wisp-b { --wisp-dx: -14px; animation-delay: 170ms; }
+.fx-wisp-c { --wisp-dx: 14px; animation-delay: 340ms; }
+
+@keyframes fx-wisp-rise {
+    0% { opacity: 0; transform: translate(0, 6px) scale(0.5); }
+    25% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--wisp-dx, 0px), -26px) scale(0.82); }
+}
+
+/* —— 李太白：青白剑气三连闪 —— */
+.fx-blade {
+    position: absolute;
+    left: 50%;
+    top: 8%;
+    bottom: 8%;
+    width: 16%;
+    margin-left: -8%;
+    border-radius: 50% / 18%;
+    background: linear-gradient(
+        180deg,
+        transparent,
+        rgba(214, 240, 255, 0.92) 30%,
+        #ffffff 50%,
+        rgba(150, 205, 255, 0.85) 70%,
+        transparent
+    );
+    box-shadow: 0 0 9px rgba(150, 205, 255, 0.7);
+    opacity: 0;
+    animation: fx-blade-streak 430ms ease-out forwards;
+}
+
+.fx-blade-1 { --blade-dx: 0%; }
+.fx-blade-2 { --blade-dx: -16%; animation-delay: 135ms; }
+.fx-blade-3 { --blade-dx: 16%; animation-delay: 270ms; }
+
+@keyframes fx-blade-streak {
+    0% { opacity: 0; transform: translate(var(--blade-dx, 0%), 26%) scaleY(0.55); }
+    30% { opacity: 1; transform: translate(var(--blade-dx, 0%), 0) scaleY(1); }
+    100% { opacity: 0; transform: translate(var(--blade-dx, 0%), -18%) scaleY(1.05); }
+}
+
+/* —— 费曼：紫金粒子环爆发 + 中心闪光 —— */
+.fx-core-flash {
+    position: absolute;
+    inset: 30%;
+    border-radius: 50%;
+    background: radial-gradient(
+        circle,
+        #ffffff 0%,
+        #e9d5ff 34%,
+        rgba(160, 107, 216, 0.55) 62%,
+        transparent 74%
+    );
+    box-shadow: 0 0 14px rgba(160, 107, 216, 0.8);
+    opacity: 0;
+    animation: fx-core-burst 520ms ease-out forwards;
+}
+
+@keyframes fx-core-burst {
+    0% { opacity: 0; transform: scale(0.2); }
+    28% { opacity: 1; transform: scale(1.06); }
+    100% { opacity: 0; transform: scale(1.35); }
+}
+
+/* —— 默认兜底：墨韵双层涟漪 —— */
+.fx-ripple {
+    position: absolute;
+    inset: 14%;
+    border-radius: 50%;
+    border: 2px solid rgba(64, 64, 72, 0.55);
+    box-shadow:
+        0 0 9px rgba(26, 26, 26, 0.28),
+        inset 0 0 7px rgba(26, 26, 26, 0.2);
+    opacity: 0;
+    animation: fx-ink-ripple 640ms ease-out forwards;
+}
+
+.fx-ripple-b { animation-delay: 130ms; }
+
+@keyframes fx-ink-ripple {
+    0% { opacity: 0; transform: scale(0.35); }
+    28% { opacity: 0.9; }
+    100% { opacity: 0; transform: scale(1.42); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skill-fx-caster-halo,
+    .skill-fx-anchor > i,
+    .skill-fx-anchor svg,
+    .skill-fx-anchor b {
+        animation: none;
+        opacity: 0;
+    }
+}

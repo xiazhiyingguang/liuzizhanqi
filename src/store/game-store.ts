@@ -11,6 +11,10 @@ import { sendPlayerAction, syncGameState } from '../services/socket-service';
 import { checkYinyangLinks } from '../data/extended-heroes';
 import { getDilanFrontRect, getLibaiFrontRect, hasShangguanDashOption, performShangguanDashSegment } from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
+import { resolveSkillFx, type SkillFxEvent } from '../core/skill-fx';
+
+/** 技能特效事件的自增序号（仅本地视觉层使用） */
+let skillFxSeq = 0;
 
 type WukongSkill2Phase = 'pickWukongTarget' | 'pickCloneTarget';
 
@@ -199,6 +203,10 @@ interface GameStore extends GameState {
     skillRange: Position[];
     wukongSkill2State?: WukongSkill2State;
     suppressOnlineBroadcast: boolean;
+    // 英雄技能特效事件队列（瞬态视觉层，动画结束后自动清除）
+    skillFx: SkillFxEvent[];
+    pushSkillFx: (event: Omit<SkillFxEvent, 'id' | 'bornAt'>) => void;
+    dismissSkillFx: (id: number) => void;
 
     // 初始化游戏
     initGame: () => void;
@@ -236,6 +244,8 @@ interface GameStore extends GameState {
     selectSoulLampBeneficiary: (heroId: string) => void;
     selectSkillHeroTarget: (heroId: string) => void;
     executeSkill: (targetPos: Position) => void;
+    /** @internal executeSkill 的原始实现；外层包装负责探测真实施法并派发技能特效 */
+    executeSkillBase: (targetPos: Position) => void;
     resolvePendingBoardAction: (targetPos: Position) => void;
     // 李太白被动链
     selectLibaiChainPosition: (position: Position) => void;
@@ -406,6 +416,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     skillRange: [],
     wukongSkill2State: undefined,
     suppressOnlineBroadcast: false,
+    skillFx: [],
 
     initGame: () => {
         const onlineContext = get();
@@ -1451,7 +1462,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         sendOnlineStateIfNeeded(get());
     },
 
-    executeSkill: (targetPos: Position) => {
+    executeSkillBase: (targetPos: Position) => {
         const state = get();
         const hero = state.selectedHero;
         const skill = state.selectedSkill;
@@ -2711,6 +2722,51 @@ export const useGameStore = create<GameStore>((set, get) => ({
             data: { heroId: hero.id },
             meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
         });
+    },
+
+    /**
+     * executeSkill 的特效包装层：先快照施法者、技能、起手格与日志长度，
+     * 再执行原始实现，最后依据"是否产生了非 system 类新日志"判断本次
+     * 点击是否真实施法成功——失败分支只会写 system 提示或静默早退。
+     * 成功则向特效队列派发一次事件，Board 在起手格与目标格渲染专属动画。
+     *
+     * 本地玩家、人机 AI 与联机远端动作重放都经由本入口，
+     * 因此特效在所有对局形态下表现一致，无需额外的网络消息。
+     */
+    executeSkill: (targetPos: Position) => {
+        const before = get();
+        const hero = before.selectedHero;
+        const skill = before.selectedSkill;
+        const logLengthBefore = before.battleLog.length;
+        // 施法前的位置快照：瞬移/移动类技能会改写 hero.position，
+        // 必须在执行前捕获起手格
+        const casterFromPos: Position = hero?.position ?? targetPos;
+
+        get().executeSkillBase(targetPos);
+
+        if (!hero || !skill) return;
+        const freshLogs = get().battleLog.slice(logLengthBefore);
+        const castHappened = freshLogs.some(entry => entry.type !== 'system');
+        if (!castHappened) return;
+
+        get().pushSkillFx({
+            profile: resolveSkillFx(hero.id),
+            owner: hero.owner,
+            fromPos: casterFromPos,
+            targetPos,
+        });
+    },
+
+    pushSkillFx: (event) => {
+        const next: SkillFxEvent[] = [
+            ...get().skillFx,
+            { ...event, id: ++skillFxSeq, bornAt: Date.now() }
+        ].slice(-6);
+        set({ skillFx: next });
+    },
+
+    dismissSkillFx: (id) => {
+        set({ skillFx: get().skillFx.filter(fx => fx.id !== id) });
     },
 
     addLog: (entry) => {
