@@ -479,6 +479,40 @@ io.on('connection', (socket) => {
             return acceptAndBroadcast();
         }
 
+        if (action.type === 'reposition-deploy-hero') {
+            if (room.phase !== 'deploy') return reject('当前不在部署阶段');
+            if (room.deployReady[playerKey]) return reject('你已经确认了部署');
+            const heroId = action.data?.heroId;
+            const position = action.data?.position;
+            const deployments = room.deployments[playerKey];
+            // 只能调整本方已部署的英雄
+            if (!deployments.has(heroId)) return reject('只能调整已部署的英雄');
+            if (!Array.isArray(position) || position.length !== 2) return reject('部署位置无效');
+            const [row, col] = position;
+            if (![row, col].every(Number.isInteger) || row < 0 || row > 5 || col < 0 || col > 5) {
+                return reject('部署位置无效');
+            }
+            if ((playerKey === 'player1' && col >= 3) || (playerKey === 'player2' && col < 3)) {
+                return reject('不能移动到对方区域');
+            }
+            const targetKey = `${row},${col}`;
+            const fromKey = deployments.get(heroId);
+            if (fromKey === targetKey) return acceptAndBroadcast();
+            // 目标格是否被占用：先查对手（禁止），再查己方（允许交换）
+            const opponentKey = playerKey === 'player1' ? 'player2' : 'player1';
+            const opponentOnTarget = [...room.deployments[opponentKey].entries()]
+                .find(([, cell]) => cell === targetKey);
+            if (opponentOnTarget) return reject('该位置已有单位');
+            const allyOnTarget = [...deployments.entries()]
+                .find(([id, cell]) => cell === targetKey && id !== heroId);
+            if (allyOnTarget) {
+                // 与己方另一英雄交换：两者格位互换
+                deployments.set(allyOnTarget[0], fromKey);
+            }
+            deployments.set(heroId, targetKey);
+            return acceptAndBroadcast();
+        }
+
         if (action.type === 'confirm-deployment') {
             if (room.phase !== 'deploy') return reject('当前不在部署阶段');
             if (room.deployReady[playerKey]) return reject('你已经确认了部署');

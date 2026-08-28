@@ -1,4 +1,4 @@
-import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState } from '../types/game';
+import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState, BattleLogEntry } from '../types/game';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { recordBattleDamage, recordBattleHealing, recordBattleKill } from '../core/battle-statistics';
@@ -7,6 +7,8 @@ import {
     EXTENDED_HERO_INFO,
     EXTENDED_HERO_TEMPLATES,
     initializeExtendedHero,
+    addDilanFeather,
+    applyDilanWind,
 } from './extended-heroes';
 
 /**
@@ -454,11 +456,13 @@ export const zhenxiaoTianwei: TianweiSkill = {
             const drainPerEnemy = Math.floor(totalDrain / enemyCount);
             let totalHealed = 0;
 
-            for (const enemy of enemies) {
-                const dmg = DamageCalculator.calculate(hero, enemy, drainPerEnemy, false, true);
-                DamageCalculator.applyDamage(enemy, dmg, hero, gameState, true);
-                totalHealed += dmg.hpDamage;
-            }
+            DamageCalculator.asOneAttack(() => {
+                for (const enemy of enemies) {
+                    const dmg = DamageCalculator.calculate(hero, enemy, drainPerEnemy, false, true);
+                    DamageCalculator.applyDamage(enemy, dmg, hero, gameState, true);
+                    totalHealed += dmg.hpDamage;
+                }
+            });
 
             // 恢复生命
             DamageCalculator.applyHeal(hero, totalHealed, gameState, hero);
@@ -692,39 +696,41 @@ export const guyingTianwei: TianweiSkill = {
         const getBit = (idx: number) => Math.pow(2, idx);
         const hasBit = (m: number, b: number) => Math.floor(m / b) % 2 === 1;
 
-        for (let idx = 0; idx < 36; idx++) {
-            const bit = getBit(idx);
-            if (!hasBit(remainingMask, bit)) continue;
+        DamageCalculator.asOneAttack(() => {
+            for (let idx = 0; idx < 36; idx++) {
+                const bit = getBit(idx);
+                if (!hasBit(remainingMask, bit)) continue;
 
-            const sr = Math.floor(idx / 6);
-            const sc = idx % 6;
+                const sr = Math.floor(idx / 6);
+                const sc = idx % 6;
 
-            const drRaw = hr - sr;
-            const dcRaw = hc - sc;
-            const isSameRow = sr === hr;
-            const isSameCol = sc === hc;
-            const isDiag = Math.abs(drRaw) === Math.abs(dcRaw) && drRaw !== 0;
-            if (!isSameRow && !isSameCol && !isDiag) continue;
+                const drRaw = hr - sr;
+                const dcRaw = hc - sc;
+                const isSameRow = sr === hr;
+                const isSameCol = sc === hc;
+                const isDiag = Math.abs(drRaw) === Math.abs(dcRaw) && drRaw !== 0;
+                if (!isSameRow && !isSameCol && !isDiag) continue;
 
-            const stepR = drRaw === 0 ? 0 : (drRaw > 0 ? 1 : -1);
-            const stepC = dcRaw === 0 ? 0 : (dcRaw > 0 ? 1 : -1);
+                const stepR = drRaw === 0 ? 0 : (drRaw > 0 ? 1 : -1);
+                const stepC = dcRaw === 0 ? 0 : (dcRaw > 0 ? 1 : -1);
 
-            let cr = sr;
-            let cc = sc;
-            while (cr !== hr || cc !== hc) {
-                const target = gameState.board[cr][cc];
-                if (target && target.owner !== hero.owner && target.state === HeroState.ALIVE) {
-                    const damageResult = DamageCalculator.calculate(hero, target, 4, false);
-                    DamageCalculator.applyDamage(target, damageResult, hero, gameState, true);
-                    totalDamage += damageResult.finalDamage;
+                let cr = sr;
+                let cc = sc;
+                while (cr !== hr || cc !== hc) {
+                    const target = gameState.board[cr][cc];
+                    if (target && target.owner !== hero.owner && target.state === HeroState.ALIVE) {
+                        const damageResult = DamageCalculator.calculate(hero, target, 4, false);
+                        DamageCalculator.applyDamage(target, damageResult, hero, gameState, true);
+                        totalDamage += damageResult.finalDamage;
+                    }
+                    cr += stepR;
+                    cc += stepC;
                 }
-                cr += stepR;
-                cc += stepC;
-            }
 
-            remainingMask -= bit;
-            reclaimed++;
-        }
+                remainingMask -= bit;
+                reclaimed++;
+            }
+        });
 
         hero.counters['guying_sword_shadow_mask'] = remainingMask;
 
@@ -774,6 +780,49 @@ export const changliTianwei: TianweiSkill = {
     execute: (hero) => {
         EffectManager.addCounter(hero, '暗夜星火', 4);
     }
+};
+
+/**
+ * 游隼天威「裂空」：击杀敌人后，对死亡格所在整行与整列的其余敌人造成5点伤害，
+ * 并各施加1层羽化与1层逆风（羽化联动帝兰的引爆与南风的移动伤害）。
+ */
+export const youjunTianwei: TianweiSkill = {
+    id: 'youjun_tianwei',
+    name: '天威',
+    description: '击杀敌人后，对死亡格所在整行与整列的其余敌人造成5点伤害，并各施加1层羽化与1层逆风。',
+    execute: (hero, gameState) => {
+        const code = hero.counters['__youjun_kill_pos'];
+        if (code === undefined || !hero.position) return;
+        const dr = Math.floor(code / 6);
+        const dc = code % 6;
+        const enemies = (hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes)
+            .filter(e => e.state === HeroState.ALIVE && !!e.position);
+        const affected: Hero[] = [];
+        for (const target of enemies) {
+            const [tr, tc] = target.position!;
+            if ((tr === dr || tc === dc) && !(tr === dr && tc === dc)) {
+                affected.push(target);
+            }
+        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of affected) {
+                const dmg = DamageCalculator.calculate(hero, target, 5, false, false, { canCrit: true });
+                DamageCalculator.applyDamage(target, dmg, hero, gameState);
+                addDilanFeather(target, hero);
+                applyDilanWind(target, hero, '逆风');
+            }
+        });
+        if (affected.length > 0 && gameState.battleLog) {
+            const entry: BattleLogEntry = {
+                id: `log-${Date.now()}-${Math.random()}`,
+                type: 'tianwei',
+                player: hero.owner,
+                message: `${hero.name}触发天威·裂空，十字上的${affected.length}名敌人受到5点伤害并被施加羽化与逆风`,
+                timestamp: Date.now(),
+            };
+            gameState.battleLog.push(entry);
+        }
+    },
 };
 
 /**

@@ -142,10 +142,10 @@ export const wukongSkill1: Skill = {
     id: 'wukong_skill1',
     name: '毫毛化身',
     type: 'summon',
-    description: '在周围一格内释放一个分身',
+    description: '在周围两格内释放一个分身',
     rangeType: 'area',
-    range: 1,
-    areaSize: 3,
+    range: 2,
+    areaSize: 5,
     targetType: 'any',
     targetCount: 1,
 };
@@ -154,7 +154,7 @@ export const wukongSkill2: Skill = {
     id: 'wukong_skill2',
     name: '大圣合击',
     type: 'special',
-    description: '释放前只能移动一格，然后对一格内的一名敌人造成8伤害；分身可分别选择目标',
+    description: '释放前只能移动一格，然后对一格内的一名敌人造成8伤害；本体与每个分身都可分别选择目标或跳过（跳过不影响其余单位出手）',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
@@ -287,7 +287,7 @@ export const huifengSkill2: Skill = {
         if (MovementSystem.getManhattanDistance(from, target) !== 1) {
             return { success: false, log: ['只能跳跃到相邻一格'] };
         }
-        if (!MovementSystem.moveHero(caster, target, gameState)) {
+        if (!MovementSystem.moveHero(caster, target, gameState, undefined, { ignoreBindingZone: true })) {
             return { success: false, log: ['目标位置不可到达'] };
         }
         if (caster.state !== HeroState.ALIVE) {
@@ -382,11 +382,13 @@ export const changliSkill1: Skill = {
             .filter(hero => hero.state === HeroState.ALIVE);
         const result: SkillExecuteResult = { success: true, damageDealt: [], log: [] };
         if (enemies.length === 0) return { success: false, log: [`${caster.name}没有找到敌人`] };
-        for (const target of enemies) {
-            const damage = DamageCalculator.calculate(caster, target, 3, false);
-            DamageCalculator.applyDamage(target, damage, caster, gameState, true);
-            result.damageDealt?.push(damage.finalDamage);
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of enemies) {
+                const damage = DamageCalculator.calculate(caster, target, 3, false);
+                DamageCalculator.applyDamage(target, damage, caster, gameState, true);
+                result.damageDealt?.push(damage.finalDamage);
+            }
+        });
         EffectManager.addCounter(caster, '暗夜星火', enemies.length);
         result.log.push(`${caster.name}攻击${enemies.length}名敌人，获得${enemies.length}层暗夜星火`);
         return result;
@@ -614,17 +616,19 @@ export const zhenxiaoSkill1: Skill = {
         caster.currentHp = Math.max(1, caster.currentHp - hpCost);
         result.log.push(`${caster.name}消耗了${hpCost}点生命`);
 
-        for (const target of targets) {
-            const damageResult = DamageCalculator.calculate(caster, target, 8, false);
-            DamageCalculator.applyDamage(target, damageResult, caster, gameState, true);
+        DamageCalculator.asOneAttack(() => {
+            for (const target of targets) {
+                const damageResult = DamageCalculator.calculate(caster, target, 8, false);
+                DamageCalculator.applyDamage(target, damageResult, caster, gameState, true);
 
-            result.damageDealt?.push(damageResult.finalDamage);
-            result.log.push(`${caster.name}使用技能1对${target.name}造成${damageResult.finalDamage}点伤害`);
+                result.damageDealt?.push(damageResult.finalDamage);
+                result.log.push(`${caster.name}使用技能1对${target.name}造成${damageResult.finalDamage}点伤害`);
 
-            if (damageResult.killed) {
-                result.log.push(`${target.name}被击杀！`);
+                if (damageResult.killed) {
+                    result.log.push(`${target.name}被击杀！`);
+                }
             }
-        }
+        });
 
         return result;
     }
@@ -635,7 +639,7 @@ export const zhenxiaoSkill2: Skill = {
     id: 'zhenxiao_skill2',
     name: '金银错',
     type: 'special',
-    description: '消耗当前生命20%，形成束缚格，进入"金银错"状态',
+    description: '消耗当前生命20%，以自身为中心布下束缚格（圈内敌人无法靠移动脱身，技能位移可离开），并进入"金银错"状态',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
@@ -644,7 +648,6 @@ export const zhenxiaoSkill2: Skill = {
 
     execute: (caster: Hero, targets: Hero[], gameState: GameState): SkillExecuteResult => {
         void targets;
-        void gameState;
         const result: SkillExecuteResult = {
             success: true,
             damageDealt: [],
@@ -671,6 +674,29 @@ export const zhenxiaoSkill2: Skill = {
         });
 
         result.log.push(`${caster.name}进入"金银错"状态`);
+
+        // 束缚格：以自己为中心的 3x3 区域（含本格），整片共用一个 linkId。
+        // 被罩住的敌人普通移动不得离开该区域，技能造成的位移可以离开；
+        // 持续到他下一次行动结束，若那之前他已经无法行动则由 duration 兜底消散。
+        const center = caster.position;
+        if (center) {
+            const linkId = `zhenxiao-binding-${caster.id}-${(caster.counters['__actionSerial'] ?? 0) + 1}`;
+            const cells: Position[] = [center, ...MovementSystem.getAreaPositions(center, 3)];
+            gameState.boardEffects ??= [];
+            for (const [row, col] of cells) {
+                gameState.boardEffects.push({
+                    id: `${linkId}-${row}-${col}`,
+                    type: 'binding-zone',
+                    position: [row, col],
+                    owner: caster.owner,
+                    sourceHeroId: caster.id,
+                    duration: 2,
+                    linkId,
+                    expireAtActionSerial: (caster.counters['__actionSerial'] ?? 0) + 2
+                });
+            }
+            result.log.push(`${caster.name}布下束缚格，圈内敌人无法靠移动脱身`);
+        }
 
         return result;
     }
@@ -1032,19 +1058,21 @@ export const mirrorSkill2: Skill = {
                     const dc = c2 > c1 ? 1 : -1;
                     let currR = r1 + dr;
                     let currC = c1 + dc;
-                    while (currR !== r2 && currC !== c2) {
-                        if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
-                            const h = gameState.board[currR][currC];
-                            if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                                const realDmg = DamageCalculator.calculate(caster, h, 10, true);
-                                DamageCalculator.applyDamage(h, realDmg, caster, gameState);
-                                result.damageDealt?.push(realDmg.finalDamage);
-                                result.log.push(`${caster.name}划伤${h.name}造成${realDmg.finalDamage}点伤害`);
+                    DamageCalculator.asOneAttack(() => {
+                        while (currR !== r2 && currC !== c2) {
+                            if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
+                                const h = gameState.board[currR][currC];
+                                if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
+                                    const realDmg = DamageCalculator.calculate(caster, h, 10, true);
+                                    DamageCalculator.applyDamage(h, realDmg, caster, gameState);
+                                    result.damageDealt?.push(realDmg.finalDamage);
+                                    result.log.push(`${caster.name}划伤${h.name}造成${realDmg.finalDamage}点伤害`);
+                                }
                             }
+                            currR += dr;
+                            currC += dc;
                         }
-                        currR += dr;
-                        currC += dc;
-                    }
+                    });
                 }
             }
 
@@ -1084,19 +1112,21 @@ export const mirrorSkill2: Skill = {
                 let currR = r1 + dr;
                 let currC = c1 + dc;
                 
-                while (currR !== r2 && currC !== c2) {
-                     if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
-                         const h = gameState.board[currR][currC];
-                         if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                             const realDmg = DamageCalculator.calculate(caster, h, 10, true);
-                             DamageCalculator.applyDamage(h, realDmg, caster, gameState);
-                             result.damageDealt?.push(realDmg.finalDamage);
-                             result.log.push(`${caster.name}穿过${h.name}造成${realDmg.finalDamage}点伤害`);
-                         }
-                     }
-                     currR += dr;
-                     currC += dc;
-                }
+                DamageCalculator.asOneAttack(() => {
+                    while (currR !== r2 && currC !== c2) {
+                        if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
+                            const h = gameState.board[currR][currC];
+                            if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
+                                const realDmg = DamageCalculator.calculate(caster, h, 10, true);
+                                DamageCalculator.applyDamage(h, realDmg, caster, gameState);
+                                result.damageDealt?.push(realDmg.finalDamage);
+                                result.log.push(`${caster.name}穿过${h.name}造成${realDmg.finalDamage}点伤害`);
+                            }
+                        }
+                        currR += dr;
+                        currC += dc;
+                    }
+                });
             }
 
             // 交换位置
@@ -1475,15 +1505,17 @@ export const hanjiangxueSkill1: Skill = {
             log: []
         };
 
-        for (const target of targets) {
-            const hasHantian = target.effects.some(effect => effect.name === '寒天');
-            // 脆伤：对已带寒天的敌人伤害 +20%
-            const base = hasHantian ? Math.floor(5 * 1.2) : 5;
-            const damage = DamageCalculator.calculate(caster, target, base, false);
-            DamageCalculator.applyDamage(target, damage, caster, gameState, true);
-            result.damageDealt?.push(damage.finalDamage);
-            DamageCalculator.applyHantianStacks(target, 1, caster.id, gameState);
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of targets) {
+                const hasHantian = target.effects.some(effect => effect.name === '寒天');
+                // 脆伤：对已带寒天的敌人伤害 +20%
+                const base = hasHantian ? Math.floor(5 * 1.2) : 5;
+                const damage = DamageCalculator.calculate(caster, target, base, false);
+                DamageCalculator.applyDamage(target, damage, caster, gameState, true);
+                result.damageDealt?.push(damage.finalDamage);
+                DamageCalculator.applyHantianStacks(target, 1, caster.id, gameState);
+            }
+        });
 
         // 特殊联动：3x3范围覆盖己方冰晶时，寒江雪通过技能1获得冰甲（冰晶被消耗），触发再次释放技能1的机制
         const crystal = gameState.boardEffects?.find(effect =>

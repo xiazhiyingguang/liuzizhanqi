@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { useGameStore } from '../../store/game-store';
 import { Position } from '../../types/game';
 import type { SkillFxEvent } from '../../core/skill-fx';
+import { isImpactFxKind } from '../../core/skill-fx';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroStatusPopover from './HeroStatusPopover';
 import { SkillFxLifecycle, SkillFxVisual } from './SkillFxLayer';
+import { HeroStatusFx } from './HeroStatusFx';
 
 type FloatingDamage = {
     id: number;
@@ -12,6 +14,25 @@ type FloatingDamage = {
     col: number;
     amount: number;
     kind: 'damage' | 'crit' | 'heal';
+    /** 同格错位序号：多段伤害/追击同时落格时错开显示，避免叠成一团 */
+    offsetIndex: number;
+};
+
+/** 同格飘字偏移表（px）：第 0 条居中，后续左右交错向上错开 */
+const FLOATING_OFFSETS: Array<[number, number]> = [
+    [0, 0],
+    [-18, -14],
+    [18, -14],
+    [-18, -28],
+    [18, -28],
+];
+
+/** 风道风向的中文显示名（上=吹向北、下=吹向南…） */
+const WIND_LANE_DIRECTION_LABELS: Record<'up' | 'down' | 'left' | 'right', string> = {
+    up: '北',
+    down: '南',
+    left: '西',
+    right: '东',
 };
 
 export default function Board() {
@@ -41,17 +62,17 @@ export default function Board() {
 
     // 伤害飘字：订阅战斗日志增量，把新产生的伤害解析到对应格子
     const [floatingDamages, setFloatingDamages] = useState<FloatingDamage[]>([]);
-    const lastLogLengthRef = useRef(0);
+    const seenLogIdsRef = useRef<Set<string> | null>(null);
     const floatingIdRef = useRef(0);
 
     useEffect(() => {
         const log = battleLog ?? [];
-        if (log.length <= lastLogLengthRef.current) {
-            lastLogLengthRef.current = log.length;
-            return;
-        }
-        const fresh = log.slice(lastLogLengthRef.current);
-        lastLogLengthRef.current = log.length;
+        // 日志满 200 条后 addLog 会做环形截断，长度不再单调增长，
+        // 只能按条目身份识别新增，否则长对局里飘字会彻底停止出现。
+        const seenIds = seenLogIdsRef.current;
+        const fresh = seenIds ? log.filter(entry => !seenIds.has(entry.id)) : [];
+        seenLogIdsRef.current = new Set(log.map(entry => entry.id));
+        if (fresh.length === 0) return;
 
         const next: FloatingDamage[] = [];
         for (const entry of fresh) {
@@ -70,6 +91,7 @@ export default function Board() {
                     col: position[1],
                     amount,
                     kind: isCrit ? 'crit' : 'damage',
+                    offsetIndex: 0,
                 });
             } else if (entry.type === 'heal') {
                 next.push({
@@ -78,13 +100,27 @@ export default function Board() {
                     col: position[1],
                     amount,
                     kind: 'heal',
+                    offsetIndex: 0,
                 });
             }
         }
         if (next.length === 0) return;
 
         const ids = next.map(item => item.id);
-        setFloatingDamages(prev => [...prev, ...next]);
+        setFloatingDamages(prev => {
+            const cellCounts = new Map<string, number>();
+            for (const item of prev) {
+                const key = `${item.row}-${item.col}`;
+                cellCounts.set(key, (cellCounts.get(key) ?? 0) + 1);
+            }
+            const withOffset = next.map(item => {
+                const key = `${item.row}-${item.col}`;
+                const idx = cellCounts.get(key) ?? 0;
+                cellCounts.set(key, idx + 1);
+                return { ...item, offsetIndex: idx };
+            });
+            return [...prev, ...withOffset];
+        });
         window.setTimeout(() => {
             setFloatingDamages(prev => prev.filter(item => !ids.includes(item.id)));
         }, 1000);
@@ -215,12 +251,32 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            const bindingZone = boardEffects?.some(
+                                effect =>
+                                    effect.type === 'binding-zone' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            // 一格最多同时被横、纵两道风道覆盖，因此取列表而非单个
+                            const windLanes = (boardEffects ?? []).filter(
+                                effect =>
+                                    effect.type === 'wind-lane' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
 
                             let cellClass = 'battle-cell';
                             if (isSelected) cellClass += ' cell-selected';
                             else if (moveTarget) cellClass += ' cell-move';
                             else if (skillTarget) cellClass += ' cell-attack';
                             else if (isReinforceTarget(rowIndex, colIndex)) cellClass += ' cell-move';
+
+                            // 本格技能特效：命中型给格子整体震屏反馈（key 含事件 id，重复施放可重触发）
+                            const cellFx = skillFxAtCell(rowIndex, colIndex);
+                            const impactEvent = cellFx.find(
+                                ({ event, variant }) =>
+                                    variant === 'target' && isImpactFxKind(event.profile.kind)
+                            )?.event;
 
                             return (
                                 <div
@@ -231,6 +287,18 @@ export default function Board() {
                                     style={{ userSelect: 'none' }}
                                     className={`${cellClass} battle-board-cell flex flex-col items-center justify-center`}
                                 >
+                                    {impactEvent && (
+                                        <span
+                                            key={`fx-impact-${impactEvent.id}`}
+                                            className="cell-fx-impact"
+                                            aria-hidden="true"
+                                            style={{
+                                                '--fx-glow': impactEvent.profile.c1
+                                                    ? `${impactEvent.profile.c1}66`
+                                                    : undefined,
+                                            } as CSSProperties}
+                                        />
+                                    )}
                                     {/* 移动目标点 */}
                                     {moveTarget && !cell && (
                                         <div className="w-3 h-3 rounded-full bg-jade/30 shadow-[0_0_6px_rgba(45,106,79,0.3)]" />
@@ -246,21 +314,21 @@ export default function Board() {
 
                                     {bladeMark && (
                                         <div
-                                            className="absolute inset-2 border border-vermillion/40 rotate-45 pointer-events-none"
+                                            className="bf-blade-mark absolute inset-2 border border-vermillion/40 rotate-45 pointer-events-none"
                                             title="刃痕"
                                         />
                                     )}
 
                                     {darkCircle && (
                                         <div
-                                            className="absolute inset-1 rounded-md bg-indigo-950/15 border border-indigo-500/30 pointer-events-none"
+                                            className="bf-dark-circle absolute inset-1 rounded-md bg-indigo-950/15 border border-indigo-500/30 pointer-events-none"
                                             title="暗夜法阵"
                                         />
                                     )}
 
                                     {sandDune && (
                                         <div
-                                            className="absolute inset-1 rounded-md border border-amber-600/35 bg-amber-300/15 pointer-events-none"
+                                            className="bf-sand-dune absolute inset-1 rounded-md border border-amber-600/35 bg-amber-300/15 pointer-events-none"
                                             title="沙丘"
                                         >
                                             <div className="absolute inset-x-2 bottom-1 h-1.5 rounded-[50%] border-t border-amber-700/35" />
@@ -268,9 +336,17 @@ export default function Board() {
                                         </div>
                                     )}
 
+                                    {windLanes.map(lane => (
+                                        <div
+                                            key={lane.id}
+                                            className={`wind-lane-band wind-lane-band-${lane.direction ?? 'right'} wind-lane-owner-${lane.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title={`风道：顺风吹向${WIND_LANE_DIRECTION_LABELS[lane.direction ?? 'right']}`}
+                                        />
+                                    ))}
+
                                     {iceCrystal && (
                                         <div
-                                            className="absolute inset-1 flex items-center justify-center pointer-events-none"
+                                            className="bf-ice-crystal absolute inset-1 flex items-center justify-center pointer-events-none"
                                             title="冰晶"
                                         >
                                             {/* Lucide 标准雪花图标（ISC 协议） */}
@@ -300,11 +376,21 @@ export default function Board() {
                                         </div>
                                     )}
 
+                                    {bindingZone && (
+                                        <div
+                                            className="bf-binding-zone absolute inset-1 border border-dashed border-gold/60 rounded-sm pointer-events-none animate-pulse"
+                                            title="束缚格：圈内敌人无法靠移动脱身"
+                                        >
+                                            <div className="absolute inset-1 border border-indigo-300/40 rounded-sm" />
+                                        </div>
+                                    )}
+
                                     {brush && (
                                         <div
-                                            className={`absolute inset-1 pointer-events-none flex flex-col items-center justify-center brush-owner-${brush.owner === 'player1' ? 'p1' : 'p2'}`}
+                                            className={`bf-brush absolute inset-1 pointer-events-none flex flex-col items-center justify-center brush-owner-${brush.owner === 'player1' ? 'p1' : 'p2'}`}
                                             title={`毛笔（剩余移动${Math.max(0, brush.duration)}次）`}
                                         >
+                                            <i className="bf-brush-glow" aria-hidden="true" />
                                             <svg
                                                 className="brush-mark-svg"
                                                 viewBox="0 0 24 24"
@@ -375,20 +461,23 @@ export default function Board() {
                                             placement="auto-vertical"
                                             className="flex flex-col items-center gap-0.5 outline-none"
                                         >
-                                            <div className={`
-                                                piece battle-board-piece
-                                                ${cell.owner === 'player1' ? 'piece-p1' : 'piece-p2'}
-                                                ${isSelected ? 'piece-selected' : ''}
-                                                ${skillTarget ? 'ring-2 ring-vermillion/50' : ''}
-                                            `}>
-                                                <HeroAvatar
-                                                    heroId={cell.id}
-                                                    heroName={cell.name}
-                                                    size={56}
-                                                    className="hero-piece-avatar"
-                                                    fallbackClassName="text-white drop-shadow-sm"
-                                                    eager
-                                                />
+                                            <div className="piece-shell">
+                                                <div className={`
+                                                    piece battle-board-piece
+                                                    ${cell.owner === 'player1' ? 'piece-p1' : 'piece-p2'}
+                                                    ${isSelected ? 'piece-selected' : ''}
+                                                    ${skillTarget ? 'ring-2 ring-vermillion/50' : ''}
+                                                `}>
+                                                    <HeroAvatar
+                                                        heroId={cell.id}
+                                                        heroName={cell.name}
+                                                        size={56}
+                                                        className="hero-piece-avatar"
+                                                        fallbackClassName="text-white drop-shadow-sm"
+                                                        eager
+                                                    />
+                                                </div>
+                                                <HeroStatusFx hero={cell} />
                                             </div>
                                             <span className="battle-board-piece-name text-ink-faint font-body leading-none">
                                                 {cell.name.length > 3 ? cell.name.slice(0, 3) : cell.name}
@@ -416,17 +505,22 @@ export default function Board() {
                                     {/* 伤害飘字 */}
                                     {floatingDamages
                                         .filter(damage => damage.row === rowIndex && damage.col === colIndex)
-                                        .map(damage => (
-                                            <div
-                                                key={damage.id}
-                                                className={`floating-damage${
-                                                    damage.kind === 'crit' ? ' is-crit' :
-                                                    damage.kind === 'heal' ? ' is-heal' : ''
-                                                }`}
-                                            >
-                                                {damage.kind === 'heal' ? `+${damage.amount}` : damage.amount}
-                                            </div>
-                                        ))}
+                                        .map(damage => {
+                                            const [dx, dy] =
+                                                FLOATING_OFFSETS[damage.offsetIndex % FLOATING_OFFSETS.length];
+                                            return (
+                                                <div
+                                                    key={damage.id}
+                                                    className={`floating-damage${
+                                                        damage.kind === 'crit' ? ' is-crit' :
+                                                        damage.kind === 'heal' ? ' is-heal' : ''
+                                                    }`}
+                                                    style={{ '--dx': `${dx}px`, '--dy': `${dy}px` } as CSSProperties}
+                                                >
+                                                    {damage.kind === 'heal' ? `+${damage.amount}` : damage.amount}
+                                                </div>
+                                            );
+                                        })}
 
                                     {/* 英雄技能特效：起手格光环 + 目标格主效 */}
                                     {skillFxAtCell(rowIndex, colIndex).map(({ event, variant }) => (

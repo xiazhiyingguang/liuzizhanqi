@@ -140,6 +140,13 @@ function nextPlannedTarget(
         }
     }
 
+    // 南风引风成道：两步点击，风向计数器是否已写入决定这一步点方向格还是点行列格
+    if (skill.id === 'nanfeng_skill2' && plan && plan.targetPositions.length >= 2) {
+        const step = caster.counters['__nanfeng_skill2_dir'] === undefined ? 0 : 1;
+        const fromPlan = plan.targetPositions[step];
+        if (isAllowed(fromPlan)) return fromPlan;
+    }
+
     const unused = plan?.targetPositions.find(position =>
         isAllowed(position) && !pending.some(candidate => samePosition(candidate, position))
     );
@@ -239,8 +246,12 @@ function executeSelectedSkillStep(
             }
             // 借力连锁一层：落点四方向还能继续冲则追加多段潜力分
             const probe = { ...caster, position: scan.landPos } as Hero;
+            // 第一段撞碎的毛笔实际已被回收：二级探查需把它排除，避免高估已消失的借力点
+            const probeHitTargets = scan.kind === 'brush' && scan.targetId
+                ? [...hitTargets, scan.targetId]
+                : hitTargets;
             for (const [dr2, dc2] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
-                const second = scanShangguanDashDirection(probe, dr2, dc2, hitTargets, state);
+                const second = scanShangguanDashDirection(probe, dr2, dc2, probeHitTargets, state);
                 if (!second.ok) continue;
                 score += second.kind === 'enemy' ? 8 : 4;
                 break;
@@ -488,9 +499,25 @@ function bestAnyAdjacentEmpty(state: GameState, unit: Hero): Position | null {
 }
 
 /**
+ * 走 store 的跳过逻辑（本体或当前分身放弃这一段，继续后面的单位）。
+ * 若整链一个目标都没选，store 判定为"未释放、不消耗行动"；此时打个本回合标记，
+ * 否则 AI 下一拍会再次选中这个放不出来的技能原地打转。
+ */
+function skipWukongStepAndMarkAbort(
+    state: ReturnType<typeof useGameStore.getState>,
+    wukong: Hero
+): void {
+    useGameStore.getState().skipWukongStep();
+    const after = useGameStore.getState();
+    if (!after.wukongSkill2State && !after.selectedSkill && !wukong.hasActedThisTurn) {
+        wukong.counters['__ai_wukong_combo_aborted'] = state.roundNumber;
+    }
+}
+
+/**
  * 孙悟空技能2（身外化身）的 AI 决策：
- * - 本体阶段：优先直接打击 3x3 内收益最高的敌人；打不到且未移动则走位创造机会；否则结束行动。
- * - 分身阶段：依次指挥每个分身打击/走位；死角时借 store 的"任意点击自动跳过"推进到下一个分身。
+ * - 本体阶段：优先直接打击 3x3 内收益最高的敌人；打不到且未移动则走位创造机会；再不行跳过本体。
+ * - 分身阶段：依次指挥每个分身打击/走位；某个分身死角时跳过它，继续推进到下一个分身。
  */
 function executeWukongStep(
     state: ReturnType<typeof useGameStore.getState>,
@@ -519,8 +546,8 @@ function executeWukongStep(
                 return;
             }
         }
-        // 无目标可打：正常结束行动，由 store 清理悟空挂起状态并结算已选目标
-        store.endHeroAction();
+        // 本体打不到：跳过本体，让分身继续出手
+        skipWukongStepAndMarkAbort(state, wukong);
         return;
     }
 
@@ -532,7 +559,7 @@ function executeWukongStep(
     const currentIndex = Math.min(wState.clonePickIndex, clones.length - 1);
     const currentClone = clones[currentIndex];
     if (!currentClone?.position) {
-        store.endHeroAction();
+        skipWukongStepAndMarkAbort(state, wukong);
         return;
     }
 
@@ -551,11 +578,11 @@ function executeWukongStep(
             store.executeSkill(stepPos);
             return;
         }
-        // 未移动且无相邻空位：真死角，落到下方"任意点击自动跳过"
+        // 未移动且无相邻空位：真死角，落到下方显式跳过
     }
 
-    // 死角推进：无可打击目标且无法再移动时，store 会在目标校验前吞掉任意点击并自动推进
-    store.executeSkill(currentClone.position);
+    // 该分身既无可打击目标也无处可走：跳过它，继续后面的分身
+    skipWukongStepAndMarkAbort(state, wukong);
 }
 
 /* --------------------------- 移动+技能联合规划 --------------------------- */

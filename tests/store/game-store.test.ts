@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSkill } from '../../src/data/skills';
+import { createWukongClone } from '../../src/data/heroes';
 import { useGameStore } from '../../src/store/game-store';
 import { EffectManager } from '../../src/core/effect-manager';
-import { HeroState } from '../../src/types/game';
+import { HeroState, Position } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
 
 function loadBattleState() {
@@ -299,6 +300,57 @@ describe('game store battle interactions', () => {
         expect(wukong.hasActedThisTurn).toBe(true);
     });
 
+    it('battleLog 满 200 条截断后（战斗后期）施法仍派发技能特效', () => {
+        const state = loadBattleState();
+        const moran = addHero(state, 'moran', 'player1', [2, 2]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 3]);
+        // 模拟战斗后期：日志已达 200 条上限，新日志会挤掉最旧条目使长度差不再变化
+        const fillerLogs = Array.from({ length: 200 }, (_, i) => ({
+            id: `log-filler-${i}`,
+            type: 'system' as const,
+            player: 'player1' as const,
+            message: `日志填充 ${i}`,
+            timestamp: Date.now(),
+        }));
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: moran,
+            selectedSkill: getSkill('moran_skill2')!,
+            battleLog: fillerLogs,
+        });
+
+        useGameStore.getState().executeSkill([2, 3]);
+
+        expect(enemy.currentHp).toBeLessThan(enemy.maxHp);
+        expect(useGameStore.getState().battleLog).toHaveLength(200);
+        const fx = useGameStore.getState().skillFx;
+        expect(fx).toHaveLength(1);
+        expect(fx[0].profile.kind).toBe('arc-slash');
+    });
+
+    it('毫毛化身的范围高亮与召唤落点都覆盖到周围两格', () => {
+        const state = loadBattleState();
+        const wukong = addHero(state, 'wukong', 'player1', [2, 2]);
+        addHero(state, 'baize', 'player2', [2, 5]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: wukong,
+        });
+
+        useGameStore.getState().selectSkill('wukong_skill1');
+        const range = useGameStore.getState().skillRange;
+        expect(range).toHaveLength(24);
+        expect(range.some(([row, col]) => row === 4 && col === 3)).toBe(true);   // 旧的一格范围之外
+
+        useGameStore.getState().executeSkill([4, 3]);
+        expect(useGameStore.getState().board[4][3]?.counters['__isClone']).toBe(1);
+        expect(wukong.hasActedThisTurn).toBe(true);
+    });
+
     it('rejects summoning a Wukong clone into an occupied cell without spending the action', () => {
         const state = loadBattleState();
         const wukong = addHero(state, 'wukong', 'player1', [2, 2]);
@@ -471,5 +523,127 @@ describe('game store reinforcement deployment', () => {
         expect(after.player1BenchHeroIds).toEqual([]);
         expect(after.reinforcingPlayer).toBeNull();
         expect(after.player1Heroes.filter(hero => hero.state === HeroState.ALIVE)).toHaveLength(4);
+    });
+});
+
+describe('game store 大圣合击跳过', () => {
+    /**
+     * createWukongClone 的 id 含 Date.now() 与 Math.random()，
+     * 而本组用例把随机数固定住了，同毫秒召唤的两个分身会撞 id 并让"按分身记目标"的表塌成一项，
+     * 因此测试里手动给每个分身编一个唯一且仍可被引擎解析的 id。
+     */
+    function makeClone(wukongId: string, position: Position, tag: string) {
+        const clone = createWukongClone('player1', wukongId, position, 10);
+        clone.id = `wukong-clone|${wukongId}|${tag}|0.5`;
+        return clone;
+    }
+
+    beforeEach(() => {
+        vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        useGameStore.getState().resetGame();
+    });
+
+    it('跳过本体后，分身仍然各自出手并正常结束行动', () => {
+        const state = loadBattleState();
+        const wukong = addHero(state, 'wukong', 'player1', [2, 2]);
+        addHero(state, 'moran', 'player1', [1, 2]);
+        addHero(state, 'moran', 'player1', [3, 2]);
+        addHero(state, 'moran', 'player1', [2, 1]);
+        addHero(state, 'moran', 'player1', [2, 3]);
+        const near = makeClone(wukong.id, [0, 1], 'near');
+        const far = makeClone(wukong.id, [5, 4], 'far');
+        state.board[0][1] = near;
+        state.board[5][4] = far;
+        const enemyNear = addHero(state, 'baize', 'player2', [0, 0]);
+        const enemyFar = addHero(state, 'baize', 'player2', [5, 5]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: wukong,
+            activeHero: wukong,
+        });
+
+        useGameStore.getState().selectSkill('wukong_skill2');
+        useGameStore.getState().skipWukongStep();
+
+        const chained = useGameStore.getState().wukongSkill2State;
+        expect(chained?.phase).toBe('pickCloneTarget');
+        expect(chained?.clonePickIndex).toBe(0);
+        expect(chained?.wukongSkipped).toBe(true);
+
+        useGameStore.getState().executeSkill([0, 0]);        // 分身1打击
+        expect(useGameStore.getState().wukongSkill2State?.clonePickIndex).toBe(1);
+        useGameStore.getState().executeSkill([5, 5]);        // 分身2打击 → 整链结算
+
+        expect(enemyNear.currentHp).toBe(enemyNear.maxHp - 8);
+        expect(enemyFar.currentHp).toBe(enemyFar.maxHp - 8);
+        expect(wukong.currentHp).toBe(wukong.maxHp);
+        expect(useGameStore.getState().wukongSkill2State).toBeUndefined();
+        expect(wukong.hasActedThisTurn).toBe(true);
+    });
+
+    it('某个分身打不到时跳过它，后面的分身照常出手', () => {
+        const state = loadBattleState();
+        const wukong = addHero(state, 'wukong', 'player1', [0, 0]);
+        const stuck = makeClone(wukong.id, [1, 4], 'stuck');
+        const mobile = makeClone(wukong.id, [4, 4], 'mobile');
+        state.board[1][4] = stuck;
+        state.board[4][4] = mobile;
+        addHero(state, 'moran', 'player1', [0, 4]);          // 死角分身的四个正交方向全被自己人占住
+        addHero(state, 'moran', 'player1', [1, 5]);
+        addHero(state, 'moran', 'player1', [2, 4]);
+        addHero(state, 'moran', 'player1', [1, 3]);
+        const bodyTarget = addHero(state, 'baize', 'player2', [1, 1]);
+        const cloneTarget = addHero(state, 'baize', 'player2', [4, 3]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: wukong,
+            activeHero: wukong,
+        });
+
+        useGameStore.getState().selectSkill('wukong_skill2');
+        useGameStore.getState().executeSkill([1, 1]);        // 本体选定目标
+        expect(useGameStore.getState().wukongSkill2State?.clonePickIndex).toBe(0);
+
+        useGameStore.getState().skipWukongStep();            // 分身1在死角：跳过
+        expect(useGameStore.getState().wukongSkill2State?.clonePickIndex).toBe(1);
+
+        useGameStore.getState().executeSkill([4, 3]);        // 分身2打击 → 结算
+
+        expect(bodyTarget.currentHp).toBe(bodyTarget.maxHp - 8);
+        expect(cloneTarget.currentHp).toBe(cloneTarget.maxHp - 8);
+        expect(wukong.hasActedThisTurn).toBe(true);
+    });
+
+    it('本体与分身都无从出手时取消释放，不消耗行动', () => {
+        const state = loadBattleState();
+        const wukong = addHero(state, 'wukong', 'player1', [2, 2]);
+        addHero(state, 'moran', 'player1', [1, 2]);
+        addHero(state, 'moran', 'player1', [3, 2]);
+        addHero(state, 'moran', 'player1', [2, 1]);
+        addHero(state, 'moran', 'player1', [2, 3]);
+        const enemy = addHero(state, 'baize', 'player2', [0, 0]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: wukong,
+            activeHero: wukong,
+        });
+
+        useGameStore.getState().selectSkill('wukong_skill2');
+        useGameStore.getState().skipWukongStep();
+
+        expect(useGameStore.getState().wukongSkill2State).toBeUndefined();
+        expect(useGameStore.getState().selectedSkill).toBeNull();
+        expect(wukong.hasActedThisTurn).toBe(false);
+        expect(enemy.currentHp).toBe(enemy.maxHp);
     });
 });

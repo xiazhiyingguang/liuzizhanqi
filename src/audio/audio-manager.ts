@@ -8,10 +8,37 @@ interface ScheduledNote extends BgmNote {
     instrument: BgmInstrument;
 }
 
-interface ActiveTrack {
+interface ProgTrack {
+    kind: 'prog';
     track: BgmTrack;
     trackGain: GainNode;
     delaySend: GainNode;
+}
+
+interface Mp3Track {
+    kind: 'mp3';
+    source: AudioBufferSourceNode;
+    trackGain: GainNode;
+    /** 缓冲总时长（秒），循环定位用 */
+    bufferDuration: number;
+    /** 本次启动（或 seek）时的 ctx.currentTime */
+    loopStartCtxTime: number;
+    /** 本次启动（或 seek）时从缓冲区的哪个偏移（秒）开始播 */
+    loopStartPosition: number;
+}
+
+type ActiveTrack = ProgTrack | Mp3Track;
+
+/**
+ * 联机 BGM 同步：计算两个循环位置的带符号偏差（秒）。
+ * 结果按环形最短路径折叠到 ±duration/2 内，正数表示本地超前。
+ */
+export function computeBgmDrift(minePos: number, targetPos: number, loopDuration: number): number {
+    if (!(loopDuration > 0) || !Number.isFinite(minePos) || !Number.isFinite(targetPos)) return 0;
+    let diff = (minePos - targetPos) % loopDuration;
+    if (diff > loopDuration / 2) diff -= loopDuration;
+    if (diff < -loopDuration / 2) diff += loopDuration;
+    return diff;
 }
 
 const STORAGE_KEY = 'six-chess-bgm-state';
@@ -19,6 +46,11 @@ const MASTER_LEVEL = 0.9;
 const DEFAULT_BGM_VOLUME = 0.32;
 const SCHEDULE_AHEAD = 0.18;
 const TICK_INTERVAL = 40;
+
+const BATTLE_MP3_TRACK_ID = 'battle-mp3';
+const BATTLE_MP3_URL = `${import.meta.env.BASE_URL ?? '/'}audio/mofengdou.mp3`;
+/** mp3 母带通常比程序合成曲响，整体压一压避免突兀；0~1 可调 */
+const BATTLE_MP3_GAIN = 0.8;
 
 interface PersistedState {
     muted: boolean;
@@ -63,6 +95,10 @@ class AudioManager {
     private nextStepTime = 0;
     private schedulerId: number | null = null;
 
+    private battleBuffer: AudioBuffer | null = null;
+    private battleBufferPromise: Promise<AudioBuffer | null> | null = null;
+    private battleMp3Failed = false;
+
     private muted: boolean;
     private volume: number;
 
@@ -93,9 +129,14 @@ class AudioManager {
         }
     }
 
-    /** 由当前游戏阶段决定播放哪首曲子 */
+    /** 由当前游戏阶段决定播放哪首曲子：战斗播《墨锋斗》mp3（加载失败回退合成战斗曲），其余阶段播界面曲 */
     applyPhase(phase: GamePhase): void {
-        const targetId = phase === 'battle' ? battleBgm.id : menuBgm.id;
+        let targetId: string;
+        if (phase === 'battle') {
+            targetId = this.battleMp3Failed ? battleBgm.id : BATTLE_MP3_TRACK_ID;
+        } else {
+            targetId = menuBgm.id;
+        }
         if (this.currentTrackId === targetId && this.activeTrack) return;
         if (!this.ctx || this.ctx.state !== 'running') {
             this.pendingTrackId = targetId;
@@ -155,9 +196,17 @@ class AudioManager {
 
     dispose(): void {
         this.stopScheduler();
-        if (this.activeTrack) {
-            this.activeTrack.trackGain.disconnect();
+        const active = this.activeTrack;
+        if (active && this.ctx) {
             this.activeTrack = null;
+            if (active.kind === 'mp3') {
+                try {
+                    active.source.stop();
+                } catch {
+                    /* 已停止 */
+                }
+            }
+            active.trackGain.disconnect();
         }
         this.currentTrackId = null;
     }
@@ -203,6 +252,12 @@ class AudioManager {
     }
 
     private switchTrack(trackId: string): void {
+        if (trackId === BATTLE_MP3_TRACK_ID) {
+            if (this.currentTrackId === BATTLE_MP3_TRACK_ID && this.activeTrack?.kind === 'mp3') return;
+            this.currentTrackId = BATTLE_MP3_TRACK_ID;
+            void this.startBattleMp3();
+            return;
+        }
         const track = trackById(trackId);
         if (!track) return;
         if (this.activeTrack) this.stopActiveTrack();
@@ -210,7 +265,97 @@ class AudioManager {
         this.currentTrackId = trackId;
     }
 
-    private stopActiveTrack(): void {
+    /** 拉取并解码战斗 mp3（结果缓存，失败也缓存为 null 避免反复请求） */
+    private loadBattleBuffer(): Promise<AudioBuffer | null> {
+        if (this.battleBuffer) return Promise.resolve(this.battleBuffer);
+        if (this.battleBufferPromise) return this.battleBufferPromise;
+        const ctx = this.ctx;
+        if (!ctx) return Promise.resolve(null);
+        this.battleBufferPromise = fetch(BATTLE_MP3_URL)
+            .then(res => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`HTTP ${res.status}`))))
+            .then(data => ctx.decodeAudioData(data))
+            .then(buffer => {
+                this.battleBuffer = buffer;
+                return buffer;
+            })
+            .catch(() => null);
+        return this.battleBufferPromise;
+    }
+
+    /** 当前战斗音乐循环播放位置（秒）；未在播战斗 mp3 或上下文未运行返回 null */
+    getBattleMusicPosition(): number | null {
+        const ctx = this.ctx;
+        const active = this.activeTrack;
+        if (!ctx || ctx.state !== 'running' || !active || active.kind !== 'mp3') return null;
+        const elapsed = ctx.currentTime - active.loopStartCtxTime;
+        return (active.loopStartPosition + elapsed) % active.bufferDuration;
+    }
+
+    /**
+     * 联机 BGM 同步（客机侧）：把本地战斗音乐对到主机上报的循环位置。
+     * 偏差在死区内不修（避免网络抖动引发频繁 seek），超出则交叉淡化重定位。
+     */
+    alignBattleMusicTo(targetPos: number, deadbandSeconds = 0.3): boolean {
+        const ctx = this.ctx;
+        const active = this.activeTrack;
+        if (!ctx || ctx.state !== 'running' || !active || active.kind !== 'mp3') return false;
+        const mine = this.getBattleMusicPosition();
+        if (mine === null) return false;
+        const drift = computeBgmDrift(mine, targetPos, active.bufferDuration);
+        if (Math.abs(drift) <= deadbandSeconds) return false;
+        this.seekBattleMp3(targetPos);
+        return true;
+    }
+
+    private seekBattleMp3(offset: number): void {
+        const ctx = this.ctx;
+        const buffer = this.battleBuffer;
+        if (!ctx || !buffer) return;
+        const wrapped = ((offset % buffer.duration) + buffer.duration) % buffer.duration;
+        this.stopActiveTrack(0.15);
+        this.playBattleBufferFrom(buffer, wrapped, 0.15);
+    }
+
+    private async startBattleMp3(): Promise<void> {
+        const ctx = this.ctx;
+        if (!ctx || ctx.state !== 'running') return;
+        const buffer = await this.loadBattleBuffer();
+        // 加载期间用户已切走（如迅速退出战斗），放弃本次切换
+        if (this.currentTrackId !== BATTLE_MP3_TRACK_ID) return;
+        if (!buffer) {
+            this.battleMp3Failed = true;
+            if (this.activeTrack) this.stopActiveTrack();
+            this.startTrack(battleBgm);
+            this.currentTrackId = battleBgm.id;
+            return;
+        }
+        if (this.activeTrack) this.stopActiveTrack();
+        this.playBattleBufferFrom(buffer, 0, 0.9);
+    }
+
+    /** 从缓冲区 offset 秒起播战斗 mp3（loop），fadeIn 秒淡入 */
+    private playBattleBufferFrom(buffer: AudioBuffer, offset: number, fadeIn: number): void {
+        const ctx = this.ctx!;
+        const trackGain = ctx.createGain();
+        trackGain.gain.setValueAtTime(0, ctx.currentTime);
+        trackGain.gain.linearRampToValueAtTime(BATTLE_MP3_GAIN, ctx.currentTime + fadeIn);
+        trackGain.connect(this.bgmGain!);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+        source.connect(trackGain);
+        source.start(0, offset);
+        this.activeTrack = {
+            kind: 'mp3',
+            source,
+            trackGain,
+            bufferDuration: buffer.duration,
+            loopStartCtxTime: ctx.currentTime,
+            loopStartPosition: offset,
+        };
+    }
+
+    private stopActiveTrack(fadeSeconds = 0.6): void {
         this.stopScheduler();
         const active = this.activeTrack;
         if (!active || !this.ctx) return;
@@ -218,9 +363,16 @@ class AudioManager {
         const now = this.ctx.currentTime;
         active.trackGain.gain.cancelScheduledValues(now);
         active.trackGain.gain.setValueAtTime(active.trackGain.gain.value, now);
-        active.trackGain.gain.linearRampToValueAtTime(0, now + 0.6);
+        active.trackGain.gain.linearRampToValueAtTime(0, now + fadeSeconds);
+        if (active.kind === 'mp3') {
+            try {
+                active.source.stop(now + fadeSeconds + 0.1);
+            } catch {
+                /* 已停止 */
+            }
+        }
         const fadingGain = active.trackGain;
-        window.setTimeout(() => fadingGain.disconnect(), 900);
+        window.setTimeout(() => fadingGain.disconnect(), fadeSeconds * 1000 + 300);
     }
 
     private startTrack(track: BgmTrack): void {
@@ -247,7 +399,7 @@ class AudioManager {
         delaySend.gain.value = 1;
         delaySend.connect(delay);
 
-        this.activeTrack = { track, trackGain, delaySend };
+        this.activeTrack = { kind: 'prog', track, trackGain, delaySend };
         this.eventsByStep = this.compileTrack(track);
         this.currentStep = 0;
         this.nextStepTime = ctx.currentTime + 0.1;
@@ -275,7 +427,7 @@ class AudioManager {
     private tick(): void {
         const ctx = this.ctx;
         const active = this.activeTrack;
-        if (!ctx || !active) {
+        if (!ctx || !active || active.kind !== 'prog') {
             this.stopScheduler();
             return;
         }
@@ -289,7 +441,7 @@ class AudioManager {
         }
     }
 
-    private playNote(event: ScheduledNote, time: number, stepDuration: number, active: ActiveTrack): void {
+    private playNote(event: ScheduledNote, time: number, stepDuration: number, active: ProgTrack): void {
         const ctx = this.ctx!;
         const gain = active.trackGain;
         const freq = midiToFrequency(event.midi);

@@ -18,6 +18,7 @@ import {
     hanjiangxueTianwei,
     huifengTianwei,
     changliTianwei,
+    youjunTianwei,
     getMirrorOwnerIdFromCloneId
 } from '../data/heroes';
 import {
@@ -26,8 +27,15 @@ import {
     consumeDilanFeather,
     findSoulLampBeneficiary,
     getDilanFeatherStacks,
+    getSummonOwnerId,
 } from '../data/extended-heroes';
 import { recordBattleDamage, recordBattleHealing, recordBattleKill } from './battle-statistics';
+import {
+    chooseWindLaneDirection,
+    createWindLane,
+    getWindLaneDodgeRate,
+    removeWindLanesOf,
+} from './wind-lane';
 
 type DamageCalculationOptions = {
     /** 本次普通伤害段必定暴击。 */
@@ -46,6 +54,25 @@ type DamageCalculationOptions = {
  * 伤害计算系统
  */
 export class DamageCalculator {
+    /**
+     * 攻击分组：同一次攻击引发的全部伤害结算（多目标命中、援护分摊、转伤、
+     * 纠缠传播等）共享一个组号；「和声」这类"每次攻击触发一次"的效果按组号去重。
+     * 独立的 applyDamage 调用自动获得新组号（= 一次攻击）；
+     * 多目标单次攻击的技能用 asOneAttack 包住循环，把多次结算并为一次攻击。
+     */
+    private static attackGroupSeq = 0;
+    private static currentAttackGroup: number | null = null;
+
+    static asOneAttack<T>(run: () => T): T {
+        const previous = this.currentAttackGroup;
+        this.currentAttackGroup = ++this.attackGroupSeq;
+        try {
+            return run();
+        } finally {
+            this.currentAttackGroup = previous;
+        }
+    }
+
     private static getWukongOwnerIdFromCloneId(cloneId: string): string | null {
         const parts = cloneId.split('|');
         if (parts.length < 3) return null;
@@ -309,7 +336,10 @@ export class DamageCalculator {
             .map(effect => this.findHeroById(effect.sourceHeroId, gameState))
             .filter((source): source is Hero =>
                 !!source &&
-                source.passiveId === 'dilan_passive' &&
+                // 帝兰、南风与游隼共用同一份羽化层数；逐格伤害按种下羽化的来源结算
+                (source.passiveId === 'dilan_passive' ||
+                    source.passiveId === 'nanfeng_passive' ||
+                    source.passiveId === 'youjun_passive') &&
                 source.state === HeroState.ALIVE &&
                 source.owner !== target.owner
             );
@@ -342,6 +372,21 @@ export class DamageCalculator {
         gameState: GameState,
         isAreaDamage: boolean = false
     ): void {
+        // 独立调用即"一次攻击"；已在某次攻击的结算链内则并入该组（援护分摊/转伤/纠缠传播不另计攻击）
+        if (this.currentAttackGroup === null) {
+            this.asOneAttack(() => this.applyDamageInner(target, damageResult, attacker, gameState, isAreaDamage));
+            return;
+        }
+        this.applyDamageInner(target, damageResult, attacker, gameState, isAreaDamage);
+    }
+
+    private static applyDamageInner(
+        target: Hero,
+        damageResult: DamageResult,
+        attacker: Hero,
+        gameState: GameState,
+        isAreaDamage: boolean = false
+    ): void {
         const targetWasAlive = target.state === HeroState.ALIVE;
         const unavoidable = damageResult.unavoidable === true;
         if (!unavoidable && attacker.owner !== target.owner && damageResult.finalDamage > 0) {
@@ -353,6 +398,14 @@ export class DamageCalculator {
                     hero.id.split('|')[2] === attacker.id
                 ).length;
                 damageResult.finalDamage += summons;
+            }
+            // 五弦琵琶「音符」：友方造成伤害时附加琵琶基础攻击力25%，并入本次伤害一并结算
+            const note = attacker.effects.find(e => e.name === '音符');
+            if (note?.sourceHeroId) {
+                const pipa = this.findHeroById(note.sourceHeroId, gameState);
+                if (pipa?.state === HeroState.ALIVE) {
+                    damageResult.finalDamage += Math.max(1, Math.floor((pipa.baseAttack ?? 8) * (note.value ?? 0.25)));
+                }
             }
         }
         let remainingDamage = damageResult.finalDamage;
@@ -645,6 +698,28 @@ export class DamageCalculator {
             });
         }
 
+        // 南风「御风」：身处风道内按风道数量提升闪避率（每道25%，最多两道=50%）。
+        // 任意阵营铺设的风道都能乘；不可规避的固定伤害（如羽化）无视此闪避。
+        const windLaneDodgeRate = getWindLaneDodgeRate(gameState, actualTarget);
+        if (
+            !unavoidable &&
+            remainingDamage > 0 &&
+            windLaneDodgeRate > 0 &&
+            attacker.owner !== actualTarget.owner
+        ) {
+            if (Math.random() < windLaneDodgeRate) {
+                remainingDamage = 0;
+                damageResult.finalDamage = 0;
+                damageResult.shieldDamage = 0;
+                damageResult.hpDamage = 0;
+                this.addBattleLog(gameState, {
+                    type: 'passive',
+                    player: actualTarget.owner,
+                    message: `${actualTarget.name}御风而起，闪避了${attacker.name}的攻击（闪避率${Math.round(windLaneDodgeRate * 100)}%）`,
+                });
+            }
+        }
+
         // 1. 先扣护盾
         if (!unavoidable && actualTarget.shield > 0) {
             if (actualTarget.shield >= remainingDamage) {
@@ -784,19 +859,21 @@ export class DamageCalculator {
 
         // 扩展英雄的攻击后效果。
         if (remainingDamage > 0 && attacker.state === HeroState.ALIVE) {
+            // 音符：友方造成实际伤害后，为来源琵琶累积1点和弦（附伤已在结算前并入本次伤害）
             const note = attacker.effects.find(e => e.name === '音符');
             if (note?.sourceHeroId) {
                 const pipa = this.findHeroById(note.sourceHeroId, gameState);
                 if (pipa?.state === HeroState.ALIVE) {
-                    const extra = Math.max(1, Math.floor((pipa.baseAttack ?? 8) * (note.value ?? 0.25)));
-                    const extraResult = this.calculate(pipa, actualTarget, extra, false, true);
-                    this.applyDamage(actualTarget, extraResult, pipa, gameState, isAreaDamage);
                     EffectManager.addCounter(pipa, '和弦', 1);
                 }
             }
 
+            // 和声：每次攻击恢复一次生命；同组内的多目标命中/援护分摊/纠缠传播都算同一次攻击
             const harmony = attacker.effects.find(e => e.name === '和声');
-            if (harmony) this.applyHeal(attacker, harmony.value ?? 5, gameState);
+            if (harmony && attacker.counters['__harmony_attack_group'] !== this.currentAttackGroup) {
+                attacker.counters['__harmony_attack_group'] = this.currentAttackGroup ?? 0;
+                this.applyHeal(attacker, harmony.value ?? 5, gameState);
+            }
 
         }
         if (attacker.counters['jetzmi_vampire_next'] === 1) {
@@ -954,8 +1031,10 @@ export class DamageCalculator {
             id: `log-${Date.now()}-${Math.random()}`,
             timestamp: Date.now()
         });
+        // 必须原地截断：换成新数组会让调用方持有的引用变成孤儿数组，
+        // 达到上限后同一次结算里的第二条起伤害日志就会静默消失（飘字随之丢失）。
         if (gameState.battleLog.length > 200) {
-            gameState.battleLog = gameState.battleLog.slice(-200);
+            gameState.battleLog.splice(0, gameState.battleLog.length - 200);
         }
     }
 
@@ -1203,6 +1282,18 @@ export class DamageCalculator {
             }
         }
 
+        // 南风阵亡：其风道只随南风存续，失去风源后立即消散
+        if (target.passiveId === 'nanfeng_passive') {
+            const removed = removeWindLanesOf(gameState, target.id);
+            if (removed > 0) {
+                this.addBattleLog(gameState, {
+                    type: 'system',
+                    player: target.owner,
+                    message: `${target.name}阵亡，风止道散（移除${removed}格风道）`
+                });
+            }
+        }
+
         let removedCloneCount = 0;
         for (let r = 0; r < 6; r++) {
             for (let c = 0; c < 6; c++) {
@@ -1258,9 +1349,12 @@ export class DamageCalculator {
         if (tianweiHero && tianweiHero.id !== target.id && tianweiHero.owner !== target.owner) {
             if (tianweiHero.tianweiId === 'dilan_tianwei' && deathPosition) {
                 tianweiHero.counters['__dilan_kill_pos'] = deathPosition[0] * 6 + deathPosition[1];
+            } else if (tianweiHero.tianweiId === 'youjun_tianwei' && deathPosition) {
+                tianweiHero.counters['__youjun_kill_pos'] = deathPosition[0] * 6 + deathPosition[1];
             }
             this.triggerTianwei(tianweiHero, gameState);
             delete tianweiHero.counters['__dilan_kill_pos'];
+            delete tianweiHero.counters['__youjun_kill_pos'];
         }
         if (killer.id !== target.id && killer.owner !== target.owner) {
             this.resolveBountyRewards(target, killer, gameState);
@@ -1319,6 +1413,7 @@ export class DamageCalculator {
      * 解析天威的实际触发者：
      * - 击杀者拥有天威时返回击杀者本人；
      * - 击杀者为孙悟空的分身时返回其本体（分身击杀同样触发天威）；
+     * - 击杀者为召唤物（T型帛画的金乌/玄龟等）时返回仍在场的召唤者；
      * - 其余情况返回 null。
      */
     private static resolveTianweiTriggerHero(killer: Hero, gameState: GameState): Hero | null {
@@ -1332,6 +1427,14 @@ export class DamageCalculator {
             if (!ownerId) return null;
             const owner = this.findHeroById(ownerId, gameState);
             if (owner && owner.state === HeroState.ALIVE && owner.tianweiId === 'wukong_tianwei') {
+                return owner;
+            }
+        }
+        if (killer.counters?.['__isSummon'] === 1) {
+            const ownerId = getSummonOwnerId(killer);
+            if (!ownerId) return null;
+            const owner = this.findHeroById(ownerId, gameState);
+            if (owner && owner.state === HeroState.ALIVE && owner.tianweiId) {
                 return owner;
             }
         }
@@ -1360,6 +1463,8 @@ export class DamageCalculator {
             huifengTianwei.execute(hero, gameState);
         } else if (hero.tianweiId === 'changli_tianwei') {
             changliTianwei.execute(hero, gameState);
+        } else if (hero.tianweiId === 'youjun_tianwei') {
+            youjunTianwei.execute(hero, gameState);
         } else if (hero.tianweiId === 'jetzmi_tianwei') {
             if (hero.owner === 'player1') gameState.deathCounters.player1Dead += 2;
             else gameState.deathCounters.player2Dead += 2;
@@ -1461,7 +1566,10 @@ export class DamageCalculator {
         } else if (hero.tianweiId === 't_painting_tianwei') {
             this.applyHeal(hero, 8, gameState, hero);
             for (const ally of hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes) {
-                if (ally.counters['__isSummon'] === 1 && ally.id.split('|')[2] === hero.id) {
+                // 阵亡的召唤物仍留在名单里，只能给仍在场的单位回血
+                if (ally.state === HeroState.ALIVE &&
+                    ally.counters['__isSummon'] === 1 &&
+                    ally.id.split('|')[2] === hero.id) {
                     this.applyHeal(ally, 8, gameState, hero);
                 }
             }
@@ -1474,11 +1582,12 @@ export class DamageCalculator {
                 message: `${hero.name}触发天威，获得2点醉意`
             });
         } else if (hero.tianweiId === 'zuizhendao_tianwei') {
-            EffectManager.addCounter(hero, '醉意', 2);
+            // 醉意上限 6 层
+            EffectManager.setCounter(hero, '醉意', Math.min(6, EffectManager.getCounter(hero, '醉意') + 3));
             this.addBattleLog(gameState, {
                 type: 'tianwei',
                 player: hero.owner,
-                message: `${hero.name}触发天威，获得2点醉意`
+                message: `${hero.name}触发天威，获得3点醉意`
             });
         } else if (hero.tianweiId === 'fengling_tianwei') {
             EffectManager.setCounter(hero, '猎砂', Math.min(4, EffectManager.getCounter(hero, '猎砂') + 2));
@@ -1520,28 +1629,30 @@ export class DamageCalculator {
                     );
                 let hitCount = 0;
                 let detonationCount = 0;
-                for (const target of affected) {
-                    // 连锁风暴可能已在递归结算中击杀后续目标。
-                    if (target.state !== HeroState.ALIVE) continue;
-                    const featherStacks = getDilanFeatherStacks(target, hero.id);
-                    const detonatedStacks = featherStacks >= 3
-                        ? consumeDilanFeather(target, hero.id)
-                        : 0;
-                    const storm = this.calculate(
-                        hero,
-                        target,
-                        5 * (detonatedStacks || 1),
-                        false
-                    );
-                    this.applyDamage(target, storm, hero, gameState, true);
-                    hitCount++;
-                    if (detonatedStacks > 0) detonationCount++;
-                    if (target.state === HeroState.ALIVE) {
-                        // 风暴文本中的“然后施加1层羽化”在引爆后仍会执行。
-                        addDilanFeather(target, hero, 1);
-                        applyDilanWind(target, hero, '逆风');
+                this.asOneAttack(() => {
+                    for (const target of affected) {
+                        // 连锁风暴可能已在递归结算中击杀后续目标。
+                        if (target.state !== HeroState.ALIVE) continue;
+                        const featherStacks = getDilanFeatherStacks(target);
+                        const detonatedStacks = featherStacks >= 3
+                            ? consumeDilanFeather(target)
+                            : 0;
+                        const storm = this.calculate(
+                            hero,
+                            target,
+                            5 * (detonatedStacks || 1),
+                            false
+                        );
+                        this.applyDamage(target, storm, hero, gameState, true);
+                        hitCount++;
+                        if (detonatedStacks > 0) detonationCount++;
+                        if (target.state === HeroState.ALIVE) {
+                            // 风暴文本中的“然后施加1层羽化”在引爆后仍会执行。
+                            addDilanFeather(target, hero, 1);
+                            applyDilanWind(target, hero, '逆风');
+                        }
                     }
-                }
+                });
                 this.addBattleLog(gameState, {
                     type: 'tianwei',
                     player: hero.owner,
@@ -1550,18 +1661,34 @@ export class DamageCalculator {
                     }`,
                 });
             }
+        } else if (hero.tianweiId === 'nanfeng_tianwei') {
+            if (hero.position) {
+                const [row, col] = hero.position;
+                const rowDirection = chooseWindLaneDirection(gameState, hero.position, 'row', hero);
+                const colDirection = chooseWindLaneDirection(gameState, hero.position, 'col', hero);
+                createWindLane(gameState, hero, hero.position, rowDirection);
+                createWindLane(gameState, hero, hero.position, colDirection);
+                const labels: Record<string, string> = { up: '北', down: '南', left: '西', right: '东' };
+                this.addBattleLog(gameState, {
+                    type: 'tianwei',
+                    player: hero.owner,
+                    message: `${hero.name}触发天威，纵横风起：第${row + 1}行风${labels[rowDirection]}起、第${col + 1}列风${labels[colDirection]}起`,
+                });
+            }
         } else if (hero.tianweiId === 'lilith_tianwei') {
             const enemies = hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes;
-            for (const enemy of enemies.filter(item => item.state === HeroState.ALIVE)) {
-                EffectManager.addEffect(enemy, {
-                    type: 'debuff', name: '恐惧', duration: 1, value: 0.2,
-                    sourceHeroId: hero.id, description: '攻击降低20%，行动时可能失败',
-                });
-                if (Math.random() < 0.5) {
-                    const damage = this.calculate(hero, enemy, 10, false);
-                    this.applyDamage(enemy, damage, hero, gameState, true);
+            this.asOneAttack(() => {
+                for (const enemy of enemies.filter(item => item.state === HeroState.ALIVE)) {
+                    EffectManager.addEffect(enemy, {
+                        type: 'debuff', name: '恐惧', duration: 1, value: 0.2,
+                        sourceHeroId: hero.id, description: '攻击降低20%，行动时可能失败',
+                    });
+                    if (Math.random() < 0.5) {
+                        const damage = this.calculate(hero, enemy, 10, false);
+                        this.applyDamage(enemy, damage, hero, gameState, true);
+                    }
                 }
-            }
+            });
         } else if (hero.tianweiId === 'schrodinger_tianwei') {
             gameState.pendingBoardAction = { type: 'schrodinger-tianwei', heroId: hero.id };
         } else if (hero.tianweiId === 'feynman_tianwei') {
@@ -1580,24 +1707,26 @@ export class DamageCalculator {
                     }
                 }
             }
-            for (const key of affected) {
-                const [row, col] = key.split(',').map(Number);
-                const target = gameState.board[row][col];
-                if (!target || target.owner === hero.owner || target.state !== HeroState.ALIVE) continue;
-                const damage = this.calculate(hero, target, 5, false);
-                this.applyDamage(target, damage, hero, gameState, true);
-                if (target.state === HeroState.ALIVE) {
-                    EffectManager.addEffect(target, {
-                        type: 'mark',
-                        name: '粒子标记',
-                        duration: 3,
-                        stackCount: 1,
-                        sourceHeroId: hero.id,
-                        description: '粒子轰击的目标',
-                    });
-                    EffectManager.addCounter(hero, '能量', 1);
+            this.asOneAttack(() => {
+                for (const key of affected) {
+                    const [row, col] = key.split(',').map(Number);
+                    const target = gameState.board[row][col];
+                    if (!target || target.owner === hero.owner || target.state !== HeroState.ALIVE) continue;
+                    const damage = this.calculate(hero, target, 5, false);
+                    this.applyDamage(target, damage, hero, gameState, true);
+                    if (target.state === HeroState.ALIVE) {
+                        EffectManager.addEffect(target, {
+                            type: 'mark',
+                            name: '粒子标记',
+                            duration: 3,
+                            stackCount: 1,
+                            sourceHeroId: hero.id,
+                            description: '粒子轰击的目标',
+                        });
+                        EffectManager.addCounter(hero, '能量', 1);
+                    }
                 }
-            }
+            });
         } else if (hero.tianweiId === 'feixue_tianwei') {
             const enemies = hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes;
             const candidates = enemies

@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import { createOnlineStateSnapshot, useGameStore } from '../store/game-store';
 import { disconnectFromServer, getSocket, sendPlayerAction, syncGameState, onEvent, offEvent } from '../services/socket-service';
 import { rememberRecentPlayer } from '../services/player-profile';
-import { applyServerGameState } from '../services/online-state';
+import { applyServerGameState, applySnapshotAction } from '../services/online-state';
+import { audioManager } from '../audio/audio-manager';
 
 /**
  * 联机模式游戏同步Hook
@@ -40,6 +41,14 @@ export function useOnlineSync() {
 
             console.log('[联机同步] 收到对手操作:', action);
 
+            // 联机 BGM 同步：玩家一为音乐主机，玩家二据其动作搭车的循环位置对齐本地战斗音乐
+            if (localPlayerNumber === 2) {
+                const bgmPos = action?.meta?.bgmPos;
+                if (typeof bgmPos === 'number' && Number.isFinite(bgmPos)) {
+                    audioManager.alignBattleMusicTo(bgmPos);
+                }
+            }
+
             const store = useGameStore.getState();
 
             useGameStore.setState({ suppressOnlineBroadcast: true });
@@ -49,7 +58,9 @@ export function useOnlineSync() {
             try {
                 // 战斗阶段由行动方提交执行后的权威快照，避免随机技能在两端重复计算。
                 if (gameState) {
-                    applyServerGameState(gameState);
+                    // 本端不重跑 executeSkill，音效与特效需在快照落地前后重建，
+                    // 否则未出手的一方整局都看不到战斗表现。
+                    applySnapshotAction(action, gameState);
                     return;
                 }
 

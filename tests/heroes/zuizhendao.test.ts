@@ -11,7 +11,7 @@ import { addHero, makeGameState } from '../helpers/game-state';
 describe('醉枕刀技能与天威', () => {
     afterEach(() => vi.restoreAllMocks());
 
-    it('技能1沿直线路径踩过敌人，造成4伤害并获得等量醉意，最终到达刀落点', () => {
+    it('技能1沿直线路径踩过敌人，造成6伤害并获得等量醉意，最终到达刀落点', () => {
         const state = makeGameState();
         const zui = addHero(state, 'zuizhendao', 'player1', [2, 2]);
         const enemyA = addHero(state, 'moran', 'player2', [2, 3]);
@@ -20,8 +20,8 @@ describe('醉枕刀技能与天威', () => {
         const result = SkillSystem.executeSkill(zui, zuizhendaoSkill1, [], state);
         expect(result.success).toBe(true);
         expect(zui.position).toEqual([2, 5]);
-        expect(enemyA.currentHp).toBe(enemyA.maxHp - 4);
-        expect(enemyB.currentHp).toBe(enemyB.maxHp - 4);
+        expect(enemyA.currentHp).toBe(enemyA.maxHp - 6);
+        expect(enemyB.currentHp).toBe(enemyB.maxHp - 6);
         expect(EffectManager.getCounter(zui, '醉意')).toBe(2);
     });
 
@@ -54,8 +54,8 @@ describe('醉枕刀技能与天威', () => {
         const result = SkillSystem.executeSkill(zui, zuizhendaoSkill1, [], state);
         expect(result.success).toBe(true);
         // 路径绕上：踩过 A、B
-        expect(enemyA.currentHp).toBe(enemyA.maxHp - 4);
-        expect(enemyB.currentHp).toBe(enemyB.maxHp - 4);
+        expect(enemyA.currentHp).toBe(enemyA.maxHp - 6);
+        expect(enemyB.currentHp).toBe(enemyB.maxHp - 6);
         expect(EffectManager.getCounter(zui, '醉意')).toBe(2);
         expect(zui.position).toEqual([2, 3]);
     });
@@ -105,7 +105,7 @@ describe('醉枕刀技能与天威', () => {
         expect(EffectManager.getCounter(zui, '醉意')).toBe(1);
     });
 
-    it('天威：击杀敌人后获得2点醉意', () => {
+    it('天威：击杀敌人后获得3点醉意', () => {
         const state = makeGameState();
         const zui = addHero(state, 'zuizhendao', 'player1', [2, 2]);
         const victim = addHero(state, 'moran', 'player2', [2, 3]);
@@ -113,7 +113,41 @@ describe('醉枕刀技能与天威', () => {
         const damage = DamageCalculator.calculate(zui, victim, 5);
         DamageCalculator.applyDamage(victim, damage, zui, state);
         expect(victim.state).toBe(HeroState.DEAD);
-        expect(EffectManager.getCounter(zui, '醉意')).toBe(2);
+        expect(EffectManager.getCounter(zui, '醉意')).toBe(3);
+    });
+
+    it('醉意上限6层：技能1在5层时踩过2敌只叠到6层，伤害照常', () => {
+        const state = makeGameState();
+        const zui = addHero(state, 'zuizhendao', 'player1', [2, 2]);
+        const enemyA = addHero(state, 'moran', 'player2', [2, 3]);
+        const enemyB = addHero(state, 'baize', 'player2', [2, 4]);
+        EffectManager.setCounter(zui, '醉意', 5);
+        zui.counters['__zuizhendao_skill1_dir'] = 3; // 向右掷刀，刀落 [2,5]
+        const result = SkillSystem.executeSkill(zui, zuizhendaoSkill1, [], state);
+        expect(result.success).toBe(true);
+        expect(enemyA.currentHp).toBe(enemyA.maxHp - 6);
+        expect(enemyB.currentHp).toBe(enemyB.maxHp - 6);
+        expect(EffectManager.getCounter(zui, '醉意')).toBe(6);
+        expect(result.log.join()).toContain('已达上限6层');
+    });
+
+    it('醉意上限6层：技能2与天威在满层时不再叠加', () => {
+        const state = makeGameState();
+        const zui = addHero(state, 'zuizhendao', 'player1', [2, 2]);
+        const ally = addHero(state, 'libai', 'player1', [4, 4]);
+        addHero(state, 'moran', 'player2', [4, 3]);
+        addHero(state, 'baize', 'player2', [3, 4]);
+        EffectManager.setCounter(zui, '醉意', 6);
+        const result = SkillSystem.executeSkill(zui, zuizhendaoSkill2, [[4, 4]], state);
+        expect(result.success).toBe(true);
+        expect(EffectManager.getCounter(zui, '醉意')).toBe(6);
+
+        const victim = [...state.player2Heroes].find(h => h.name === '墨阑')!;
+        victim.currentHp = 1;
+        const damage = DamageCalculator.calculate(zui, victim, 5);
+        DamageCalculator.applyDamage(victim, damage, zui, state);
+        expect(victim.state).toBe(HeroState.DEAD);
+        expect(EffectManager.getCounter(zui, '醉意')).toBe(6);
     });
 });
 
@@ -148,5 +182,30 @@ describe('醉枕刀被动2：踩过带醉意友方格（store）', () => {
         expect(EffectManager.getCounter(libai, '醉意')).toBe(1);
         expect(EffectManager.getCounter(zui, '醉意')).toBe(1);
         expect(zui.hasMovedThisTurn).toBe(false); // 可再次移动
+    });
+
+    it('醉枕刀满6层时踩过带醉意友方：交换照常发生，超出部分作废但仍可再次移动', () => {
+        const state = makeGameState();
+        const zui = addHero(state, 'zuizhendao', 'player1', [2, 2]);
+        const libai = addHero(state, 'libai', 'player1', [2, 3]);
+        EffectManager.setCounter(libai, '醉意', 2);
+        EffectManager.setCounter(zui, '醉意', 6);
+        useGameStore.setState({
+            ...state,
+            moveRange: [],
+            skillRange: [],
+            wukongSkill2State: undefined,
+            suppressOnlineBroadcast: false,
+            libaiChainState: undefined,
+        });
+        const store = useGameStore.getState();
+        store.selectHeroForAction(zui);
+        store.showMoveRange();
+        store.moveHero([2, 4]);
+        const stateAfter = useGameStore.getState();
+        expect(zui.position).toEqual([2, 4]);
+        expect(EffectManager.getCounter(libai, '醉意')).toBe(1);
+        expect(EffectManager.getCounter(zui, '醉意')).toBe(6);
+        expect(zui.hasMovedThisTurn).toBe(false); // 再次移动照常触发
     });
 });

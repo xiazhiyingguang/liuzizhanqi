@@ -4,6 +4,7 @@ import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
 import { findSoulLampBeneficiary, placeBounties } from '../data/extended-heroes';
 import { recordBattleHealing } from './battle-statistics';
+import { lanesAtPosition, windLaneNextCell } from './wind-lane';
 
 /**
  * 游戏引擎 - 主控制器
@@ -163,6 +164,9 @@ export class GameEngine {
                         hero.counters['__libai_prev_pos'] = hero.position[0] * 6 + hero.position[1];
                     }
                 }
+                if (hero.passiveId === 'youjun_passive' && hero.state === HeroState.ALIVE && hero.position) {
+                    hero.counters['youjun_round_start_pos'] = hero.position[0] * 6 + hero.position[1];
+                }
             }
         }
 
@@ -179,8 +183,10 @@ export class GameEngine {
         // 更新效果持续时间
         EffectManager.updateEffectDurations(gameState);
         gameState.boardEffects = (gameState.boardEffects ?? [])
-            .map(effect => effect.type === 'brush' ? effect : { ...effect, duration: effect.duration - 1 })
-            .filter(effect => effect.duration > 0);
+            .map(effect => effect.type === 'brush' || effect.type === 'wind-lane'
+                ? effect
+                : { ...effect, duration: effect.duration - 1 })
+            .filter(effect => effect.duration > 0 || effect.type === 'wind-lane');
 
         // 触发回合开始效果
         this.triggerTurnStartEffects(gameState);
@@ -287,6 +293,13 @@ export class GameEngine {
         const nextActionSerial = (hero.counters['__actionSerial'] ?? 0) + 1;
         hero.counters['__actionSerial'] = nextActionSerial;
         hero.effects = hero.effects.filter(e => e.expireAtActionSerial === undefined || e.expireAtActionSerial > nextActionSerial);
+        // 区域效果同理：震霄的束缚格持续到他下一次行动结束，行动一结算完就整片撤除
+        if (gameState.boardEffects?.some(effect => effect.expireAtActionSerial !== undefined)) {
+            gameState.boardEffects = gameState.boardEffects.filter(effect =>
+                !(effect.sourceHeroId === hero.id &&
+                    effect.expireAtActionSerial !== undefined &&
+                    effect.expireAtActionSerial <= nextActionSerial));
+        }
 
         // 触发回合结束相关效果
         this.triggerActionEndEffects(hero, gameState);
@@ -807,6 +820,52 @@ export class GameEngine {
         // 上官婉儿：行动结束后，她落下的毛笔朝自己移动1格，经过的敌人受到6点固定伤害
         if (hero.passiveId === 'shangguan_passive' && hero.position) {
             this.moveShangguanBrushes(hero, gameState);
+        }
+
+        // 游隼：记录本回合位移作为「上回合移动距离」，并清除再动守卫
+        if (hero.passiveId === 'youjun_passive' && hero.position) {
+            const code = hero.counters['youjun_round_start_pos'];
+            if (code !== undefined) {
+                const sr = Math.floor(code / 6);
+                const sc = code % 6;
+                const moved = Math.abs(hero.position[0] - sr) + Math.abs(hero.position[1] - sc);
+                hero.counters['youjun_lastMove'] = Math.min(6, moved);
+            }
+            delete hero.counters['youjun_extra_move_only'];
+        }
+
+        // 风道：敌方英雄在自己行动结束时，被所处风道顺风吹偏1格
+        this.applyWindLanePush(hero, gameState);
+    }
+
+    /**
+     * 风道推移：行动结束时，若该英雄脚下有对方阵营铺设的风道，就顺风向被推 1 格。
+     * 一格最多同时被横、纵两道风道覆盖，因此每次行动最多推移 2 次；
+     * 出界或落点被占据则原地不动。推移按强制位移结算，会触发羽化逐格伤害。
+     */
+    private static applyWindLanePush(hero: Hero, gameState: GameState): void {
+        if (hero.state !== HeroState.ALIVE || !hero.position) return;
+        const lanes = lanesAtPosition(gameState, hero.position).filter(effect =>
+            effect.owner !== hero.owner && !!effect.direction
+        );
+        if (lanes.length === 0) return;
+
+        for (const lane of lanes) {
+            if (hero.state !== HeroState.ALIVE || !hero.position) return;
+            const destination = windLaneNextCell(hero.position, lane.direction!);
+            if (!destination) continue;
+            const [fromRow, fromCol] = hero.position;
+            if (gameState.board[destination[0]][destination[1]] !== null) continue;
+
+            gameState.board[fromRow][fromCol] = null;
+            gameState.board[destination[0]][destination[1]] = hero;
+            hero.position = destination;
+            DamageCalculator.applyDilanMovementDamage(hero, 1, gameState);
+            this.addLog(gameState, {
+                type: 'passive',
+                player: lane.owner,
+                message: `${hero.name}被风道顺风吹偏1格`,
+            });
         }
     }
 

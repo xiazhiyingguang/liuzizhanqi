@@ -28,7 +28,10 @@ export default function SkillPanel() {
         selectSkillHeroTarget,
         endHeroAction,
         libaiChainState,
-        skipLibaiChainAttack
+        skipLibaiChainAttack,
+        wukongSkill2State,
+        skipWukongStep,
+        shangguanDashState
     } = useGameStore();
 
     if (isAiMode && currentPlayer === aiPlayer) {
@@ -99,6 +102,8 @@ export default function SkillPanel() {
     // 李太白被动链：等待瞬移时禁用技能按钮；整个链期间禁用普通移动/撤回
     const libaiChainActive = !!libaiChainState && libaiChainState.heroId === selectedHero.id;
     const libaiChainWaiting = libaiChainActive && !!libaiChainState?.awaitingPosition;
+    // 笔走龙蛇冲刺链进行中禁止撤回移动（撤回会破坏冲刺落点与命中记录）
+    const shangguanDashActive = !!shangguanDashState && shangguanDashState.heroId === selectedHero.id;
     const deadAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
         .filter(hero => hero.state === 'dead');
     // 替补制：场上真实存活已达4人上限时不可复活（复活会突破上场人数限制）
@@ -146,7 +151,7 @@ export default function SkillPanel() {
             {/* 操作列表 */}
             <div className="space-y-2 overflow-y-auto flex-1 min-h-0 light-scrollbar pr-1">
                 {/* 移动 / 撤回 */}
-                {selectedHero.hasMovedThisTurn && !selectedHero.hasActedThisTurn && !libaiChainActive ? (
+                {selectedHero.hasMovedThisTurn && !selectedHero.hasActedThisTurn && !libaiChainActive && !shangguanDashActive ? (
                     <button
                         data-testid="undo-move"
                         onClick={() => undoMove()}
@@ -366,6 +371,24 @@ export default function SkillPanel() {
                             className="skill-btn skill-btn-end py-2 font-title tracking-wider text-xs"
                         >
                             跳过本次攻击
+                        </button>
+                    </div>
+                )}
+
+                {/* 大圣合击：本体与每个分身都可跳过，跳过不影响后续单位出手 */}
+                {wukongSkill2State && selectedHero?.id === wukongSkill2State.wukongId && (
+                    <div className="ink-surface p-2 space-y-1.5 border-amber-400/30">
+                        <p className="text-[11px] text-amber-700 font-body">
+                            {wukongSkill2State.phase === 'pickWukongTarget'
+                                ? '大圣合击：为本体选择目标，跳过则由分身继续出手'
+                                : `大圣合击：为分身${wukongSkill2State.clonePickIndex + 1}选择目标，跳过不影响后续分身`}
+                        </p>
+                        <button
+                            data-testid="skip-wukong-step"
+                            onClick={() => skipWukongStep()}
+                            className="skill-btn skill-btn-end py-2 font-title tracking-wider text-xs"
+                        >
+                            {wukongSkill2State.phase === 'pickWukongTarget' ? '跳过本体攻击' : '跳过这个分身'}
                         </button>
                     </div>
                 )}

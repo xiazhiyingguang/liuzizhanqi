@@ -2,6 +2,7 @@ import { DamageCalculator } from '../core/damage-calculator';
 import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
 import { MovementSystem } from '../core/movement-system';
+import { WindLaneDirection, createWindLane, windLaneAxis, windLaneDirectionFromCode } from '../core/wind-lane';
 import { BoardEffect, Effect, GameState, Hero, HeroState, Player, Position, Skill, SkillExecuteResult } from '../types/game';
 import {
     addHeroToOwnerList,
@@ -108,10 +109,12 @@ export const skeletonkingSkill1: Skill = {
         if (!targets.length) return fail('该方向没有敌人');
         const output = result();
         const base = 8 + currentDeadCount(caster.owner, gameState) * 2;
-        for (const target of targets) {
-            const damage = damageOne(caster, target, base, gameState, true, false, true);
-            output.damageDealt?.push(damage.finalDamage);
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of targets) {
+                const damage = damageOne(caster, target, base, gameState, true, false, true);
+                output.damageDealt?.push(damage.finalDamage);
+            }
+        });
         if (Math.random() < 0.5 && caster.state === HeroState.ALIVE) {
             GameEngine.tempDeath(caster, gameState);
             output.log.push(`${caster.name}受到亡灵反噬，暂时阵亡`);
@@ -228,7 +231,7 @@ export const pipaSkill1: Skill = {
     id: 'pipa_skill1',
     name: '五弦流转',
     type: 'buff',
-    description: '为两格内所有友方施加音符，攻击时附伤并为琵琶增加和弦',
+    description: '为两格内所有友方施加音符：其伤害附加琵琶基础攻击力25%，并为琵琶积累和弦',
     rangeType: 'single',
     range: 2,
     targetType: 'ally',
@@ -508,7 +511,7 @@ export const heroXSkill2: Skill = {
         if (deltaRow > 1 || deltaCol > 1 || deltaRow + deltaCol === 0) {
             return fail('只能瞬移到周围一格范围');
         }
-        if (!MovementSystem.moveHero(caster, target, gameState, 2)) return fail('无法瞬移到该位置');
+        if (!MovementSystem.moveHero(caster, target, gameState, 2, { ignoreBindingZone: true })) return fail('无法瞬移到该位置');
         if (caster.state !== HeroState.ALIVE) {
             return result([`${caster.name}在跃迁中触发羽化伤害并阵亡`]);
         }
@@ -583,14 +586,16 @@ export const witherLordSkill1: Skill = {
         if (!enemies.length) return fail('2x2区域内没有敌人');
         const base = 5 + resonanceCount(caster.owner, gameState);
         const output = result();
-        for (const target of enemies) {
-            const damage = damageOne(caster, target, base, gameState, true);
-            output.damageDealt?.push(damage.finalDamage);
-            EffectManager.addEffect(target, {
-                type: 'debuff', name: '凋零', duration: -1, stackCount: 1,
-                sourceHeroId: caster.id, description: '可由凋零引爆',
-            });
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of enemies) {
+                const damage = damageOne(caster, target, base, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+                EffectManager.addEffect(target, {
+                    type: 'debuff', name: '凋零', duration: -1, stackCount: 1,
+                    sourceHeroId: caster.id, description: '可由凋零引爆',
+                });
+            }
+        });
         caster.counters['wither_skill2_death_chance'] = Math.min(
             1,
             (caster.counters['wither_skill2_death_chance'] ?? 0.25) + 0.25
@@ -616,15 +621,17 @@ export const witherLordSkill2: Skill = {
         const output = result();
         const percentPerStack = 0.1 + currentDeadCount(caster.owner, gameState) * 0.02;
         let consumedStacks = 0;
-        for (const target of targets) {
-            const effect = target.effects.find(item => item.name === '凋零' && item.sourceHeroId === caster.id)!;
-            const stacks = effect.stackCount ?? 1;
-            const amount = Math.max(1, Math.floor(target.maxHp * percentPerStack * stacks));
-            const damage = damageOne(caster, target, amount, gameState, true, true);
-            output.damageDealt?.push(damage.finalDamage);
-            target.effects = target.effects.filter(item => item !== effect);
-            consumedStacks += stacks;
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of targets) {
+                const effect = target.effects.find(item => item.name === '凋零' && item.sourceHeroId === caster.id)!;
+                const stacks = effect.stackCount ?? 1;
+                const amount = Math.max(1, Math.floor(target.maxHp * percentPerStack * stacks));
+                const damage = damageOne(caster, target, amount, gameState, true, true);
+                output.damageDealt?.push(damage.finalDamage);
+                target.effects = target.effects.filter(item => item !== effect);
+                consumedStacks += stacks;
+            }
+        });
         // 引爆凋零才会累计被动层数：每满6层获得一条生命
         if (consumedStacks > 0) {
             caster.counters['wither_applied_total'] = (caster.counters['wither_applied_total'] ?? 0) + consumedStacks;
@@ -649,11 +656,28 @@ function findPaintingSummon(caster: Hero, gameState: GameState, kind: 1 | 2): He
     ) ?? null;
 }
 
-function summonPaintingUnit(caster: Hero, gameState: GameState, kind: 'jinwu' | 'xuangui'): SkillExecuteResult {
+function summonPaintingUnit(
+    caster: Hero,
+    gameState: GameState,
+    kind: 'jinwu' | 'xuangui',
+    existing?: Hero
+): SkillExecuteResult {
     const target = encodedTarget(caster);
     if (!target || gameState.board[target[0]][target[1]] !== null) return fail('请选择空位置召唤');
     if (!caster.position || MovementSystem.getManhattanDistance(caster.position, target) > 2) {
         return fail('召唤位置必须在两格范围内');
+    }
+    if (existing) {
+        // 位移重置：沿用同一个单位，只换格并回满生命，不算阵亡（不触发本体扣血与死亡统计）
+        if (existing.position) gameState.board[existing.position[0]][existing.position[1]] = null;
+        gameState.board[target[0]][target[1]] = existing;
+        existing.position = target;
+        existing.state = HeroState.ALIVE;
+        existing.currentHp = existing.maxHp;
+        // 与初次召唤一致：落位的当回合不再行动
+        existing.hasActedThisTurn = true;
+        existing.hasMovedThisTurn = true;
+        return result([`${caster.name}重新唤出${existing.name}，生命恢复至满血`]);
     }
     const summon = createTPaintingSummon(kind, caster.owner, caster.id, target);
     gameState.board[target[0]][target[1]] = summon;
@@ -669,10 +693,12 @@ function jinwuBurstAt(jinwu: Hero, center: Position, gameState: GameState): Skil
     const targets = positions.map(([r, c]) => gameState.board[r][c])
         .filter((hero): hero is Hero => !!hero && hero.owner !== jinwu.owner && hero.state === HeroState.ALIVE);
     const output = result();
-    for (const target of targets) {
-        const damage = damageOne(jinwu, target, targets.length * 3, gameState, true);
-        output.damageDealt?.push(damage.finalDamage);
-    }
+    DamageCalculator.asOneAttack(() => {
+        for (const target of targets) {
+            const damage = damageOne(jinwu, target, targets.length * 3, gameState, true);
+            output.damageDealt?.push(damage.finalDamage);
+        }
+    });
     output.log.push(`${jinwu.name}耀斑波及了${targets.length}名敌人`);
     return output;
 }
@@ -736,7 +762,7 @@ export const tPaintingSkill1: Skill = {
     id: 't_painting_skill1',
     name: '金乌',
     type: 'summon',
-    description: '召唤金乌；已有金乌时先普攻6伤害，金乌再连锁出手',
+    description: '召唤金乌；金乌在场时点击敌人改为本体普攻6伤害并让金乌连锁出手，点击两格内空位则让金乌重新落位并回满生命',
     rangeType: 'single',
     range: 2,
     targetType: 'any',
@@ -745,7 +771,7 @@ export const tPaintingSkill1: Skill = {
         const jinwu = findPaintingSummon(caster, gameState, 1);
         if (!jinwu) return summonPaintingUnit(caster, gameState, 'jinwu');
         const target = targets.find(hero => hero.owner !== caster.owner);
-        if (!target) return fail('已有金乌，请选择敌人进行普通攻击');
+        if (!target) return summonPaintingUnit(caster, gameState, 'jinwu', jinwu);
         return paintingChainAttack(caster, target, jinwu, gameState);
     },
 };
@@ -754,7 +780,7 @@ export const tPaintingSkill2: Skill = {
     id: 't_painting_skill2',
     name: '玄龟',
     type: 'summon',
-    description: '召唤玄龟；已有玄龟时先普攻6伤害，玄龟再连锁出手',
+    description: '召唤玄龟；玄龟在场时点击敌人改为本体普攻6伤害并让玄龟连锁出手，点击两格内空位则让玄龟重新落位并回满生命',
     rangeType: 'single',
     range: 2,
     targetType: 'any',
@@ -763,7 +789,7 @@ export const tPaintingSkill2: Skill = {
         const xuangui = findPaintingSummon(caster, gameState, 2);
         if (!xuangui) return summonPaintingUnit(caster, gameState, 'xuangui');
         const target = targets.find(hero => hero.owner !== caster.owner);
-        if (!target) return fail('已有玄龟，请选择敌人进行普通攻击');
+        if (!target) return summonPaintingUnit(caster, gameState, 'xuangui', xuangui);
         return paintingChainAttack(caster, target, xuangui, gameState);
     },
 };
@@ -812,12 +838,14 @@ export const feynmanSkill1: Skill = {
     execute: (caster, targets, gameState) => {
         if (!targets.length) return fail('该方向没有敌人');
         const output = result();
-        targets.forEach((target, index) => {
-            const damage = damageOne(caster, target, Math.max(2, 8 - index * 2), gameState, true);
-            output.damageDealt?.push(damage.finalDamage);
-            EffectManager.addEffect(target, {
-                type: 'mark', name: '粒子标记', duration: 3, stackCount: 1,
-                sourceHeroId: caster.id, description: '粒子轰爆的目标',
+        DamageCalculator.asOneAttack(() => {
+            targets.forEach((target, index) => {
+                const damage = damageOne(caster, target, Math.max(2, 8 - index * 2), gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+                EffectManager.addEffect(target, {
+                    type: 'mark', name: '粒子标记', duration: 3, stackCount: 1,
+                    sourceHeroId: caster.id, description: '粒子轰爆的目标',
+                });
             });
         });
         return output;
@@ -860,10 +888,12 @@ export const feynmanSkill2: Skill = {
             0
         );
         const output = result();
-        for (const target of targetsInArea) {
-            const damage = damageOne(caster, target, 8 + markCount * 2, gameState, true);
-            output.damageDealt?.push(damage.finalDamage);
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of targetsInArea) {
+                const damage = damageOne(caster, target, 8 + markCount * 2, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+            }
+        });
         return output;
     },
 };
@@ -936,22 +966,24 @@ export const schrodingerSkill1: Skill = {
     execute: (caster, targets, gameState) => {
         if (!targets.length) return fail('范围内没有敌人');
         const output = result();
-        for (const target of targets) {
-            const hit = Math.random() < 0.5;
-            EffectManager.removeEffectByName(target, '观测坍缩受伤');
-            EffectManager.removeEffectByName(target, '观测坍缩未受伤');
-            if (hit) {
-                const damage = damageOne(caster, target, 6, gameState, true);
-                output.damageDealt?.push(damage.finalDamage);
+        DamageCalculator.asOneAttack(() => {
+            for (const target of targets) {
+                const hit = Math.random() < 0.5;
+                EffectManager.removeEffectByName(target, '观测坍缩受伤');
+                EffectManager.removeEffectByName(target, '观测坍缩未受伤');
+                if (hit) {
+                    const damage = damageOne(caster, target, 6, gameState, true);
+                    output.damageDealt?.push(damage.finalDamage);
+                }
+                EffectManager.addEffect(target, {
+                    type: hit ? 'debuff' : 'mark',
+                    name: hit ? '观测坍缩受伤' : '观测坍缩未受伤',
+                    duration: 2,
+                    sourceHeroId: caster.id,
+                    description: hit ? '本次观测受到伤害' : '下次受到攻击伤害提高50%',
+                });
             }
-            EffectManager.addEffect(target, {
-                type: hit ? 'debuff' : 'mark',
-                name: hit ? '观测坍缩受伤' : '观测坍缩未受伤',
-                duration: 2,
-                sourceHeroId: caster.id,
-                description: hit ? '本次观测受到伤害' : '下次受到攻击伤害提高50%',
-            });
-        }
+        });
         return output;
     },
 };
@@ -1112,15 +1144,20 @@ export const libaiSkill2: Skill = {
             .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
         if (targets.length === 0) return fail('前方范围内没有敌人');
         const output = result();
-        for (const target of targets) {
-            const damage = damageOne(caster, target, zuiyi * 4, gameState, true);
-            output.damageDealt?.push(damage.finalDamage);
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const target of targets) {
+                const damage = damageOne(caster, target, zuiyi * 4, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+            }
+        });
         EffectManager.addCounter(caster, '醉意', -zuiyi);
         output.log.push(`${caster.name}释放谪仙醉斩，消耗了${zuiyi}层醉意`);
         return output;
     },
 };
+
+/** 醉枕刀的醉意层数上限（技能、天威、踩友方交换等所有获取途径都受此约束） */
+export const ZUIYI_MAX = 6;
 
 /**
  * 计算醉枕刀醉掷寒锋的最优路径：≤7步从起点到终点，踩过敌人最多（不重复踩同一格子）。
@@ -1180,7 +1217,7 @@ export const zuizhendaoSkill1: Skill = {
     id: 'zuizhendao_skill1',
     name: '醉掷寒锋',
     type: 'damage',
-    description: '向前方三格掷出刀，7步内沿踩敌最多的路径拾刀；沿途敌人受4伤害，每穿过1个敌人获得1层醉意',
+    description: '向前方三格掷出刀，7步内沿踩敌最多的路径拾刀；沿途敌人受6伤害，每穿过1个敌人获得1层醉意（醉意上限6层）',
     rangeType: 'line',
     range: 3,
     targetType: 'enemy',
@@ -1210,13 +1247,20 @@ export const zuizhendaoSkill1: Skill = {
             output.log.push(`${caster.name}在拾刀移动中触发羽化伤害并阵亡`);
             return output;
         }
-        for (const enemy of plan.enemies) {
-            const damage = damageOne(caster, enemy, 4, gameState);
-            output.damageDealt?.push(damage.finalDamage);
-            EffectManager.addCounter(caster, '醉意', 1);
-        }
-        output.log.push(plan.enemies.length > 0
-            ? `${caster.name}拾刀后获得${plan.enemies.length}层醉意`
+        let gained = 0;
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of plan.enemies) {
+                const damage = damageOne(caster, enemy, 6, gameState);
+                output.damageDealt?.push(damage.finalDamage);
+                const stacks = EffectManager.getCounter(caster, '醉意');
+                if (stacks < ZUIYI_MAX) {
+                    EffectManager.setCounter(caster, '醉意', stacks + 1);
+                    gained += 1;
+                }
+            }
+        });
+        output.log.push(gained > 0
+            ? `${caster.name}拾刀后获得${gained}层醉意${gained < plan.enemies.length ? '（已达上限6层）' : ''}`
             : `${caster.name}拾刀路径上没有踩到敌人，未造成伤害`);
         return output;
     },
@@ -1229,7 +1273,7 @@ export const zuizhendaoSkill2: Skill = {
     id: 'zuizhendao_skill2',
     name: '醉影换位',
     type: 'damage',
-    description: '与任意距离的友方交换位置，随后对周围一圈敌方角色造成8点伤害，每命中1个获得1层醉意',
+    description: '与任意距离的友方交换位置，随后对周围一圈敌方角色造成8点伤害，每命中1个获得1层醉意（醉意上限6层）',
     rangeType: '全场',
     range: 6,
     targetType: 'ally',
@@ -1257,11 +1301,16 @@ export const zuizhendaoSkill2: Skill = {
         const ring = MovementSystem.getAreaPositions(caster.position, 3);
         const enemies = ring.map(([r, c]) => gameState.board[r][c])
             .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
-        for (const enemy of enemies) {
-            const damage = damageOne(caster, enemy, 8, gameState, true);
-            output.damageDealt?.push(damage.finalDamage);
-            EffectManager.addCounter(caster, '醉意', 1);
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of enemies) {
+                const damage = damageOne(caster, enemy, 8, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+                const stacks = EffectManager.getCounter(caster, '醉意');
+                if (stacks < ZUIYI_MAX) {
+                    EffectManager.setCounter(caster, '醉意', stacks + 1);
+                }
+            }
+        });
         output.log.push(`${caster.name}与${ally.name}交换位置，斩中${enemies.length}名敌人`);
         return output;
     },
@@ -1357,22 +1406,24 @@ export const feixueSkill1: Skill = {
                 !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE
             );
 
-        for (const splashTarget of splashTargets) {
-            const splash = dealFeixueSkillDamage(caster, splashTarget, splashDamage, gameState, {
-                area: true,
-                ignoreDefense: true,
-            });
-            output.damageDealt?.push(splash.damage.finalDamage);
-            const survived = splashTarget.state === HeroState.ALIVE;
-            if (survived) {
-                DamageCalculator.applyHantianStacks(splashTarget, 1, caster.id, gameState);
+        DamageCalculator.asOneAttack(() => {
+            for (const splashTarget of splashTargets) {
+                const splash = dealFeixueSkillDamage(caster, splashTarget, splashDamage, gameState, {
+                    area: true,
+                    ignoreDefense: true,
+                });
+                output.damageDealt?.push(splash.damage.finalDamage);
+                const survived = splashTarget.state === HeroState.ALIVE;
+                if (survived) {
+                    DamageCalculator.applyHantianStacks(splashTarget, 1, caster.id, gameState);
+                }
+                output.log.push(
+                    `破冰冲击对${splashTarget.name}造成${splash.damage.finalDamage}点真实伤害${
+                        survived ? '并施加1层寒天' : ''
+                    }`
+                );
             }
-            output.log.push(
-                `破冰冲击对${splashTarget.name}造成${splash.damage.finalDamage}点真实伤害${
-                    survived ? '并施加1层寒天' : ''
-                }`
-            );
-        }
+        });
 
         output.log.push(`${caster.name}击碎了${target.name}的冰冻`);
         return output;
@@ -1383,9 +1434,10 @@ export const feixueSkill2: Skill = {
     id: 'feixue_skill2',
     name: '踏雪追命',
     type: 'damage',
-    description: '对周围一格一名敌人造成8点伤害，每层寒天额外增加2点、附加霜噬真实伤害并回复2点生命；未冰冻时消耗寒天，冰冻时必定暴击且保留寒天与冰冻',
-    rangeType: 'single',
+    description: '对周围一格（含斜角）的一名敌人造成8点伤害，每层寒天额外增加2点、附加霜噬真实伤害并回复2点生命；未冰冻时消耗寒天，冰冻时必定暴击且保留寒天与冰冻',
+    rangeType: 'area',
     range: 1,
+    areaSize: 3,
     targetType: 'enemy',
     targetCount: 1,
     baseDamage: 8,
@@ -1555,8 +1607,8 @@ function dealDilanSkillHit(
     gameState: GameState,
     area: boolean
 ): { damage: number; detonatedStacks: number } {
-    const featherStacks = getDilanFeatherStacks(target, caster.id);
-    const detonatedStacks = featherStacks >= 3 ? consumeDilanFeather(target, caster.id) : 0;
+    const featherStacks = getDilanFeatherStacks(target);
+    const detonatedStacks = featherStacks >= 3 ? consumeDilanFeather(target) : 0;
     const amount = detonatedStacks > 0 ? baseDamage * detonatedStacks : baseDamage;
     const hit = damageOne(caster, target, amount, gameState, area);
     if (target.state === HeroState.ALIVE && detonatedStacks === 0) {
@@ -1591,21 +1643,23 @@ export const dilanSkill1: Skill = {
 
         const output = result();
         const baseDamage = caster.counters['talent_1'] ? 4 : 3;
-        for (const target of line) {
-            if (target.owner === caster.owner) {
-                applyDilanWind(target, caster, '顺风');
-                output.log.push(`${target.name}获得1层顺风`);
-                continue;
+        DamageCalculator.asOneAttack(() => {
+            for (const target of line) {
+                if (target.owner === caster.owner) {
+                    applyDilanWind(target, caster, '顺风');
+                    output.log.push(`${target.name}获得1层顺风`);
+                    continue;
+                }
+                const hit = dealDilanSkillHit(caster, target, baseDamage, gameState, true);
+                output.damageDealt?.push(hit.damage);
+                if (target.state === HeroState.ALIVE) applyDilanWind(target, caster, '逆风');
+                output.log.push(
+                    `${caster.name}对${target.name}造成${hit.damage}点伤害并施加逆风${
+                        hit.detonatedStacks > 0 ? `，引爆${hit.detonatedStacks}层羽化` : ''
+                    }`
+                );
             }
-            const hit = dealDilanSkillHit(caster, target, baseDamage, gameState, true);
-            output.damageDealt?.push(hit.damage);
-            if (target.state === HeroState.ALIVE) applyDilanWind(target, caster, '逆风');
-            output.log.push(
-                `${caster.name}对${target.name}造成${hit.damage}点伤害并施加逆风${
-                    hit.detonatedStacks > 0 ? `，引爆${hit.detonatedStacks}层羽化` : ''
-                }`
-            );
-        }
+        });
         return output;
     },
 };
@@ -1635,16 +1689,18 @@ export const dilanSkill2: Skill = {
         const baseDamage = caster.counters['talent_2'] ? 4 : 3;
         const [dr, dc] = dilanDirectionStep(dirCode);
         const hitEnemies: Hero[] = [];
-        for (const enemy of enemies) {
-            const hit = dealDilanSkillHit(caster, enemy, baseDamage, gameState, true);
-            output.damageDealt?.push(hit.damage);
-            output.log.push(
-                `${caster.name}以风压命中${enemy.name}，造成${hit.damage}点伤害${
-                    hit.detonatedStacks > 0 ? `并引爆${hit.detonatedStacks}层羽化` : ''
-                }`
-            );
-            if (enemy.state === HeroState.ALIVE) hitEnemies.push(enemy);
-        }
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of enemies) {
+                const hit = dealDilanSkillHit(caster, enemy, baseDamage, gameState, true);
+                output.damageDealt?.push(hit.damage);
+                output.log.push(
+                    `${caster.name}以风压命中${enemy.name}，造成${hit.damage}点伤害${
+                        hit.detonatedStacks > 0 ? `并引爆${hit.detonatedStacks}层羽化` : ''
+                    }`
+                );
+                if (enemy.state === HeroState.ALIVE) hitEnemies.push(enemy);
+            }
+        });
 
         // 按施法方向从远到近处理，允许同一直线上的多个目标依次被推出。
         hitEnemies.sort((left, right) => {
@@ -1670,6 +1726,122 @@ export const dilanSkill2: Skill = {
             DamageCalculator.applyDilanMovementDamage(enemy, 1, gameState);
             output.log.push(`${enemy.name}被击退1格`);
         }
+        return output;
+    },
+};
+
+/** 南风技能2的风向编码：0=上、1=下、2=左、3=右（见 WIND_LANE_DIRECTIONS） */
+const NANFENG_WIND_LABELS = ['向北', '向南', '向西', '向东'];
+
+function nanfengWindLabel(dirCode: number): string {
+    return NANFENG_WIND_LABELS[dirCode] ?? '风起';
+}
+
+/** 把风道所在线转成中文可读描述（第N行 / 第N列），用于战斗日志 */
+export function getNanfengLineDescription(direction: WindLaneDirection, position: Position): string {
+    return windLaneAxis(direction) === 'row'
+        ? `第${position[0] + 1}行`
+        : `第${position[1] + 1}列`;
+}
+
+export const nanfengSkill1: Skill = {
+    id: 'nanfeng_skill1',
+    name: '扶摇',
+    type: 'damage',
+    description: '在以南风为中心的5×5范围内选一格掀起旋风：吹散该格周围3×3内的所有敌人，各造成4点伤害并施加1层羽化，再沿远离风心的方向推移1格（越界或受阻则原地不动，风眼不被吹动）',
+    rangeType: 'single',
+    range: 2,
+    targetType: 'any',
+    targetCount: 1,
+    baseDamage: 4,
+    canCrit: true,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('南风尚未部署');
+        const center = encodedTarget(caster);
+        if (!center) return fail('请选择旋风中心');
+
+        const output = result();
+        const cells: Position[] = [center, ...MovementSystem.getAreaPositions(center, 3)];
+        const enemies = cells
+            .map(([row, col]) => gameState.board[row][col])
+            .filter((hero): hero is Hero =>
+                !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE
+            );
+
+        if (enemies.length === 0) {
+            output.log.push(`${caster.name}卷起扶摇，旋风扫过空巷`);
+            return output;
+        }
+
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of enemies) {
+                const hit = damageOne(caster, enemy, 4, gameState, true);
+                output.damageDealt?.push(hit.finalDamage);
+                addDilanFeather(enemy, caster);
+                output.log.push(
+                    `${caster.name}的旋风命中${enemy.name}，造成${hit.finalDamage}点伤害并施加羽化`
+                );
+            }
+        });
+
+        // 由外向内吹，外侧目标先腾空，同线上的内侧目标才有机会被依次推出
+        const pushable = enemies.filter(enemy => enemy.state === HeroState.ALIVE && !!enemy.position);
+        const chebyshev = ([row, col]: Position) =>
+            Math.max(Math.abs(row - center[0]), Math.abs(col - center[1]));
+        pushable.sort((left, right) => chebyshev(right.position!) - chebyshev(left.position!));
+
+        for (const enemy of pushable) {
+            const [row, col] = enemy.position!;
+            const dr = Math.sign(row - center[0]);
+            const dc = Math.sign(col - center[1]);
+            if (dr === 0 && dc === 0) continue;
+            const destination: Position = [row + dr, col + dc];
+            if (
+                destination[0] < 0 || destination[0] >= 6 ||
+                destination[1] < 0 || destination[1] >= 6 ||
+                gameState.board[destination[0]][destination[1]] !== null
+            ) {
+                output.log.push(`${enemy.name}抵住风势，未被吹散`);
+                continue;
+            }
+            gameState.board[row][col] = null;
+            gameState.board[destination[0]][destination[1]] = enemy;
+            enemy.position = destination;
+            DamageCalculator.applyDilanMovementDamage(enemy, 1, gameState);
+            output.log.push(`${enemy.name}被吹散1格`);
+        }
+        return output;
+    },
+};
+
+export const nanfengSkill2: Skill = {
+    id: 'nanfeng_skill2',
+    name: '引风成道',
+    type: 'special',
+    description: '先选风向，再点任意格子：沿该格所在的一整行或一整列铺开通风廊。友方在风道内滑行不消耗移动力，敌人在风道内行动结束时顺风向被推移1格；风道在南风存活期间常驻',
+    rangeType: '全场',
+    range: 6,
+    targetType: 'any',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('南风尚未部署');
+        const dirCode = caster.counters['__nanfeng_skill2_dir'];
+        const direction = windLaneDirectionFromCode(dirCode);
+        if (!direction) return fail('请先选择风向');
+        const lineCell = encodedTarget(caster);
+        if (!lineCell) return fail('请选择风道要铺开的行或列');
+        delete caster.counters['__nanfeng_skill2_dir'];
+
+        // 风向决定轴：上下→纵向风道（沿列），左右→横向风道（沿行）
+        const anchor: Position = windLaneAxis(direction) === 'row'
+            ? [lineCell[0], caster.position[1]]
+            : [caster.position[0], lineCell[1]];
+        createWindLane(gameState, caster, anchor, direction);
+
+        const output = result();
+        output.log.push(
+            `${caster.name}引风成道：${getNanfengLineDescription(direction, anchor)}${nanfengWindLabel(dirCode)}风起，风廊铺满6格`
+        );
         return output;
     },
 };
@@ -1803,9 +1975,10 @@ export interface ShangguanDashOutcome {
 /**
  * 执行一段笔走龙蛇：
  * - 命中敌方英雄：6点固定伤害（不可闪避）；
- * - 命中毛笔：借力（毛笔不受伤、不消失）；
+ * - 命中毛笔：撞碎回收（从棋盘移除），获得再次冲刺之势；
  * - 随后把婉儿移动到落点（落点等于当前位置时不移动）。
  * 目标通过 hitTargets 去重；命中后调用方应把 hitId 追加进去。
+ * 场上所有毛笔（不分落笔者阵营）均可作为冲刺道具。
  */
 export function performShangguanDashSegment(
     caster: Hero,
@@ -1838,7 +2011,12 @@ export function performShangguanDashSegment(
             output.killed = enemy.state !== HeroState.ALIVE;
         }
     }
-    // 毛笔：借力，不受伤
+    // 毛笔：撞碎回收（从棋盘移除），获得再次冲刺之势
+    if (scan.kind === 'brush' && scan.targetId) {
+        gameState.boardEffects = (gameState.boardEffects ?? []).filter(
+            effect => effect.id !== scan.targetId
+        );
+    }
 
     // 移动到落点
     const [lr, lc] = scan.landPos;
@@ -1930,15 +2108,16 @@ export const shangguanSkill1: Skill = {
 
 /**
  * 上官婉儿技能2：笔走龙蛇（多段）
- * 每段朝选定方向冲刺，命中路径上最近的敌人（6点固定伤害）或毛笔（借力）后停下，
+ * 每段朝选定方向冲刺，命中路径上最近的敌人（6点固定伤害）或毛笔（撞碎回收、刷新冲刺）后停下，
  * 落点为目标身后一格；玩家可继续选新方向笔走龙蛇，同一目标不可重复命中。
+ * 场上所有毛笔（不分落笔者阵营）均可作为刷新冲刺的道具。
  * 多段交互由 game-store 的 shangguanDashState 管理。
  */
 export const shangguanSkill2: Skill = {
     id: 'shangguan_skill2',
     name: '笔走龙蛇',
     type: 'damage',
-    description: '朝选定方向冲刺，撞上敌人造成6点固定伤害或借毛笔借力后停在目标身后一格；命中后可选择新方向继续笔走龙蛇，同一目标不可重复。',
+    description: '朝选定方向冲刺，撞上敌人造成6点固定伤害，或撞碎毛笔回收并刷新冲刺，停在目标身后一格；命中后可选择新方向继续笔走龙蛇，同一目标不可重复。',
     rangeType: 'line',
     range: 4,
     targetType: 'any',
@@ -1964,13 +2143,19 @@ export const shangguanSkill2: Skill = {
             output.damageDealt?.push(outcome.damage ?? 0);
             output.log.push(`撞击${outcome.hitName}，造成${outcome.damage}点固定伤害`);
         } else {
-            output.log.push(`掠过${outcome.hitName}获得再次冲刺之势`);
+            output.log.push(`撞碎${outcome.hitName}回收在身，获得再次冲刺之势`);
         }
         const pos = caster.position;
         output.log.push(`${caster.name}落至(${pos[0]},${pos[1]})`);
         return output;
     },
 };
+
+/**
+ * 游隼技能2「乘风」
+ * 朝四方向之一免费滑行最多3格（不消耗移动力），落地叠加1层「乘风」（下次疾掠伤害+15%/层，最多2层，疾掠时消耗）。
+ * 乘风结束后可再次移动一次。
+ */
 
 /**
  * 沉渊·镇岳技能1「渊引」：
@@ -2268,6 +2453,8 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     fengling_skill2: fenglingSkill2,
     dilan_skill1: dilanSkill1,
     dilan_skill2: dilanSkill2,
+    nanfeng_skill1: nanfengSkill1,
+    nanfeng_skill2: nanfengSkill2,
     shangguan_skill1: shangguanSkill1,
     shangguan_skill2: shangguanSkill2,
     chenyuan_skill1: chenyuanSkill1,

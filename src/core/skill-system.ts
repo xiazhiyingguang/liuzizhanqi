@@ -32,6 +32,11 @@ export class SkillSystem {
              return positions;
         }
 
+        // 南风旋风：5×5 方盒（切比雪夫距离≤2），且允许直接点自己脚下的风眼格
+        if (skill.id === 'nanfeng_skill1') {
+            return MovementSystem.getBoxPositions(caster.position, 5);
+        }
+
         switch (skill.rangeType) {
             case 'single':
                 // 单体目标（曼哈顿距离范围内）
@@ -383,18 +388,22 @@ export class SkillSystem {
 
         // 处理伤害
         if (skill.baseDamage !== undefined) {
-            for (const target of targets) {
-                const damage = DamageCalculator.calculate(
-                    caster,
-                    target,
-                    skill.baseDamage,
-                    skill.scalesWithAttack ?? false,
-                    skill.ignoreDefense ?? false
-                );
-                DamageCalculator.applyDamage(target, damage, caster, gameState);
-                result.damageDealt?.push(damage.finalDamage);
-                result.log.push(`对${target.name}造成了${damage.finalDamage}点伤害`);
-            }
+            const baseDamage = skill.baseDamage;
+            // 一次施放命中多目标 = 一次攻击：和声等按攻击触发的效果整组只结算一次
+            DamageCalculator.asOneAttack(() => {
+                for (const target of targets) {
+                    const damage = DamageCalculator.calculate(
+                        caster,
+                        target,
+                        baseDamage,
+                        skill.scalesWithAttack ?? false,
+                        skill.ignoreDefense ?? false
+                    );
+                    DamageCalculator.applyDamage(target, damage, caster, gameState);
+                    result.damageDealt?.push(damage.finalDamage);
+                    result.log.push(`对${target.name}造成了${damage.finalDamage}点伤害`);
+                }
+            });
         }
 
         // 处理治疗

@@ -33,7 +33,8 @@ import {
     yinyangSkill1,
     yinyangSkill2,
 } from '../../src/data/extended-skills';
-import { placeBounties, checkYinyangLinks } from '../../src/data/extended-heroes';
+import { placeBounties, checkYinyangLinks, checkAllYinyangLinks } from '../../src/data/extended-heroes';
+import { huifengSkill1 } from '../../src/data/skills';
 import { HeroState } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
 
@@ -141,19 +142,47 @@ describe('extended heroes', () => {
         expect(state.deathCounters.player1Dead).toBe(3); // 2 + 1（死亡事件），无额外+1
     });
 
-    it('五弦琵琶的音符追击增加和弦，技能二消耗和弦', () => {
+    it('五弦琵琶的音符为友方伤害增伤并积累和弦，技能二消耗和弦', () => {
         const state = makeGameState();
         const pipa = addHero(state, 'pipa', 'player1', [2, 2]);
         const ally = addHero(state, 'moran', 'player1', [2, 1]);
         const enemy = addHero(state, 'baize', 'player2', [2, 3]);
+
+        // 基准：无音符时的攻击伤害
+        const hpStart = enemy.currentHp;
+        DamageCalculator.applyDamage(enemy, DamageCalculator.calculate(ally, enemy, 5), ally, state);
+        const baseDamage = hpStart - enemy.currentHp;
+
         pipaSkill1.execute!(pipa, [ally], state);
-        const hit = DamageCalculator.calculate(ally, enemy, 5);
-        DamageCalculator.applyDamage(enemy, hit, ally, state);
+        DamageCalculator.applyDamage(enemy, DamageCalculator.calculate(ally, enemy, 5), ally, state);
+        const boostedDamage = hpStart - baseDamage - enemy.currentHp;
+
+        // 附伤 = 琵琶基础攻击力8 × 25% = 2，并入友方本次伤害一并结算
+        expect(boostedDamage - baseDamage).toBe(2);
         expect(pipa.counters['和弦']).toBe(1);
+        // 增伤不产生琵琶的独立伤害记录
+        expect(state.battleLog.some(log => log.message.includes('五弦琵琶对'))).toBe(false);
+
         const before = enemy.currentHp;
         pipaSkill2.execute!(pipa, [enemy], state);
         expect(enemy.currentHp).toBe(before - 3);
         expect(pipa.counters['和弦']).toBe(0);
+    });
+
+    it('音符增伤对多段攻击每段生效并逐段积累和弦', () => {
+        const state = makeGameState();
+        const pipa = addHero(state, 'pipa', 'player1', [2, 2]);
+        const huifeng = addHero(state, 'huifeng', 'player1', [2, 3]);
+        const enemy = addHero(state, 'moran', 'player2', [2, 4]);
+
+        pipaSkill1.execute!(pipa, [huifeng], state);
+        const hpBefore = enemy.currentHp;
+        huifengSkill1.execute!(huifeng, [enemy], state);
+
+        // 回锋连刃斩3段，每段4点本体伤害 + 2点音符附伤 = 18
+        expect(hpBefore - enemy.currentHp).toBe(18);
+        expect(pipa.counters['和弦']).toBe(3);
+        expect(state.battleLog.some(log => log.message.includes('五弦琵琶对'))).toBe(false);
     });
 
     it('赏金猎人悬赏敌方全员，奖励归实际击杀者', () => {
@@ -262,7 +291,7 @@ describe('extended heroes', () => {
         expect(caster.counters['yinyang_yang_repeat']).toBe(0.5);
     });
 
-    it('阴阳师链接目标超出两格范围后在其出手时断线并重置对应倍率', () => {
+    it('链接目标超出两格范围后立即断线并重置对应倍率', () => {
         const state = makeGameState();
         const caster = addHero(state, 'yinyang', 'player1', [2, 2]);
         const ally = addHero(state, 'moran', 'player1', [2, 3]);
@@ -274,11 +303,60 @@ describe('extended heroes', () => {
         ally.position = [5, 5];
         state.board[5][5] = ally;
 
-        checkYinyangLinks(caster, state);
+        expect(checkAllYinyangLinks(state)).toBe(true);
 
         expect(EffectManager.hasEffect(ally, '阳线攻击')).toBe(false);
         expect(caster.counters['yinyang_yang_rate']).toBe(0.2);
         expect(caster.counters['yinyang_yang_repeat']).toBe(0.2);
+        // 断线有战斗日志提示
+        expect(state.battleLog.some(log => log.message.includes('断开'))).toBe(true);
+    });
+
+    it('阴阳师本体移动远离目标时同样立即断线', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'yinyang', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 3]);
+        yinyangSkill1.execute!(caster, [ally], state);
+        caster.counters['yinyang_yang_rate'] = 0.4;
+
+        state.board[2][2] = null;
+        caster.position = [0, 0];
+        state.board[0][0] = caster;
+
+        expect(checkAllYinyangLinks(state)).toBe(true);
+        expect(EffectManager.hasEffect(ally, '阳线攻击')).toBe(false);
+        expect(caster.counters['yinyang_yang_rate']).toBe(0.2);
+    });
+
+    it('阴阳师离场（死亡/暂时死亡）时其全部线消散并重置倍率', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'yinyang', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 3]);
+        const enemy = addHero(state, 'baize', 'player2', [3, 2]);
+        yinyangSkill1.execute!(caster, [ally], state);
+        yinyangSkill2.execute!(caster, [enemy], state);
+        caster.counters['yinyang_yang_rate'] = 0.35;
+        caster.counters['yinyang_yin_rate'] = 0.3;
+
+        state.board[2][2] = null;
+        caster.state = HeroState.DEAD;
+        caster.position = null;
+
+        expect(checkAllYinyangLinks(state)).toBe(true);
+        expect(EffectManager.hasEffect(ally, '阳线攻击')).toBe(false);
+        expect(EffectManager.hasEffect(enemy, '阴线攻击降低')).toBe(false);
+        expect(caster.counters['yinyang_yang_rate']).toBe(0.2);
+        expect(caster.counters['yinyang_yin_rate']).toBe(0.2);
+    });
+
+    it('距离未超限时检查不产生变化（幂等）', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'yinyang', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 3]);
+        yinyangSkill1.execute!(caster, [ally], state);
+
+        expect(checkAllYinyangLinks(state)).toBe(false);
+        expect(EffectManager.hasEffect(ally, '阳线攻击')).toBe(true);
     });
 
     it('阴阳师切换阳线目标时攻防加成与重复倍率都重置为20%', () => {
@@ -543,6 +621,82 @@ describe('extended heroes', () => {
         SkillSystem.executeSkill(painting, tPaintingSkill2, [[2, 4]], state); // 连锁
         expect(before - enemy.currentHp).toBe(13); // 本体 6 + 被动1 = 7，玄龟 6
         expect(EffectManager.hasEffect(enemy, '眩晕')).toBe(true);
+    });
+
+    it('金乌的击杀同样触发T型帛画的天威：本体与在场召唤物各回8点生命', () => {
+        const state = makeGameState();
+        const painting = addHero(state, 't_painting', 'player1', [2, 2]);
+        SkillSystem.executeSkill(painting, tPaintingSkill1, [[2, 3]], state);
+        const jinwu = state.board[2][3]!;
+        const victim = addHero(state, 'moran', 'player2', [4, 4]);
+        victim.currentHp = 1;
+        painting.currentHp = 20;
+        jinwu.currentHp = 4;
+
+        const hit = DamageCalculator.calculate(jinwu, victim, 30);
+        DamageCalculator.applyDamage(victim, hit, jinwu, state);
+
+        expect(victim.state).toBe(HeroState.DEAD);
+        expect(painting.currentHp).toBe(28);
+        expect(jinwu.currentHp).toBe(jinwu.maxHp);
+    });
+
+    it('玄龟的击杀同样触发T型帛画的天威', () => {
+        const state = makeGameState();
+        const painting = addHero(state, 't_painting', 'player1', [2, 2]);
+        SkillSystem.executeSkill(painting, tPaintingSkill2, [[2, 3]], state);
+        const xuangui = state.board[2][3]!;
+        const victim = addHero(state, 'moran', 'player2', [4, 4]);
+        victim.currentHp = 1;
+        painting.currentHp = 21;
+        xuangui.currentHp = 6;
+
+        const hit = DamageCalculator.calculate(xuangui, victim, 30);
+        DamageCalculator.applyDamage(victim, hit, xuangui, state);
+
+        expect(victim.state).toBe(HeroState.DEAD);
+        expect(painting.currentHp).toBe(29);
+        expect(xuangui.currentHp).toBe(14);
+    });
+
+    it('金乌在场时点击空位：同一个金乌重新落位并回满生命，本体不扣血', () => {
+        const state = makeGameState();
+        const painting = addHero(state, 't_painting', 'player1', [2, 2]);
+        SkillSystem.executeSkill(painting, tPaintingSkill1, [[2, 3]], state);
+        const jinwu = state.board[2][3]!;
+        jinwu.currentHp = 3;
+        painting.currentHp = 30;
+
+        const result = SkillSystem.executeSkill(painting, tPaintingSkill1, [[0, 2]], state);
+
+        expect(result.success).toBe(true);
+        expect(state.board[2][3]).toBeNull();
+        expect(state.board[0][2]).toBe(jinwu);
+        expect(jinwu.position).toEqual([0, 2]);
+        expect(jinwu.currentHp).toBe(jinwu.maxHp);
+        expect(jinwu.hasActedThisTurn).toBe(true);
+        expect(jinwu.hasMovedThisTurn).toBe(true);
+        // 位移重置不算召唤物阵亡：本体不损失 30% 当前生命，名单里也不会多出一个金乌
+        expect(painting.currentHp).toBe(30);
+        expect(state.player1Heroes.filter(hero => hero.counters['__isSummon'] === 1)).toHaveLength(1);
+    });
+
+    it('玄龟在场时点击空位同样重新落位回满，且超过两格仍被拒绝', () => {
+        const state = makeGameState();
+        const painting = addHero(state, 't_painting', 'player1', [2, 2]);
+        SkillSystem.executeSkill(painting, tPaintingSkill2, [[2, 3]], state);
+        const xuangui = state.board[2][3]!;
+        xuangui.currentHp = 5;
+
+        const rejected = SkillSystem.executeSkill(painting, tPaintingSkill2, [[5, 5]], state);
+        expect(rejected.success).toBe(false);
+        expect(xuangui.position).toEqual([2, 3]);
+
+        const relocated = SkillSystem.executeSkill(painting, tPaintingSkill2, [[4, 2]], state);
+        expect(relocated.success).toBe(true);
+        expect(state.board[4][2]).toBe(xuangui);
+        expect(state.board[2][3]).toBeNull();
+        expect(xuangui.currentHp).toBe(xuangui.maxHp);
     });
 
     it('费曼粒子束逐个衰减并积累能量，两个标记可形成轰爆矩形', () => {

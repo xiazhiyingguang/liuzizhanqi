@@ -63,6 +63,7 @@ export const HERO_ABILITY_RATINGS: Record<string, HeroAbilityRatings> = {
     醉枕刀: ratings(8, 7, 7, 1, 3, 5, 7),
     风铃: ratings(9, 7, 5, 9, 1, 4, 9),
     帝兰: ratings(7, 6, 8, 9, 7, 10, 8),
+    南风: ratings(6, 8, 9, 6, 8, 10, 7),
     旺财: ratings(9, 8, 4, 1, 8, 6, 7),
     '量子观测者·薛定谔': ratings(8, 5, 10, 5, 1, 9, 6),
     '恐惧编织者·莉莉丝': ratings(8, 3, 6, 10, 1, 10, 9),

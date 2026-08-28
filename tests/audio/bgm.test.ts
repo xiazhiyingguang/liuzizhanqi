@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { battleBgm, menuBgm, midiToFrequency, trackById } from '../../src/audio/bgms';
-import { audioManager } from '../../src/audio/audio-manager';
+import { audioManager, computeBgmDrift } from '../../src/audio/audio-manager';
 
 describe('背景音乐乐谱', () => {
     it('提供界面曲与战斗曲两首独立曲目', () => {
@@ -99,5 +99,36 @@ describe('AudioManager 无音频环境安全降级', () => {
         expect(audioManager.getUserState().volume).toBe(1);
         audioManager.setVolume(-0.5);
         expect(audioManager.getUserState().volume).toBe(0);
+    });
+});
+
+describe('computeBgmDrift（联机 BGM 同步偏差）', () => {
+    const LOOP = 100;
+
+    it('同位置偏差为 0', () => {
+        expect(computeBgmDrift(40, 40, LOOP)).toBeCloseTo(0);
+    });
+
+    it('本地超前返回正偏差、滞后返回负偏差', () => {
+        expect(computeBgmDrift(42, 40, LOOP)).toBeCloseTo(2);
+        expect(computeBgmDrift(38, 40, LOOP)).toBeCloseTo(-2);
+    });
+
+    it('跨循环边界走环形最短路径', () => {
+        // 本地在 1、主机在 99：本地其实超前 2 秒，而非滞后 98 秒
+        expect(computeBgmDrift(1, 99, LOOP)).toBeCloseTo(2);
+        // 反向：本地 99、主机 1 → 滞后 2 秒
+        expect(computeBgmDrift(99, 1, LOOP)).toBeCloseTo(-2);
+    });
+
+    it('半周期处折叠到 ±loop/2 之内', () => {
+        const drift = computeBgmDrift(50, 0, LOOP);
+        expect(Math.abs(drift)).toBeLessThanOrEqual(LOOP / 2);
+    });
+
+    it('非法输入安全返回 0', () => {
+        expect(computeBgmDrift(10, 5, 0)).toBe(0);
+        expect(computeBgmDrift(NaN, 5, LOOP)).toBe(0);
+        expect(computeBgmDrift(10, Infinity, LOOP)).toBe(0);
     });
 });

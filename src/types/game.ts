@@ -213,11 +213,17 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone';
     position: Position;
     owner: Player;
     sourceHeroId: string;
     duration: number;
+    /** 同一条风道（或后续同类线性效果）的 6 格共用一个 linkId */
+    linkId?: string;
+    /** 风道朝向：敌方在回合末会被顺该方向推移 1 格 */
+    direction?: 'up' | 'down' | 'left' | 'right';
+    /** 施法者行动序号到达该值时（其行动结束瞬间）整片区域一并清除；回合末由 duration 兜底 */
+    expireAtActionSerial?: number;
 }
 
 /** 单位在回合开始时的状态快照（时空旅者·戴尔的「时空回溯」用） */

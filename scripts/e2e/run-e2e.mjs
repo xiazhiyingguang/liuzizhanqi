@@ -9,8 +9,10 @@ const projectRoot = path.resolve(scriptDir, '..', '..');
 const resultsDir = path.join(projectRoot, 'test-results', 'e2e');
 const headed = process.argv.includes('--headed');
 
-const PLAYER_ONE_TEAM = ['moran', 'zhenxiao', 'baize', 'xuanxiao'];
-const PLAYER_TWO_TEAM = ['liuli', 'wukong', 'nightowl', 'changli'];
+// 替补制：每方选 6 位（首发 4 + 替补 2），确认按钮仅在满 6 位后可用；
+// 双方名单不得重叠，对手已选的英雄在本方选将面板上不可点击。
+const PLAYER_ONE_TEAM = ['moran', 'zhenxiao', 'baize', 'xuanxiao', 'mirror', 'mowen'];
+const PLAYER_TWO_TEAM = ['liuli', 'wukong', 'nightowl', 'changli', 'huifeng', 'hanjiangxue'];
 
 function stateExpression(predicate) {
     return `window.__SIX_CHESS_E2E__ && (() => {
@@ -134,7 +136,7 @@ async function testTwoClientOnlineSync(baseUrl, sessions) {
     assert.equal(secondLobby.onlineRoomId, firstLobby.onlineRoomId, '双方必须进入同一房间');
 
     await selectTeam(first.page, PLAYER_ONE_TEAM, 'player1');
-    await waitForState(second.page, `state.player1SelectedHeroIds.length === 4`, '玩家二收到玩家一点将同步');
+    await waitForState(second.page, `state.player1SelectedHeroIds.length === 6`, '玩家二收到玩家一点将同步');
     await selectTeam(second.page, PLAYER_TWO_TEAM, 'player2');
     await waitForState(first.page, `state.phase === 'deploy'`, '玩家一进入布阵', 20_000);
     await waitForState(second.page, `state.phase === 'deploy'`, '玩家二进入布阵', 20_000);
@@ -161,6 +163,20 @@ async function testTwoClientOnlineSync(baseUrl, sessions) {
     const remoteState = await second.page.snapshot();
     assert.equal(remoteState.heroes.filter(hero => hero.owner === 'player1').length, 4);
     assert.equal(remoteState.heroes.filter(hero => hero.owner === 'player2').length, 4);
+
+    // 玩家二（孙悟空在 (1,4)）释放·毫毛化身到空格 (1,2)。
+    // 战斗阶段行动方只提交权威快照，对手端不重跑结算，
+    // 音效与特效必须依据转发的 action 重建 —— 这里验证未出手一方确实看到特效。
+    await second.page.click('battle-cell-1-4');
+    await second.page.waitForTestId('skill-button-wukong_skill1');
+    await second.page.click('skill-button-wukong_skill1');
+    const fxVisible = `document.querySelectorAll('.fx-anchor, .fx-halo').length > 0`;
+    // 特效只存活约 1.3 秒，必须在点击目标格之前就开始轮询两端页面
+    const casterFx = second.page.waitForExpression(fxVisible, '玩家二本地看到技能特效', 5_000);
+    const receiverFx = first.page.waitForExpression(fxVisible, '玩家一收到对手技能特效', 5_000);
+    await second.page.click('battle-cell-1-2');
+    await Promise.all([casterFx, receiverFx]);
+
     assert.equal(first.page.errors.length, 0, `玩家一页面异常：${first.page.errors.join('\n')}`);
     assert.equal(second.page.errors.length, 0, `玩家二页面异常：${second.page.errors.join('\n')}`);
 }

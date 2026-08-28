@@ -1,19 +1,62 @@
 import { Position, Hero, GameState, HeroState } from '../types/game';
 import { getMirrorOwnerIdFromCloneId } from '../data/heroes';
+import { isFreeWindLaneStep } from './wind-lane';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
+
+/**
+ * 移动范围计算选项。
+ * ignoreBindingZone：跳过束缚格钳制。束缚格只限制"普通移动离开"，
+ * 技能造成的位移（瞬移/跳跃/分身行动/撤回移动）由调用方显式放行。
+ */
+export interface MoveOptions {
+    ignoreBindingZone?: boolean;
+}
 
 /**
  * 移动系统和路径寻找
  */
 export class MovementSystem {
     /**
+     * 罩住起点的敌方束缚区允许停留的格子集合；未被罩住时返回 null。
+     * 多片区域同时罩住起点时取并集（例如两名震霄相邻落位）。
+     */
+    static getBindingZoneCells(hero: Hero, gameState: GameState): Set<string> | null {
+        if (!hero.position) return null;
+        const zones = (gameState.boardEffects ?? []).filter(
+            effect => effect.type === 'binding-zone' && effect.owner !== hero.owner
+        );
+        if (zones.length === 0) return null;
+
+        const [row, col] = hero.position;
+        const cellKey = (position: Position) => this.posToKey(position);
+        const lockedIds = new Set(
+            zones
+                .filter(effect => effect.position[0] === row && effect.position[1] === col)
+                // 无 linkId 的历史数据退化成"单格自成一片"
+                .map(effect => effect.linkId ?? `single:${cellKey(effect.position)}`)
+        );
+        if (lockedIds.size === 0) return null;
+
+        return new Set(
+            zones
+                .filter(effect => lockedIds.has(effect.linkId ?? `single:${cellKey(effect.position)}`))
+                .map(effect => cellKey(effect.position))
+        );
+    }
+
+    /**
      * 获取可移动的位置
      * @param hero 英雄
      * @param gameState 游戏状态
      * @returns 可移动的位置数组
      */
-    static getMovablePositions(hero: Hero, gameState: GameState, rangeOverride?: number): Position[] {
+    static getMovablePositions(
+        hero: Hero,
+        gameState: GameState,
+        rangeOverride?: number,
+        options?: MoveOptions
+    ): Position[] {
         if (!hero.position) return [];
 
         const start = hero.position;
@@ -27,12 +70,18 @@ export class MovementSystem {
             : 0;
         const moveRange = Math.max(0, (rangeOverride ?? hero.moveRange) + windModifier);
 
-        // 使用BFS搜索所有可达位置
+        // 风道内滑行不消耗移动力，边权不再统一为 1，因此改用 0-1 BFS 求最小移动力消耗
         const queue: [Position, number][] = [[start, 0]];
-        const visited = new Set<string>([this.posToKey(start)]);
+        const cost = new Map<string, number>([[this.posToKey(start), 0]]);
+        const collected = new Set<string>();
+        const zoneCells = options?.ignoreBindingZone
+            ? null
+            : this.getBindingZoneCells(hero, gameState);
 
         while (queue.length > 0) {
             const [[row, col], distance] = queue.shift()!;
+            // 同一格可能以更小的消耗再次入队，跳过已过期的记录
+            if ((cost.get(this.posToKey([row, col])) ?? Number.POSITIVE_INFINITY) !== distance) continue;
 
             // 四个方向（上下左右）
             const directions: [number, number][] = [
@@ -44,17 +93,20 @@ export class MovementSystem {
 
             for (const [dr, dc] of directions) {
                 const newPos: Position = [row + dr, col + dc];
-                const newDistance = distance + 1;
-
-                // 检查是否超出移动范围
-                if (newDistance > moveRange) continue;
 
                 // 检查边界
                 if (!this.inBounds(newPos)) continue;
 
-                // 检查是否已访问
+                const gliding = isFreeWindLaneStep(gameState, [row, col], newPos, hero.owner);
+                const newDistance = distance + (gliding ? 0 : 1);
+
+                // 检查是否超出移动范围
+                if (newDistance > moveRange) continue;
+
                 const key = this.posToKey(newPos);
-                if (visited.has(key)) continue;
+                // 束缚格：被罩住的单位普通移动不得离开该区域（也不能借道穿出）
+                if (zoneCells && !zoneCells.has(key)) continue;
+                if ((cost.get(key) ?? Number.POSITIVE_INFINITY) <= newDistance) continue;
 
                 // 检查是否有单位占据（不能通过）
                 const [newRow, newCol] = newPos;
@@ -67,8 +119,9 @@ export class MovementSystem {
                         occupant.state === HeroState.ALIVE &&
                         (occupant.counters['醉意'] ?? 0) >= 1;
                     if (!canPassDrunkAlly) continue;
-                    visited.add(key);
-                    queue.push([newPos, newDistance]);
+                    cost.set(key, newDistance);
+                    if (gliding) queue.unshift([newPos, newDistance]);
+                    else queue.push([newPos, newDistance]);
                     continue;
                 }
 
@@ -79,9 +132,13 @@ export class MovementSystem {
                     effect.position[0] === newRow && effect.position[1] === newCol
                 )) continue;
 
-                visited.add(key);
-                movablePositions.push(newPos);
-                queue.push([newPos, newDistance]);
+                cost.set(key, newDistance);
+                if (!collected.has(key)) {
+                    collected.add(key);
+                    movablePositions.push(newPos);
+                }
+                if (gliding) queue.unshift([newPos, newDistance]);
+                else queue.push([newPos, newDistance]);
             }
         }
 
@@ -304,6 +361,24 @@ export class MovementSystem {
     }
 
     /**
+     * 获取以 center 为中心的 size×size 方盒内的全部格子（含中心格）
+     * 与 getAreaPositions 的区别：不排除中心，用于「可以点风眼本身」的选择范围
+     */
+    static getBoxPositions(center: Position, size: number = 5): Position[] {
+        const positions: Position[] = [];
+        const offset = Math.floor(size / 2);
+
+        for (let row = center[0] - offset; row <= center[0] + offset; row++) {
+            for (let col = center[1] - offset; col <= center[1] + offset; col++) {
+                const pos: Position = [row, col];
+                if (this.inBounds(pos)) positions.push(pos);
+            }
+        }
+
+        return positions;
+    }
+
+    /**
      * 寻找附近的空位置（用于复活等）
      */
     static findNearestEmptyPosition(
@@ -343,7 +418,13 @@ export class MovementSystem {
     /**
      * 移动英雄
      */
-    static moveHero(hero: Hero, to: Position, gameState: GameState, rangeOverride?: number): boolean {
+    static moveHero(
+        hero: Hero,
+        to: Position,
+        gameState: GameState,
+        rangeOverride?: number,
+        options?: MoveOptions
+    ): boolean {
         if (!hero.position) return false;
         if (!this.inBounds(to)) return false;
 
@@ -353,7 +434,7 @@ export class MovementSystem {
         const [toRow, toCol] = to;
 
         // 底层必须自行验证可达性，不能只依赖 UI 高亮范围。
-        const reachable = this.getMovablePositions(hero, gameState, rangeOverride)
+        const reachable = this.getMovablePositions(hero, gameState, rangeOverride, options)
             .some(([row, col]) => row === toRow && col === toCol);
         if (!reachable) return false;
 

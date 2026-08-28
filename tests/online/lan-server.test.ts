@@ -149,6 +149,100 @@ describe('局域网房间服务器', () => {
         expect(rooms.has(created.roomId)).toBe(false);
     });
 
+    it('布阵换位（移动/交换）更新服务器部署表，复用腾出格子后双方仍能进入战斗', async () => {
+        const player1 = await connectClient();
+        const player2 = await connectClient();
+        const created = await emitAck<{ success: boolean; roomId: string }>(player1, 'create-room');
+        await emitAck<any>(player1, 'join-room', { roomId: created.roomId, playerName: '甲' });
+        await emitAck<any>(player2, 'join-room', { roomId: created.roomId, playerName: '乙' });
+
+        const room = rooms.get(created.roomId)!;
+        room.phase = 'deploy';
+        room.heroSelections.player1 = ['moran', 'zhenxiao', 'baize', 'xuanxiao'];
+        room.heroSelections.player2 = ['liuli', 'wukong', 'nightowl', 'changli'];
+
+        const rejections: any[] = [];
+        player1.on('action-rejected', event => rejections.push(event));
+        player2.on('action-rejected', event => rejections.push(event));
+
+        // 玩家一：部署 moran 到 (0,2) → 换位到 (0,0) → 让 zhenxiao 复用腾出的 (0,2)。
+        // 服务器若不识别 reposition，(0,2) 仍被视为占用，deploy-hero 被误拒，
+        // 部署数停在 3，confirm-deployment 永远“必须部署4位英雄”，对手卡死在布阵。
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'moran', position: [0, 2] });
+        action(player1, created.roomId, 'reposition-deploy-hero', { heroId: 'moran', position: [0, 0] });
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'zhenxiao', position: [0, 2] });
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'baize', position: [2, 1] });
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'xuanxiao', position: [3, 1] });
+
+        // 玩家二：部署后与己方英雄交换位置
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'liuli', position: [0, 3] });
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'wukong', position: [1, 4] });
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'nightowl', position: [2, 4] });
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'changli', position: [3, 4] });
+        action(player2, created.roomId, 'reposition-deploy-hero', { heroId: 'liuli', position: [1, 4] });
+
+        await new Promise(resolve => setTimeout(resolve, 80));
+        expect(rejections).toEqual([]);
+        expect(Object.fromEntries(room.deployments.player1)).toEqual({
+            moran: '0,0', zhenxiao: '0,2', baize: '2,1', xuanxiao: '3,1'
+        });
+        expect(Object.fromEntries(room.deployments.player2)).toEqual({
+            liuli: '1,4', wukong: '0,3', nightowl: '2,4', changli: '3,4'
+        });
+
+        // 换位消息必须转发给对端，否则对手布阵界面看到的是旧阵型
+        const repositionSeen = once<any>(player1, 'action-broadcast');
+        action(player2, created.roomId, 'reposition-deploy-hero', { heroId: 'nightowl', position: [2, 3] });
+        const seen = await repositionSeen;
+        expect(seen.action.type).toBe('reposition-deploy-hero');
+        expect(seen.action.data.heroId).toBe('nightowl');
+
+        // 确认部署：双方都应顺利进入战斗
+        const p2Battle = once<any>(player2, 'action-broadcast');
+        action(player1, created.roomId, 'confirm-deployment');
+        action(player2, created.roomId, 'confirm-deployment');
+        await p2Battle.catch(() => null);
+        await new Promise(resolve => setTimeout(resolve, 80));
+        expect(rejections).toEqual([]);
+        expect(room.phase).toBe('battle');
+
+        await emitAck(player1, 'leave-room', { roomId: created.roomId });
+        player1.disconnect();
+        player2.disconnect();
+    });
+
+    it('战斗阶段把技能 action 与权威快照一并转发，供对端重建施法表现', async () => {
+        const player1 = await connectClient();
+        const player2 = await connectClient();
+        const created = await emitAck<{ success: boolean; roomId: string }>(player1, 'create-room');
+        await emitAck<any>(player1, 'join-room', { roomId: created.roomId, playerName: '甲' });
+        await emitAck<any>(player2, 'join-room', { roomId: created.roomId, playerName: '乙' });
+
+        const room = rooms.get(created.roomId)!;
+        room.phase = 'battle';
+        room.currentPlayer = 'player1';
+        const emptyBoard = Array.from({ length: 6 }, () => Array(6).fill(null));
+
+        // 对端收到快照只会直接落地、不重跑技能结算，
+        // 因此音效与特效所需信息必须完整保留在转发的 action 里。
+        const broadcast = once<any>(player2, 'action-broadcast');
+        action(player1, created.roomId, 'skill', {
+            heroId: 'moran-player1-1',
+            skillId: 'moran_skill1',
+            targetPos: [0, 1]
+        }, { board: emptyBoard, phase: 'battle', currentPlayer: 'player2' });
+
+        const received = await broadcast;
+        expect(received.action.type).toBe('skill');
+        expect(received.action.data.skillId).toBe('moran_skill1');
+        expect(received.action.data.targetPos).toEqual([0, 1]);
+        expect(received.gameState?.phase).toBe('battle');
+
+        await emitAck(player1, 'leave-room', { roomId: created.roomId });
+        player1.disconnect();
+        player2.disconnect();
+    });
+
     it('补员挂起期间接受补员方的 reinforce-deploy 与状态同步', async () => {
         const player1 = await connectClient();
         const player2 = await connectClient();

@@ -38,7 +38,7 @@ describe('帝兰完整机制', () => {
 
         expect(result.success).toBe(true);
         expect(enemy.currentHp).toBe(enemy.maxHp - 3);
-        expect(getDilanFeatherStacks(enemy, dilan.id)).toBe(1);
+        expect(getDilanFeatherStacks(enemy)).toBe(1);
         expect(enemy.effects.find(effect => effect.name === '逆风')?.stackCount).toBe(1);
         expect(ally.effects.find(effect => effect.name === '顺风')?.stackCount).toBe(1);
         expect(offAxis.currentHp).toBe(offAxis.maxHp);
@@ -132,7 +132,43 @@ describe('帝兰完整机制', () => {
 
         expect(result.damageDealt).toEqual([12]);
         expect(enemy.currentHp).toBe(enemy.maxHp - 12);
-        expect(getDilanFeatherStacks(enemy, dilan.id)).toBe(0);
+        expect(getDilanFeatherStacks(enemy)).toBe(0);
+    });
+
+    it('南风叠加的羽化与帝兰共享同一份层数，封顶3层且不重复结算逐格伤害', () => {
+        const state = makeGameState();
+        const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
+        const nanfeng = addHero(state, 'nanfeng', 'player1', [0, 5]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 4]);
+
+        addDilanFeather(enemy, dilan, 3);
+        addDilanFeather(enemy, nanfeng, 3);
+
+        expect(enemy.effects.filter(effect => effect.name === '羽化')).toHaveLength(1);
+        expect(getDilanFeatherStacks(enemy)).toBe(3);
+
+        // 只有一份归属，移动1格只吃一次固定伤害
+        expect(MovementSystem.moveHero(enemy, [2, 3], state)).toBe(true);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 1);
+    });
+
+    it('帝兰可以引爆南风叠满的3层羽化', () => {
+        const state = makeGameState();
+        const dilan = addHero(state, 'dilan', 'player1', [2, 2]);
+        const nanfeng = addHero(state, 'nanfeng', 'player1', [0, 5]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 4]);
+
+        addDilanFeather(enemy, nanfeng);
+        addDilanFeather(enemy, nanfeng);
+        addDilanFeather(enemy, nanfeng);
+        expect(getDilanFeatherStacks(enemy)).toBe(3);
+
+        dilan.counters['__dilan_skill1_axis'] = 0;
+        const result = SkillSystem.executeSkill(dilan, dilanSkill1, [[2, 3]], state);
+
+        expect(result.damageDealt).toEqual([9]);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 9);
+        expect(getDilanFeatherStacks(enemy), '引爆后层数清空').toBe(0);
     });
 
     it('技能2命中前方2×3，并从远到近将同列敌人各击退1格', () => {
@@ -149,8 +185,8 @@ describe('帝兰完整机制', () => {
         expect(nearEnemy.position).toEqual([2, 2]);
         expect(farEnemy.currentHp).toBe(farEnemy.maxHp - 4);
         expect(nearEnemy.currentHp).toBe(nearEnemy.maxHp - 4);
-        expect(getDilanFeatherStacks(farEnemy, dilan.id)).toBe(1);
-        expect(getDilanFeatherStacks(nearEnemy, dilan.id)).toBe(1);
+        expect(getDilanFeatherStacks(farEnemy)).toBe(1);
+        expect(getDilanFeatherStacks(nearEnemy)).toBe(1);
     });
 
     it('技能2遇到边界或占位时保留目标原位置', () => {
@@ -176,7 +212,7 @@ describe('帝兰完整机制', () => {
         DamageCalculator.applyDamage(victim, lethal, dilan, state);
 
         expect(nearby.currentHp).toBe(nearby.maxHp - 5);
-        expect(getDilanFeatherStacks(nearby, dilan.id)).toBe(1);
+        expect(getDilanFeatherStacks(nearby)).toBe(1);
         expect(nearby.effects.some(effect => effect.name === '逆风')).toBe(true);
         expect(farAway.currentHp).toBe(farAway.maxHp);
     });
@@ -193,7 +229,7 @@ describe('帝兰完整机制', () => {
         DamageCalculator.applyDamage(victim, lethal, dilan, state);
 
         expect(nearby.currentHp).toBe(nearby.maxHp - 15);
-        expect(getDilanFeatherStacks(nearby, dilan.id)).toBe(1);
+        expect(getDilanFeatherStacks(nearby)).toBe(1);
     });
 
     it('风暴击杀敌人会以新阵亡位置继续触发天威', () => {
@@ -244,7 +280,7 @@ describe('帝兰完整机制', () => {
         expect(chooseComputerSkillPlan(state, dilan, dilan.skill2Id)).not.toBeNull();
     });
 
-    it('带羽化的移动不可撤回，移动伤害致死时自动结束该角色行动', () => {
+    it('带羽化的移动伤害致死时自动结束该角色行动', () => {
         const state = makeGameState({ currentPlayer: 'player2' });
         const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
         addHero(state, 'moran', 'player1', [4, 5]);
@@ -264,8 +300,35 @@ describe('帝兰完整机制', () => {
         useGameStore.getState().moveHero([0, 1]);
 
         expect(enemy.state).toBe('dead');
-        expect(enemy.counters['__move_from']).toBeUndefined();
         expect(useGameStore.getState().currentPlayer).toBe('player1');
         expect(useGameStore.getState().activeHero).toBeNull();
+    });
+
+    it('带羽化的移动也可以撤回：归位不重复结算羽化伤害，正向伤害不退还', () => {
+        const state = makeGameState({ currentPlayer: 'player2' });
+        const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
+        const enemy = addHero(state, 'baize', 'player2', [0, 0]);
+        addHero(state, 'zhenxiao', 'player2', [5, 0]);
+        addDilanFeather(enemy, dilan);
+        useGameStore.setState({
+            ...state,
+            moveRange: [],
+            skillRange: [],
+            suppressOnlineBroadcast: false,
+        });
+
+        useGameStore.getState().selectHeroForAction(enemy);
+        useGameStore.getState().showMoveRange();
+        useGameStore.getState().moveHero([0, 1]);
+        const hpAfterMove = enemy.currentHp;
+        expect(hpAfterMove).toBeLessThan(enemy.maxHp);
+
+        useGameStore.getState().undoMove();
+
+        expect(enemy.position).toEqual([0, 0]);
+        expect(enemy.hasMovedThisTurn).toBe(false);
+        expect(enemy.counters['__move_from']).toBeUndefined();
+        // 撤回归位不结算羽化伤害（正向移动已结算的伤害不退还）
+        expect(enemy.currentHp).toBe(hpAfterMove);
     });
 });

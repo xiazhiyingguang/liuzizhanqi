@@ -96,6 +96,9 @@ function prepareFinalStrike(): boolean {
         board,
         player1Heroes: [...state.player1Heroes],
         player2Heroes: [...state.player2Heroes],
+        // 替补席留人会让最后一击先触发补员而非结算，用例将卡在"正在补员"
+        player1BenchHeroIds: [],
+        player2BenchHeroIds: [],
         currentPlayer: 'player1',
         selectedHero: null,
         activeHero: null,

@@ -36,13 +36,14 @@ import {
     nightowlSkill1,
     nightowlSkill2,
     SKILLS,
+    wukongSkill1,
     wukongSkill2,
     xuanxiaoSkill1,
     xuanxiaoSkill2,
     zhenxiaoSkill1,
     zhenxiaoSkill2,
 } from '../../src/data/skills';
-import { HeroState } from '../../src/types/game';
+import { HeroState, Position } from '../../src/types/game';
 import { addHero, killOffBoard, makeGameState } from '../helpers/game-state';
 
 describe('active hero registry', () => {
@@ -160,6 +161,20 @@ describe('Wukong', () => {
         const result = wukongSkill2.execute!(hero, [enemy], state);
 
         expect(result.damageDealt).toEqual([8]);
+    });
+
+    it('毫毛化身可选落点扩大到周围两格（5×5 方盒，不含本体）', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'wukong', 'player1', [2, 2]);
+
+        const positions = SkillSystem.getValidTargetPositions(hero, wukongSkill1);
+
+        expect(positions).toHaveLength(24);
+        expect(positions).toContainEqual([0, 0] as Position);
+        expect(positions).toContainEqual([4, 4] as Position);
+        expect(positions).not.toContainEqual([2, 2] as Position);
+        expect(positions).not.toContainEqual([0, 5] as Position);
+        expect(positions).not.toContainEqual([5, 2] as Position);
     });
 
     it('gains one Lingxi and updates clone crit effects when a clone dies', () => {

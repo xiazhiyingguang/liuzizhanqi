@@ -8,6 +8,7 @@ import { MovementSystem } from './movement-system';
 import { SkillSystem } from './skill-system';
 import { DamageCalculator } from './damage-calculator';
 import { GameEngine } from './game-engine';
+import { windLaneAxis, windLaneCells, windLaneDirectionFromCode } from './wind-lane';
 
 export interface ComputerDeployment {
     heroId: string;
@@ -691,6 +692,27 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
     }
 
+    // 南风引风成道：两步点击（先定风向，再点行/列），枚举 4 个方向 × 该轴上 6 条线
+    if (skill.id === 'nanfeng_skill2') {
+        // 第一步已点过方向格时，风向锁定为该方向，第二步只枚举同一轴上的 6 条线，
+        // 否则两次独立规划可能选出不同轴向，导致点击的行列与已选风向不匹配。
+        const lockedDirection = windLaneDirectionFromCode(caster.counters['__nanfeng_skill2_dir']);
+        const sets: Position[][] = [];
+        for (const dirPosition of MovementSystem.getCrossPositions(caster.position)) {
+            const direction = MovementSystem.getDirection(caster.position, dirPosition);
+            if (!direction) continue;
+            if (lockedDirection && direction !== lockedDirection) continue;
+            const axis = windLaneAxis(direction);
+            for (let index = 0; index < BOARD_SIZE; index++) {
+                const lineCell: Position = axis === 'row'
+                    ? [index, caster.position[1]]
+                    : [caster.position[0], index];
+                sets.push([dirPosition, lineCell]);
+            }
+        }
+        return sets;
+    }
+
     // 时空旅者·戴尔技能1：处于时空停滞的己方阵亡单位不在棋盘上，
     // 把其死亡位置插到候选最前，确保「复活」方案能进入模拟评估。
     // 替补制编制上限：场上真实存活已满4人时唤回必然被技能校验拒绝，
@@ -816,6 +838,12 @@ function configureSimulationChoices(
         caster.counters['__zuizhendao_skill1_dir'] =
             direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
     }
+    if (skill.id === 'nanfeng_skill2' && caster.position && targetPositions.length >= 2) {
+        // 两步点击：第一步的风向格换算成编码，供技能结算读取
+        const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
+        caster.counters['__nanfeng_skill2_dir'] =
+            direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
+    }
     if (skill.id === 'baize_skill2') {
         const dead = heroesFor(state, caster.owner)
             .filter(hero => hero.state === HeroState.DEAD)
@@ -890,6 +918,30 @@ function simulateSkillPlan(
             return { skillId: skill.id, targetPositions, score };
         }
 
+        if (skill.id === 'nanfeng_skill2') {
+            // 风道是常驻场地效果，不产生即时伤害，无法靠棋盘分差体现价值，因此静态计分
+            const direction = windLaneDirectionFromCode(simulatedCaster.counters['__nanfeng_skill2_dir']);
+            if (!direction) return null;
+            const lineCell = targetPositions[targetPositions.length - 1];
+            const cells = windLaneCells(direction, lineCell);
+            let enemiesIn = 0;
+            let alliesIn = 0;
+            for (const [row, col] of cells) {
+                const occupant = simulated.board[row][col];
+                if (!occupant || occupant.state !== HeroState.ALIVE) continue;
+                if (occupant.owner === simulatedCaster.owner) alliesIn++;
+                else enemiesIn++;
+            }
+            const coversCaster = !!simulatedCaster.position && cells.some(([row, col]) =>
+                row === simulatedCaster.position![0] && col === simulatedCaster.position![1]);
+            if (enemiesIn === 0 && alliesIn === 0 && !coversCaster) return null;
+            return {
+                skillId: skill.id,
+                targetPositions,
+                score: 10 + enemiesIn * 6 + alliesIn * 2 + (coversCaster ? 4 : 0),
+            };
+        }
+
         const result = SkillSystem.executeSkill(simulatedCaster, skill, targetPositions, simulated);
         if (!result.success) return null;
 
@@ -956,6 +1008,8 @@ export function chooseComputerSkillPlan(
         if (skill.id === 'wukong_skill2') {
             // 分身指挥要求本回合未移动，且场上已有分身或射程内有敌人才有意义
             if (caster.hasMovedThisTurn) continue;
+            // 本回合已经因"整链无人可选"取消过一次，别再原地重复释放
+            if (caster.counters['__ai_wukong_combo_aborted'] === state.roundNumber) continue;
             const hasClones = allHeroes(state).some(hero =>
                 hero.state === HeroState.ALIVE && isWukongCloneOf(hero, caster.id)
             );

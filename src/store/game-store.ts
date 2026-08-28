@@ -1,6 +1,6 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
 import { GameState, Hero, Position, BattleLogEntry, HeroState, Player } from '../types/game';
-import { AVAILABLE_HERO_IDS, createHero, createWukongClone } from '../data/heroes';
+import { AVAILABLE_HERO_IDS, createHero, createWukongClone, getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { getSkill } from '../data/skills';
 import { MovementSystem } from '../core/movement-system';
 import { SkillSystem } from '../core/skill-system';
@@ -8,9 +8,12 @@ import { GameEngine } from '../core/game-engine';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { sendPlayerAction, syncGameState } from '../services/socket-service';
-import { checkYinyangLinks } from '../data/extended-heroes';
-import { getDilanFrontRect, getLibaiFrontRect, hasShangguanDashOption, performShangguanDashSegment } from '../data/extended-skills';
+import { checkAllYinyangLinks, checkYinyangLinks } from '../data/extended-heroes';
+import { getDilanFrontRect, getLibaiFrontRect, hasShangguanDashOption, performShangguanDashSegment, ZUIYI_MAX } from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
+import { soundManager } from '../core/sound-manager';
+import { audioManager } from '../audio/audio-manager';
+import { getSkillSound } from '../data/skill-sounds';
 import {
     computeFxAngleDeg,
     computeFxDirection,
@@ -29,6 +32,8 @@ type WukongSkill2State = {
     cloneIds: string[];
     clonePickIndex: number;
     wukongMoved: boolean;
+    /** 本体主动放弃攻击：合击仍会继续走分身链，只是少一段伤害 */
+    wukongSkipped?: boolean;
     wukongTargetPos?: Position;
     cloneTargetsByCloneId: Record<string, Position>;
     cloneMovedById: Record<string, boolean>;
@@ -54,6 +59,35 @@ function getWukongClonesOnBoard(gameState: GameState, wukongId: string): Hero[] 
         }
     }
     return clones;
+}
+
+/**
+ * 撤回移动时需要同步归位的镜对称单位：
+ * 镜本体找自己的镜像，镜像找本体。无对称单位时返回 null。
+ */
+function findMirrorPartnerForUndo(hero: Hero, gameState: GameState): Hero | null {
+    if (hero.skill1Id === 'mirror_skill1') {
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) {
+                const h = gameState.board[r][c];
+                if (h && h.counters?.['__isClone'] === 1 && getMirrorOwnerIdFromCloneId(h.id) === hero.id) {
+                    return h;
+                }
+            }
+        }
+        return null;
+    }
+    if (hero.counters?.['__isClone'] === 1) {
+        const ownerId = getMirrorOwnerIdFromCloneId(hero.id);
+        if (!ownerId) return null;
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) {
+                const h = gameState.board[r][c];
+                if (h && h.id === ownerId) return h;
+            }
+        }
+    }
+    return null;
 }
 
 function countWukongClonesOnBoard(gameState: GameState, wukongId: string): number {
@@ -123,6 +157,36 @@ function getEnemyPositionsInArea(center: Position, owner: Hero['owner'], gameSta
     return positions;
 }
 
+/**
+ * 大圣合击的分身推进：从 startIndex 起找下一个「还有事可做」的分身
+ * （周围有可打敌人，或尚未移动且还有相邻空位）。
+ * 没有选项的分身逐个自动跳过并记录日志；返回 clones.length 表示链已走完。
+ */
+function findNextWukongCloneIndex(
+    clones: Hero[],
+    startIndex: number,
+    cloneMovedById: Record<string, boolean>,
+    wukong: Hero,
+    gameState: GameState,
+    log: (message: string) => void
+): number {
+    let idx = startIndex;
+    while (idx < clones.length) {
+        const clone = clones[idx];
+        if (!clone.position) {
+            idx++;
+            continue;
+        }
+        const moved = cloneMovedById[clone.id] ?? false;
+        const attackable = getEnemyPositionsInArea(clone.position, wukong.owner, gameState);
+        const movable = moved ? [] : getAdjacentEmptyPositions(clone.position, gameState);
+        if (attackable.length > 0 || movable.length > 0) break;
+        log(`分身${idx + 1}周围没有可行动目标，自动跳过`);
+        idx++;
+    }
+    return idx;
+}
+
 /** 读取李太白的历史位置（上次/上上次停留位置，可能为空） */
 function getLibaiHistoryPositions(hero: Hero): Position[] {
     const positions: Position[] = [];
@@ -186,6 +250,9 @@ function syncEngineFlowFields(state: GameState): Partial<GameStore> {
         roundNumber: state.roundNumber,
         phase: state.phase,
         winner: state.winner,
+        // 区域效果：引擎会 map/filter 出新数组（回合开始递减、行动结束撤除），
+        // 不随流程字段一起提交的话，store 会一直持有过期那份（已消散的格子仍然挡路）
+        boardEffects: [...(state.boardEffects ?? [])],
         // 替补制补员挂起三件套 + 替补席
         reinforcingPlayer: state.reinforcingPlayer,
         reinforcementSelectableHeroId: state.reinforcementSelectableHeroId,
@@ -255,6 +322,8 @@ interface GameStore extends GameState {
     // 李太白被动链
     selectLibaiChainPosition: (position: Position) => void;
     skipLibaiChainAttack: () => void;
+    /** 大圣合击：跳过本体或当前分身这一段，继续推进后续分身（整链空跳过则不消耗行动） */
+    skipWukongStep: () => void;
 
     // 回合管理
     endHeroAction: () => void;
@@ -330,6 +399,12 @@ export function createOnlineStateSnapshot(state: GameStore) {
 function sendOnlineActionIfNeeded(state: GameStore, action: any) {
     if (!state.isOnlineMode || !state.onlineRoomId || state.suppressOnlineBroadcast) return;
     const includeAuthoritativeState = state.phase === 'battle' || state.phase === 'ended';
+    // 联机 BGM 同步：玩家一为音乐主机，动作搭车携带当前战斗音乐循环位置（秒），
+    // 客机（玩家二）收到后据此自动对齐本地播放进度；未在播战斗 mp3 时无值不附加
+    const bgmPos = audioManager.getBattleMusicPosition();
+    if (bgmPos !== null) {
+        action.meta = { ...(action.meta ?? {}), bgmPos: Math.round(bgmPos * 1000) / 1000 };
+    }
     sendPlayerAction(
         state.onlineRoomId,
         action,
@@ -642,16 +717,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     repositionDeployHero: (heroId: string, position: Position) => {
         const state = get();
+        // 上线携带模板 ID：英雄实例 ID（`${template}-playerN-<ts>`）由两端各自生成、互不相同，
+        // 直接发实例 ID 会让服务器部署表与对端都匹配不上（与 deploy-hero 的口径保持一致）
+        const wireHeroId = heroId.replace(/-(player1|player2)-\d+$/, '');
         if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
             const localPlayerKey = getLocalPlayerKey(state);
             if (!localPlayerKey) return;
             const changed = get().repositionDeployHeroForPlayer(localPlayerKey, heroId, position);
-            if (changed) sendOnlineActionIfNeeded(get(), { type: 'reposition-deploy-hero', data: { heroId, position } });
+            if (changed) sendOnlineActionIfNeeded(get(), { type: 'reposition-deploy-hero', data: { heroId: wireHeroId, position } });
             return;
         }
         const selectingPlayer = state.selectingPlayer;
         const changed = get().repositionDeployHeroForPlayer(selectingPlayer, heroId, position);
-        if (changed) sendOnlineActionIfNeeded(get(), { type: 'reposition-deploy-hero', data: { heroId, position } });
+        if (changed) sendOnlineActionIfNeeded(get(), { type: 'reposition-deploy-hero', data: { heroId: wireHeroId, position } });
     },
 
     repositionDeployHeroForPlayer: (playerKey: Player, heroId: string, position: Position) => {
@@ -667,7 +745,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const isPlayer1 = playerKey === 'player1';
         const heroListKey = isPlayer1 ? 'player1Heroes' : 'player2Heroes';
         const currentHeroes = state[heroListKey];
-        const movingHero = currentHeroes.find(h => h.id === heroId);
+        // 本地调用传实例 ID（精确命中）；对端消息传模板 ID，按 `${template}-playerN-` 前缀匹配
+        const movingHero = currentHeroes.find(h => h.id === heroId)
+            ?? currentHeroes.find(h => h.id.startsWith(`${heroId}-${playerKey}-`));
         if (!movingHero || !movingHero.position) return false;
         if (movingHero.position[0] === toRow && movingHero.position[1] === toCol) return false;
 
@@ -938,6 +1018,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 笔走龙蛇冲刺链进行中不允许普通移动（会破坏冲刺方向高亮与命中记录）
+        if (state.shangguanDashState?.heroId === hero.id) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}笔走龙蛇进行中，无法普通移动`
+            });
+            return;
+        }
+
         // 检查是否已经移动过
         if (hero.hasMovedThisTurn) {
             get().addLog({
@@ -991,9 +1081,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         // 使用MovementSystem进行移动
         const fromPosition = hero.position ? [...hero.position] : null;
-        const hadDilanFeatherBeforeMove = hero.effects.some(effect =>
-            effect.name === '羽化' && (effect.stackCount ?? 0) > 0
-        );
         // 醉枕刀：移动前计算路径，供踩过带醉意友方时触发交换
         const zuizhendaoPath = hero.passiveId === 'zuizhendao_passive' && fromPosition
             ? MovementSystem.getMovePath(hero, to, state)
@@ -1007,11 +1094,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
             // 标记已移动
             hero.hasMovedThisTurn = true;
-            // 记录移动前位置，供撤回使用
-            if (fromPosition && !hadDilanFeatherBeforeMove) {
+            // 记录移动前位置，供撤回使用（羽化的移动同样可撤回：撤回是归位，
+            // 归位本身不再结算羽化伤害，正向移动的伤害也不退还）
+            if (fromPosition) {
                 hero.counters['__move_from'] = fromPosition[0] * 6 + fromPosition[1];
-            } else if (hadDilanFeatherBeforeMove) {
-                delete hero.counters['__move_from'];
             }
 
             // 醉枕刀被动：踩过带醉意（>=1层）的友方格子 -> 交换1层醉意并再次移动一次
@@ -1024,7 +1110,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     );
                 if (drunkAlly) {
                     drunkAlly.counters['醉意'] = (drunkAlly.counters['醉意'] ?? 0) - 1;
-                    hero.counters['醉意'] = (hero.counters['醉意'] ?? 0) + 1;
+                    // 满层时照常交换与再次移动，超出上限的 1 层作废
+                    hero.counters['醉意'] = Math.min(ZUIYI_MAX, (hero.counters['醉意'] ?? 0) + 1);
                     hero.hasMovedThisTurn = false;
                     get().addLog({
                         type: 'passive',
@@ -1040,6 +1127,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 player: hero.owner,
                 message: `${hero.name}移动到(${toRow + 1},${toCol + 1})`
             });
+
+            // 阴阳线：任何单位移动后立即检查距离，超出两格的线当场断开
+            if (checkAllYinyangLinks(state)) {
+                set({
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes]
+                });
+            }
 
             if (hero.state !== HeroState.ALIVE) {
                 GameEngine.endHeroAction(hero, state);
@@ -1089,15 +1184,76 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!hero.hasMovedThisTurn || hero.hasActedThisTurn) return;
         // 李太白被动链：链进行中禁止撤回移动（会传回归位点之外的位置，破坏链状态）
         if (state.libaiChainState?.heroId === hero.id) return;
-        const encoded = hero.counters['__move_from'];
-        if (encoded === undefined) return;
-        const from: Position = [Math.floor(encoded / 6), encoded % 6];
+        // 笔走龙蛇已开始结算（冲刺链进行中），撤回会破坏冲刺落点与命中记录
+        if (state.shangguanDashState?.heroId === hero.id) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}笔走龙蛇进行中，请先完成冲刺或结束行动`
+            });
+            return;
+        }
+        if (hero.state !== HeroState.ALIVE || !hero.position) return;
 
-        // 移回原位（宽限距离，撤回不校验移动力）
-        const moved = MovementSystem.moveHero(hero, from, state, 99);
-        if (!moved) return;
+        const encoded = hero.counters['__move_from'];
+        if (encoded === undefined) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}没有可撤回的移动记录`
+            });
+            return;
+        }
+        const from: Position = [Math.floor(encoded / 6), encoded % 6];
+        const [fromRow, fromCol] = from;
+
+        // 镜对称：本体撤回时镜像同步回到对称位（即镜像移动前的位置）
+        const mirrorPartner = findMirrorPartnerForUndo(hero, state);
+        let mirrorTo: Position | null = null;
+        if (mirrorPartner?.position) {
+            mirrorTo = [5 - fromRow, 5 - fromCol];
+            const occupant = state.board[mirrorTo[0]][mirrorTo[1]];
+            if (occupant !== null && occupant !== mirrorPartner) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: `镜像的对称位置被占用，${hero.name}无法撤回移动`
+                });
+                return;
+            }
+        }
+
+        const originOccupant = state.board[fromRow][fromCol];
+        if (originOccupant !== null && originOccupant !== hero) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `原位置已被${originOccupant.name}占据，${hero.name}无法撤回移动`
+            });
+            return;
+        }
+
+        // 纯粹归位：撤回是"取消移动"，不结算羽化伤害、不拾取冰晶、不触发刃痕联动
+        const [curRow, curCol] = hero.position;
+        if (state.board[curRow][curCol] === hero) state.board[curRow][curCol] = null;
+        state.board[fromRow][fromCol] = hero;
+        hero.position = from;
         delete hero.counters['__move_from'];
         hero.hasMovedThisTurn = false;
+
+        if (mirrorPartner && mirrorTo && mirrorPartner.position) {
+            const [pr, pc] = mirrorPartner.position;
+            if (state.board[pr][pc] === mirrorPartner) state.board[pr][pc] = null;
+            state.board[mirrorTo[0]][mirrorTo[1]] = mirrorPartner;
+            mirrorPartner.position = mirrorTo;
+        }
+
+        // 撤回即回到移动前的状态：清掉进行中的技能选择痕迹，重新选择技能时从第一步开始
+        delete hero.counters['__zuizhendao_skill1_dir'];
+        delete hero.counters['__dilan_skill1_axis'];
+        delete hero.counters['__dilan_skill2_dir'];
+        delete hero.counters['__nanfeng_skill2_dir'];
+        delete hero.counters['__libai_skill2_dir'];
 
         get().addLog({
             type: 'move',
@@ -1109,6 +1265,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             board: [...state.board],
             highlightedPositions: [],
             moveRange: [],
+            skillRange: [],
+            selectedSkill: null,
+            pendingSkillTargetPositions: [],
+            baizeReviveTargetHeroId: undefined,
+            changliSkill2Empowered: false,
+            jetzmiSkill1Enhanced: false,
             activeHero: hero
         });
 
@@ -1293,7 +1455,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
-        if (skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2') {
+        if (
+            skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2' || skill.id === 'nanfeng_skill2'
+        ) {
             if (!hero.position) return;
             const [cr, cc] = hero.position;
             const dirPositions: Position[] = [];
@@ -1301,6 +1465,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 const row = cr + dr;
                 const col = cc + dc;
                 if (row >= 0 && row < 6 && col >= 0 && col < 6) dirPositions.push([row, col]);
+            }
+            if (skill.id === 'nanfeng_skill2') {
+                // 上次中断的选择可能留下风向计数器，重新进入技能时必须从选风向开始
+                delete hero.counters['__nanfeng_skill2_dir'];
             }
             set({
                 selectedSkill: skill,
@@ -1314,7 +1482,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 player: hero.owner,
                 message: skill.id === 'dilan_skill1'
                     ? '请选择横向或纵向，决定顺逆长风作用的行列'
-                    : '请选择风压横扫的方向（上下左右）',
+                    : skill.id === 'nanfeng_skill2'
+                        ? '请选择风道吹向（上下左右）'
+                        : '请选择风压横扫的方向（上下左右）',
             });
             return;
         }
@@ -1495,6 +1665,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
         }
 
+        // 技能音效：所有校验通过、技能真正开始结算时播放（单机/AI/联机回放均经过此处）
+        // 优先播放技能专属合成音效，未收录的技能回落到共享音效映射
+        soundManager.playSkill(skill.id, getSkillSound(skill.id));
+
         if (skill.id === 'wukong_skill1' && hero.name === '孙悟空') {
             if (!hero.position) return;
             const [r, c] = targetPos;
@@ -1662,7 +1836,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                         return;
                     }
 
-                    const ok = MovementSystem.moveHero(hero, targetPos, state);
+                    const ok = MovementSystem.moveHero(hero, targetPos, state, undefined, { ignoreBindingZone: true });
                     if (!ok) {
                         get().addLog({
                             type: 'system',
@@ -1796,26 +1970,40 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
                 const settleNow = (cloneTargetsByCloneId: Record<string, Position>) => {
                     const wukongTargetPos = wState.wukongTargetPos;
-                    if (!wukongTargetPos) {
-                        set({ wukongSkill2State: undefined, highlightedPositions: [], skillRange: [], moveRange: [], selectedSkill: null });
-                        return;
-                    }
-
-                    const result = SkillSystem.executeSkill(hero, skill, [wukongTargetPos], state);
-                    if (!result.success) {
+                    if (!wukongTargetPos && Object.keys(cloneTargetsByCloneId).length === 0) {
+                        // 整链一个目标都没有：视为未释放，不消耗孙悟空的行动
                         get().addLog({
                             type: 'system',
                             player: hero.owner,
-                            message: result.log[0] || '技能释放失败'
+                            message: '大圣合击无可命中目标，技能未释放（行动未消耗）'
                         });
+                        set({
+                            wukongSkill2State: undefined,
+                            highlightedPositions: [],
+                            skillRange: [],
+                            moveRange: [],
+                            selectedSkill: null
+                        });
+                        sendOnlineStateIfNeeded(get());
                         return;
                     }
-                    for (const log of result.log) {
-                        get().addLog({
-                            type: 'skill',
-                            player: hero.owner,
-                            message: log
-                        });
+                    if (wukongTargetPos) {
+                        const result = SkillSystem.executeSkill(hero, skill, [wukongTargetPos], state);
+                        if (!result.success) {
+                            get().addLog({
+                                type: 'system',
+                                player: hero.owner,
+                                message: result.log[0] || '技能释放失败'
+                            });
+                            return;
+                        }
+                        for (const log of result.log) {
+                            get().addLog({
+                                type: 'skill',
+                                player: hero.owner,
+                                message: log
+                            });
+                        }
                     }
 
                     for (const clone of clones) {
@@ -1862,26 +2050,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     cloneTargetsByCloneId: Record<string, Position>,
                     cloneMovedById: Record<string, boolean>
                 ) => {
-                    let idx = startIndex;
-                    while (idx < clones.length) {
-                        const cl = clones[idx];
-                        if (!cl.position) {
-                            idx++;
-                            continue;
-                        }
-                        const movedFlag = cloneMovedById[cl.id] ?? false;
-                        const attackable = getEnemyPositionsInArea(cl.position, hero.owner, state);
-                        const movable = movedFlag ? [] : getAdjacentEmptyPositions(cl.position, state);
-                        if (attackable.length > 0 || movable.length > 0) {
-                            break;
-                        }
-                        get().addLog({
-                            type: 'system',
-                            player: hero.owner,
-                            message: `分身${idx + 1}周围没有可行动目标，自动跳过`
-                        });
-                        idx++;
-                    }
+                    const idx = findNextWukongCloneIndex(
+                        clones,
+                        startIndex,
+                        cloneMovedById,
+                        hero,
+                        state,
+                        message => get().addLog({ type: 'system', player: hero.owner, message })
+                    );
 
                     if (idx >= clones.length) {
                         settleNow(cloneTargetsByCloneId);
@@ -1935,7 +2111,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     const movable = getAdjacentEmptyPositions(currentClone.position, state);
                     const isMovePos = movable.some(([mr, mc]) => mr === r && mc === c);
                     if (isMovePos) {
-                        const ok = MovementSystem.moveHero(currentClone, targetPos, state, 1);
+                        const ok = MovementSystem.moveHero(currentClone, targetPos, state, 1, { ignoreBindingZone: true });
                         if (ok) {
                             const cloneMovedById = { ...wState.cloneMovedById, [currentClone.id]: true };
                             const nextAttackable = currentClone.position ? getEnemyPositionsInArea(currentClone.position, hero.owner, state) : [];
@@ -2049,7 +2225,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 get().addLog({
                     type: 'passive',
                     player: hero.owner,
-                    message: `${hero.name}掠过毛笔获得再次冲刺之势`
+                    message: `${hero.name}撞碎毛笔回收在身，获得再次冲刺之势`
                 });
             }
             const dashPos = hero.position!;
@@ -2077,6 +2253,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     skillRange: dirPositions,
                     moveRange: [],
                     board: state.board.map(row => [...row]),
+                    boardEffects: [...(state.boardEffects ?? [])],
                     player1Heroes: [...state.player1Heroes],
                     player2Heroes: [...state.player2Heroes],
                     battleLog: [...get().battleLog]
@@ -2096,6 +2273,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             set({
                 ...syncEngineFlowFields(state),
                 board: state.board.map(row => [...row]),
+                boardEffects: [...(state.boardEffects ?? [])],
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
                 battleLog: [...get().battleLog],
@@ -2156,6 +2334,36 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 const rect = getDilanFrontRect(hero);
                 set({ highlightedPositions: rect, skillRange: rect, moveRange: [] });
             }
+        }
+
+        // 南风技能2：第一步定风向，第二步点任意格子决定风道所在行/列
+        if (skill.id === 'nanfeng_skill2' && hero.counters['__nanfeng_skill2_dir'] === undefined) {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定风道吹向' });
+                return;
+            }
+            hero.counters['__nanfeng_skill2_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+            const allPositions: Position[] = [];
+            for (let row = 0; row < 6; row++) {
+                for (let col = 0; col < 6; col++) allPositions.push([row, col]);
+            }
+            set({
+                highlightedPositions: allPositions,
+                skillRange: allPositions,
+                moveRange: [],
+            });
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: '风向已定，请点击任意格子：风道将铺满该格所在的一整行或一整列',
+            });
+            return;
         }
 
         // 醉枕刀技能1：先选方向（点击上下左右方向格），方向确定后自动醉掷寒锋
@@ -2232,6 +2440,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (skill.id === 'jetzmi_skill1') {
             hero.counters['__jetzmi_enhanced'] = state.jetzmiSkill1Enhanced ? 1 : 0;
         }
+        // 引擎结算日志是直接 push 进传入的 state.battleLog 的；本函数开头 addLog 过
+        // （如醉掷寒锋的方向提示）时 store 已换成新数组，快照里的数组随之脱钩，
+        // 不重新绑定本次伤害结算日志就会连同飘字一起丢失。
+        state.battleLog = get().battleLog;
         const result = SkillSystem.executeSkill(hero, skill, targetPositions, state);
         delete hero.counters['__changli_empowered'];
         delete hero.counters['__jetzmi_enhanced'];
@@ -2262,6 +2474,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (hero.passiveId === 'dilan_passive') {
             delete hero.counters['__dilan_skill1_axis'];
             delete hero.counters['__dilan_skill2_dir'];
+        }
+        if (hero.passiveId === 'nanfeng_passive') {
+            delete hero.counters['__nanfeng_skill2_dir'];
         }
 
         // 李太白被动链：技能成功后瞬移到历史位置继续攻击，全部用完自动归位
@@ -2430,24 +2645,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
 
         const affected = MovementSystem.getPositionsInRange(targetPos, 2);
-        for (const [r, c] of affected) {
-            const target = state.board[r][c];
-            if (!target || target.owner === hero.owner || target.state !== HeroState.ALIVE) continue;
-            const hit = Math.random() < 0.5;
-            EffectManager.removeEffectByName(target, '观测坍缩受伤');
-            EffectManager.removeEffectByName(target, '观测坍缩未受伤');
-            if (hit) {
-                const damage = DamageCalculator.calculate(hero, target, 6, false);
-                DamageCalculator.applyDamage(target, damage, hero, state, true);
+        DamageCalculator.asOneAttack(() => {
+            for (const [r, c] of affected) {
+                const target = state.board[r][c];
+                if (!target || target.owner === hero.owner || target.state !== HeroState.ALIVE) continue;
+                const hit = Math.random() < 0.5;
+                EffectManager.removeEffectByName(target, '观测坍缩受伤');
+                EffectManager.removeEffectByName(target, '观测坍缩未受伤');
+                if (hit) {
+                    const damage = DamageCalculator.calculate(hero, target, 6, false);
+                    DamageCalculator.applyDamage(target, damage, hero, state, true);
+                }
+                EffectManager.addEffect(target, {
+                    type: hit ? 'debuff' : 'mark',
+                    name: hit ? '观测坍缩受伤' : '观测坍缩未受伤',
+                    duration: 2,
+                    sourceHeroId: hero.id,
+                    description: hit ? '本次观测受到伤害' : '下次受到攻击伤害提高50%'
+                });
             }
-            EffectManager.addEffect(target, {
-                type: hit ? 'debuff' : 'mark',
-                name: hit ? '观测坍缩受伤' : '观测坍缩未受伤',
-                duration: 2,
-                sourceHeroId: hero.id,
-                description: hit ? '本次观测受到伤害' : '下次受到攻击伤害提高50%'
-            });
-        }
+        });
         state.pendingBoardAction = undefined;
         set({
             pendingBoardAction: undefined,
@@ -2597,6 +2814,105 @@ export const useGameStore = create<GameStore>((set, get) => ({
         });
     },
 
+    /**
+     * 大圣合击：跳过当前这一段攻击（本体或某个分身），继续推进后续单位。
+     * 只要链上还有可选目标就照常出手；整链一个目标都没选时视为未释放，不消耗行动。
+     */
+    skipWukongStep: () => {
+        const state = get();
+        const wState = state.wukongSkill2State;
+        if (!wState) return;
+
+        const hero = [...state.player1Heroes, ...state.player2Heroes]
+            .find(candidate => candidate.id === wState.wukongId);
+        if (!hero || hero.name !== '孙悟空') {
+            set({
+                wukongSkill2State: undefined,
+                selectedSkill: null,
+                highlightedPositions: [],
+                skillRange: [],
+                moveRange: []
+            });
+            return;
+        }
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localPlayerKey = getLocalPlayerKey(state);
+            if (!localPlayerKey || state.currentPlayer !== localPlayerKey || hero.owner !== localPlayerKey) {
+                get().addLog({ type: 'system', player: localPlayerKey ?? state.currentPlayer, message: '当前无法操作' });
+                return;
+            }
+        }
+
+        const logSystem = (message: string) =>
+            get().addLog({ type: 'system', player: hero.owner, message });
+
+        /** 摆出第 idx 个分身的选目标提示 */
+        const promptClone = (
+            clones: Hero[],
+            idx: number,
+            overrides: Partial<WukongSkill2State>
+        ) => {
+            const range = clones[idx].position
+                ? MovementSystem.getAreaPositions(clones[idx].position, 3)
+                : [];
+            set({
+                highlightedPositions: range,
+                skillRange: range,
+                moveRange: [],
+                wukongSkill2State: {
+                    ...wState,
+                    phase: 'pickCloneTarget',
+                    cloneIds: clones.map(clone => clone.id),
+                    clonePickIndex: idx,
+                    ...overrides
+                }
+            });
+            logSystem(`请选择分身${idx + 1}的攻击目标（可先移动一格再攻击）`);
+            sendOnlineStateIfNeeded(get());
+        };
+
+        if (wState.phase === 'pickWukongTarget') {
+            const clones = getWukongClonesOnBoard(state, hero.id);
+            logSystem('本体放弃攻击，改由分身出手');
+            const idx = findNextWukongCloneIndex(
+                clones, 0, wState.cloneMovedById, hero, state, logSystem
+            );
+            if (idx >= clones.length) {
+                set({
+                    wukongSkill2State: {
+                        ...wState,
+                        phase: 'pickCloneTarget',
+                        cloneIds: clones.map(clone => clone.id),
+                        clonePickIndex: idx,
+                        wukongSkipped: true
+                    }
+                });
+                get().endHeroAction();
+                return;
+            }
+            promptClone(clones, idx, { wukongSkipped: true });
+            return;
+        }
+
+        const clones = getWukongClonesOnBoard(state, hero.id)
+            .filter(clone => wState.cloneIds.includes(clone.id));
+        if (clones.length === 0) {
+            get().endHeroAction();
+            return;
+        }
+        const currentIndex = Math.min(wState.clonePickIndex, clones.length - 1);
+        logSystem(`分身${currentIndex + 1}放弃攻击`);
+        const idx = findNextWukongCloneIndex(
+            clones, currentIndex + 1, wState.cloneMovedById, hero, state, logSystem
+        );
+        if (idx >= clones.length) {
+            set({ wukongSkill2State: { ...wState, clonePickIndex: idx } });
+            get().endHeroAction();
+            return;
+        }
+        promptClone(clones, idx, {});
+    },
+
     endHeroAction: () => {
         const state = get();
         if (!state.selectedHero) {
@@ -2670,6 +2986,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 return;
             }
             const clones = getWukongClonesOnBoard(state, hero.id).filter(c => wState.cloneIds.includes(c.id));
+
+            if (!wState.wukongTargetPos && Object.keys(wState.cloneTargetsByCloneId).length === 0) {
+                // 本体与分身全都没选目标：这次合击视为未释放，孙悟空仍可改做别的
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '大圣合击无可命中目标，技能未释放（行动未消耗）'
+                });
+                set({
+                    wukongSkill2State: undefined,
+                    selectedSkill: null,
+                    highlightedPositions: [],
+                    skillRange: [],
+                    moveRange: []
+                });
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
 
             if (wState.wukongTargetPos) {
                 const result = SkillSystem.executeSkill(hero, settlementSkill, [wState.wukongTargetPos], state);
@@ -2760,15 +3094,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const before = get();
         const hero = before.selectedHero;
         const skill = before.selectedSkill;
-        const logLengthBefore = before.battleLog.length;
+        // 日志按 id 锚点定位而非长度切片：battleLog 有 200 条上限，
+        // 后期截断后长度差不再变化，会把真实施法误判为"未发生"而丢掉特效
+        const lastLogIdBefore = before.battleLog[before.battleLog.length - 1]?.id;
         // 施法前的位置快照：瞬移/移动类技能会改写 hero.position，
         // 必须在执行前捕获起手格
         const casterFromPos: Position = hero?.position ?? targetPos;
 
         get().executeSkillBase(targetPos);
 
+        // 位移类技能（瞬移/换位/击退等）会改变阵型：结算后立即检查阴阳线距离
+        const afterCast = get();
+        if (checkAllYinyangLinks(afterCast)) {
+            set({
+                player1Heroes: [...afterCast.player1Heroes],
+                player2Heroes: [...afterCast.player2Heroes]
+            });
+        }
+
         if (!hero || !skill) return;
-        const freshLogs = get().battleLog.slice(logLengthBefore);
+        const logsAfter = get().battleLog;
+        const anchor = logsAfter.findIndex(entry => entry.id === lastLogIdBefore);
+        const freshLogs = anchor >= 0 ? logsAfter.slice(anchor + 1) : logsAfter;
         const castHappened = freshLogs.some(entry => entry.type !== 'system');
         if (!castHappened) return;
 
@@ -2817,6 +3164,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
             ...createInitialState(),
             moveRange: [],
             skillRange: [],
+            // 特效队列是纯本地视觉状态，不清理会把上一局末次的施法动画带进新局
+            skillFx: [],
             wukongSkill2State: undefined,
             suppressOnlineBroadcast: false
         });

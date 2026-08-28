@@ -124,6 +124,30 @@ describe('绯雪', () => {
         expect(splashTarget.currentHp).toBe(splashTarget.maxHp - 8);
     });
 
+    it('技能二可选目标覆盖周围3×3（含斜角），斜角敌人可以被打到', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
+        const diagonal = addHero(state, 'moran', 'player2', [1, 1]);
+        const straight = addHero(state, 'baize', 'player2', [2, 3]);
+        const outside = addHero(state, 'zhenxiao', 'player2', [0, 2]);
+
+        const positions = SkillSystem.getValidTargetPositions(caster, feixueSkill2);
+        const has = (row: number, col: number) =>
+            positions.some(([r, c]) => r === row && c === col);
+
+        expect(positions).toHaveLength(8);
+        expect(has(1, 1)).toBe(true);
+        expect(has(3, 3)).toBe(true);
+        expect(has(0, 2)).toBe(false);
+
+        const output = SkillSystem.executeSkill(caster, feixueSkill2, [[1, 1]], state);
+
+        expect(output.success).toBe(true);
+        expect(diagonal.currentHp).toBeLessThan(diagonal.maxHp);
+        expect(straight.currentHp).toBe(straight.maxHp);
+        expect(outside.currentHp).toBe(outside.maxHp);
+    });
+
     it('技能二按寒天层数增伤、附加被动真实伤害、消费寒天并治疗', () => {
         const state = makeGameState();
         const caster = addHero(state, 'feixue', 'player1', [2, 2]);

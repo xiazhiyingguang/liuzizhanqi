@@ -42,9 +42,11 @@ export const EXTENDED_HERO_IDS = [
     'feixue',
     'fengling',
     'dilan',
+    'nanfeng',
     'shangguan',
     'chenyuan',
     'dai',
+    // youjun 技能尚未实现，先不入册（图鉴构造会因缺技能直接抛错）；补完 skill1/skill2 后放回
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -254,6 +256,17 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'dilan_passive',
         tianweiId: 'dilan_tianwei',
     },
+    nanfeng: {
+        name: '南风',
+        class: '化识',
+        maxHp: 48,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'nanfeng_skill1',
+        skill2Id: 'nanfeng_skill2',
+        passiveId: 'nanfeng_passive',
+        tianweiId: 'nanfeng_tianwei',
+    },
     shangguan: {
         name: '上官婉儿',
         class: '化识',
@@ -264,6 +277,17 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill2Id: 'shangguan_skill2',
         passiveId: 'shangguan_passive',
         // 天威暂未设计，留空
+    },
+    youjun: {
+        name: '游隼',
+        class: '猎户',
+        maxHp: 44,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'youjun_skill1',
+        skill2Id: 'youjun_skill2',
+        passiveId: 'youjun_passive',
+        tianweiId: 'youjun_tianwei',
     },
     chenyuan: {
         name: '沉渊·镇岳',
@@ -309,7 +333,9 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     feixue: { name: '绯雪', class: '武曲', description: '破冰爆发、寒天收割与击杀追猎。生命45，移动力2' },
     fengling: { name: '风铃', class: '猎户', description: '强制锁敌、沙丘伏击与单体猎杀。生命45，移动力2' },
     dilan: { name: '帝兰', class: '天师', description: '操纵顺逆风、击退与羽化移动伤害。生命48，移动力3' },
+    nanfeng: { name: '南风', class: '化识', description: '旋风吹散敌人、铺设风道让友方免费滑行并强化自身闪避。生命48，移动力3' },
     shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段笔走龙蛇与墨意闪避。生命42，移动力3' },
+    youjun: { name: '游隼', class: '猎户', description: '路径冲刺、爆发伤害的猎手。借风道滑行蓄力，沿直线穿透敌阵造成随距离与位移攀升的爆发伤害。生命44，移动力3' },
     chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力1' },
     dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯复活与状态还原、时空置换换位换血。生命45，移动力3' },
 };
@@ -367,19 +393,26 @@ export function initializeExtendedHero(hero: Hero): void {
             hero.counters['墨意'] = 0;
             hero.counters['闪避'] = 0;
             break;
+        case 'youjun_passive':
+            hero.counters['youjun_lastMove'] = 0;
+            hero.counters['youjun_extra_move_only'] = 0;
+            break;
     }
 }
 
-export function getDilanFeatherStacks(target: Hero, sourceHeroId: string): number {
+/**
+ * 羽化是目标身上的共享资源：帝兰与南风叠加同一份层数（上限3层），
+ * 不按施加者分家——否则帝兰看不见南风种的层数，也就无法引爆。
+ * 逐格固定伤害按当初种下羽化的英雄结算（sourceHeroId 只用于伤害归属）。
+ */
+export function getDilanFeatherStacks(target: Hero): number {
     return Math.min(3, target.effects.find(effect =>
-        effect.name === '羽化' && effect.sourceHeroId === sourceHeroId
+        effect.name === '羽化'
     )?.stackCount ?? 0);
 }
 
 export function addDilanFeather(target: Hero, source: Hero, amount = 1): number {
-    const existing = target.effects.find(effect =>
-        effect.name === '羽化' && effect.sourceHeroId === source.id
-    );
+    const existing = target.effects.find(effect => effect.name === '羽化');
     if (existing) {
         existing.stackCount = Math.min(3, (existing.stackCount ?? 1) + amount);
         existing.duration = -1;
@@ -396,11 +429,9 @@ export function addDilanFeather(target: Hero, source: Hero, amount = 1): number 
     return Math.min(3, amount);
 }
 
-export function consumeDilanFeather(target: Hero, sourceHeroId: string): number {
-    const stacks = getDilanFeatherStacks(target, sourceHeroId);
-    target.effects = target.effects.filter(effect =>
-        !(effect.name === '羽化' && effect.sourceHeroId === sourceHeroId)
-    );
+export function consumeDilanFeather(target: Hero): number {
+    const stacks = getDilanFeatherStacks(target);
+    target.effects = target.effects.filter(effect => effect.name !== '羽化');
     return stacks;
 }
 
@@ -474,10 +505,11 @@ export function placeBounties(hunter: Hero, gameState: GameState): string[] {
 }
 
 /**
- * 阴阳师出手时检查链接：目标超出两格范围则断线，并重置对应线路的倍率（哪条断重置哪条）。
+ * 检查阴阳师的线：目标超出两格范围立即断线，并重置对应线路的倍率（哪条断重置哪条）。
+ * 任何单位移动或位移类技能结算后都应调用，由 checkAllYinyangLinks 统一驱动。
  */
-export function checkYinyangLinks(hero: Hero, gameState: GameState): void {
-    if (!hero.position) return;
+export function checkYinyangLinks(hero: Hero, gameState: GameState): boolean {
+    if (!hero.position) return false;
     const all = [...gameState.player1Heroes, ...gameState.player2Heroes];
     let yangBroken = false;
     let yinBroken = false;
@@ -493,6 +525,13 @@ export function checkYinyangLinks(hero: Hero, gameState: GameState): void {
         if (MovementSystem.getManhattanDistance(hero.position, target.position) > 2) {
             if (hasYang) yangBroken = true;
             if (hasYin) yinBroken = true;
+            gameState.battleLog.push({
+                id: `log-${Date.now()}-${Math.random()}`,
+                timestamp: Date.now(),
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}与${target.name}的${hasYang && hasYin ? '阳线/阴线' : hasYang ? '阳线' : '阴线'}超出两格范围，断开了`
+            });
             target.effects = target.effects.filter(effect =>
                 !(effect.sourceHeroId === hero.id &&
                     (effect.name.startsWith('阳线') || effect.name.startsWith('阴线')))
@@ -507,6 +546,49 @@ export function checkYinyangLinks(hero: Hero, gameState: GameState): void {
         hero.counters['yinyang_yin_rate'] = 0.2;
         hero.counters['yinyang_yin_repeat'] = 0.2;
     }
+    return yangBroken || yinBroken;
+}
+
+/**
+ * 场上所有阴阳师的线统一检查：位置发生变化后立即调用。
+ * - 存活的阴阳师：目标超出两格立即断线并重置倍率
+ * - 死亡（含暂时死亡）的阴阳师：其全部阳线/阴线随本体消散并重置倍率
+ */
+export function checkAllYinyangLinks(gameState: GameState): boolean {
+    const all = [...gameState.player1Heroes, ...gameState.player2Heroes];
+    let changed = false;
+    for (const hero of all) {
+        if (hero.passiveId !== 'yinyang_passive') continue;
+        if (hero.state === HeroState.ALIVE && hero.position) {
+            changed = checkYinyangLinks(hero, gameState) || changed;
+            continue;
+        }
+        let removed = false;
+        for (const target of all) {
+            if (target.id === hero.id) continue;
+            const before = target.effects.length;
+            target.effects = target.effects.filter(effect =>
+                !(effect.sourceHeroId === hero.id &&
+                    (effect.name.startsWith('阳线') || effect.name.startsWith('阴线')))
+            );
+            if (target.effects.length !== before) removed = true;
+        }
+        if (removed) {
+            hero.counters['yinyang_yang_rate'] = 0.2;
+            hero.counters['yinyang_yang_repeat'] = 0.2;
+            hero.counters['yinyang_yin_rate'] = 0.2;
+            hero.counters['yinyang_yin_repeat'] = 0.2;
+            gameState.battleLog.push({
+                id: `log-${Date.now()}-${Math.random()}`,
+                timestamp: Date.now(),
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}已离场，其阳线/阴线全部消散`
+            });
+        }
+        changed = removed || changed;
+    }
+    return changed;
 }
 
 export function currentTotalDead(gameState: GameState): number {

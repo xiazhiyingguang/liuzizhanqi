@@ -26,7 +26,7 @@ export const HERO_ASSET_IDS = [
     'lilith',
     'luna',
     'zhenyue',
-    'dale',
+    'daier',
     'yaozhan',
     'hanjiangxue',
     'libai',
@@ -34,6 +34,8 @@ export const HERO_ASSET_IDS = [
     'feixue',
     'dilan',
     'shangguan',
+    'nanfeng',
+    'yousun',
 ] as const;
 
 export type HeroAssetId = typeof HERO_ASSET_IDS[number];
@@ -44,6 +46,13 @@ export interface HeroAsset {
 }
 
 const HERO_ASSET_ID_SET = new Set<string>(HERO_ASSET_IDS);
+
+/** 英雄模板 ID 与图片资产文件名不一致时的映射（南风游隼等新英雄图沿用立绘师命名） */
+const TEMPLATE_ASSET_ALIASES: Record<string, HeroAssetId> = {
+    youjun: 'yousun',
+    chenyuan: 'zhenyue',
+    dai: 'daier',
+};
 
 export const HERO_ASSETS: Record<HeroAssetId, HeroAsset> = Object.fromEntries(
     HERO_ASSET_IDS.map(heroId => [
@@ -67,6 +76,17 @@ export function resolveHeroTemplateId(heroId: string): HeroAssetId | undefined {
     if (heroId.startsWith('mirror-clone|')) return 'mirror';
 
     if (HERO_ASSET_ID_SET.has(heroId)) return heroId as HeroAssetId;
+
+    // 模板 ID 与资产 ID 不同的英雄（含部署后的带后缀 ID，如 dai-player1-xxx）
+    for (const [templateId, assetId] of Object.entries(TEMPLATE_ASSET_ALIASES)) {
+        if (
+            heroId === templateId ||
+            heroId.startsWith(`${templateId}-player1-`) ||
+            heroId.startsWith(`${templateId}-player2-`)
+        ) {
+            return assetId;
+        }
+    }
 
     const templateId = HERO_ASSET_IDS.find(candidate =>
         heroId.startsWith(`${candidate}-player1-`) ||
