@@ -70,4 +70,21 @@ describe('resolveHeroStatusFx', () => {
             expect(resolveHeroStatusFx(heroWithEffects([effectName]))[0], effectName).toBe(kind);
         }
     });
+
+    it('赏金猎人的四种悬赏令各有专属特效', () => {
+        const cases: Array<[string, string]> = [
+            ['悬赏·天威再临', 'bounty-tianwei'],
+            ['悬赏·半血回生', 'bounty-revive'],
+            ['悬赏·永久暴击', 'bounty-crit'],
+            ['悬赏·永久吸血', 'bounty-vampire'],
+        ];
+        for (const [effectName, kind] of cases) {
+            expect(resolveHeroStatusFx(heroWithEffects([effectName]))[0], effectName).toBe(kind);
+        }
+    });
+
+    it('悬赏令参与优先级排序，硬控仍压过悬赏', () => {
+        const hero = heroWithEffects(['悬赏·永久暴击', '眩晕']);
+        expect(resolveHeroStatusFx(hero)).toEqual(['stun', 'bounty-crit']);
+    });
 });

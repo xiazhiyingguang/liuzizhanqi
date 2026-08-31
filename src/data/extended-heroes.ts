@@ -46,7 +46,9 @@ export const EXTENDED_HERO_IDS = [
     'shangguan',
     'chenyuan',
     'dai',
-    // youjun 技能尚未实现，先不入册（图鉴构造会因缺技能直接抛错）；补完 skill1/skill2 后放回
+    'youjun',
+    'xubai',
+    'lingxi',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -287,7 +289,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'youjun_skill1',
         skill2Id: 'youjun_skill2',
         passiveId: 'youjun_passive',
-        tianweiId: 'youjun_tianwei',
+        // 天威：无
     },
     chenyuan: {
         name: '沉渊·镇岳',
@@ -310,6 +312,28 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill2Id: 'dai_skill2',
         passiveId: 'dai_passive',
         // 天威：无
+    },
+    xubai: {
+        name: '叙白',
+        class: '素问',
+        maxHp: 55,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'xubai_skill1',
+        skill2Id: 'xubai_skill2',
+        passiveId: 'xubai_passive',
+        // 天威：无
+    },
+    lingxi: {
+        name: '泠汐',
+        class: '天师',
+        maxHp: 50,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'lingxi_skill1',
+        skill2Id: 'lingxi_skill2',
+        passiveId: 'lingxi_passive',
+        tianweiId: 'lingxi_tianwei',
     },
 };
 
@@ -335,9 +359,11 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     dilan: { name: '帝兰', class: '天师', description: '操纵顺逆风、击退与羽化移动伤害。生命48，移动力3' },
     nanfeng: { name: '南风', class: '化识', description: '旋风吹散敌人、铺设风道让友方免费滑行并强化自身闪避。生命48，移动力3' },
     shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段笔走龙蛇与墨意闪避。生命42，移动力3' },
-    youjun: { name: '游隼', class: '猎户', description: '路径冲刺、爆发伤害的猎手。借风道滑行蓄力，沿直线穿透敌阵造成随距离与位移攀升的爆发伤害。生命44，移动力3' },
+    youjun: { name: '游隼', class: '猎户', description: '路径冲刺、爆发伤害的猎手。借风道延展冲刺并沿直线穿透敌阵，在周身四格布下风刃陷阱，收回风刃可刷新疾掠再冲锋。生命44，移动力3' },
     chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力1' },
     dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯复活与状态还原、时空置换换位换血。生命45，移动力3' },
+    xubai: { name: '叙白', class: '素问', description: '单体净化治疗，黑白球在队友残血时自动回血，首次登场抚育周围友军。生命55，移动力2' },
+    lingxi: { name: '泠汐', class: '天师', description: '多段潮汐攻击：本回合命中留下延迟段，下一回合自动补击并叠加潮汐，攻防兼备。生命50，移动力2' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {
@@ -395,7 +421,17 @@ export function initializeExtendedHero(hero: Hero): void {
             break;
         case 'youjun_passive':
             hero.counters['youjun_lastMove'] = 0;
-            hero.counters['youjun_extra_move_only'] = 0;
+            hero.counters['youjun_moved_path'] = 0;
+            hero.counters['youjun_blade_refresh_used'] = 0;
+            break;
+        case 'xubai_passive':
+            hero.counters['黑白球'] = 0;
+            break;
+        case 'lingxi_passive':
+            hero.counters['lingxi_echo1_round'] = 0;   // 技能1延迟段：武装于哪一轮
+            hero.counters['lingxi_echo2_round'] = 0;   // 技能2延迟段
+            hero.counters['lingxi_echo2_dir'] = -1;
+            hero.counters['lingxi_assist_pending'] = 0; // 被动：待发放的助力层数
             break;
     }
 }
@@ -433,6 +469,58 @@ export function consumeDilanFeather(target: Hero): number {
     const stacks = getDilanFeatherStacks(target);
     target.effects = target.effects.filter(effect => effect.name !== '羽化');
     return stacks;
+}
+
+/**
+ * 潮汐：泠汐攻击命中的敌人身上的层数资源（上限3层）。
+ * 属于 debuff，所以会被叙白「涤秽回春」洗掉；洗掉后需要重新叠加。
+ */
+export const TIDE_MAX = 3;
+export const TIDE_EFFECT_NAME = '潮汐';
+
+export function getTideStacks(target: Hero): number {
+    return Math.min(TIDE_MAX, target.effects.find(effect =>
+        effect.name === TIDE_EFFECT_NAME
+    )?.stackCount ?? 0);
+}
+
+export function addTide(target: Hero, source: Hero, amount = 1): number {
+    const existing = target.effects.find(effect => effect.name === TIDE_EFFECT_NAME);
+    if (existing) {
+        existing.stackCount = Math.min(TIDE_MAX, (existing.stackCount ?? 1) + amount);
+        existing.duration = -1;
+        return existing.stackCount;
+    }
+    EffectManager.addEffect(target, {
+        type: 'debuff',
+        name: TIDE_EFFECT_NAME,
+        duration: -1,
+        stackCount: Math.min(TIDE_MAX, amount),
+        sourceHeroId: source.id,
+        description: `上限${TIDE_MAX}层；被泠汐造成伤害时，以其为中心3×3的友方恢复当前层数的生命`,
+    });
+    return Math.min(TIDE_MAX, amount);
+}
+
+export function consumeTide(target: Hero): number {
+    const stacks = getTideStacks(target);
+    target.effects = target.effects.filter(effect => effect.name !== TIDE_EFFECT_NAME);
+    return stacks;
+}
+
+/** 场上某一方的敌方英雄身上的潮汐总层数（天威按这个值群体治疗） */
+export function totalTideOnEnemiesOf(gameState: GameState, owner: Player): number {
+    const enemies = owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes;
+    return enemies.reduce((sum, hero) => sum + getTideStacks(hero), 0);
+}
+
+/**
+ * 泠汐的延迟段是否已跨到更晚的回合（同回合武装的不算，避免自己立刻触发自己）。
+ * 技能结算与技能范围高亮共用这一份口径，避免两处判断漂移。
+ */
+export function isLingxiEchoPending(caster: Hero, gameState: GameState, key: string): boolean {
+    const armedRound = caster.counters[key] ?? 0;
+    return armedRound > 0 && armedRound < gameState.roundNumber;
 }
 
 export function applyDilanWind(target: Hero, source: Hero, kind: '顺风' | '逆风'): void {

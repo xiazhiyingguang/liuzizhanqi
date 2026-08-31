@@ -1,6 +1,9 @@
 /** 位置坐标 [行, 列] */
 export type Position = [number, number];
 
+/** 棋盘边长（6×6）。几何推导与边界判定都应引用它，不要再写死数字。 */
+export const BOARD_SIZE = 6;
+
 /** 玩家标识 */
 export type Player = 'player1' | 'player2';
 
@@ -159,6 +162,12 @@ export interface SkillExecuteResult {
     effectsApplied?: Effect[]; // 施加的效果
     triggeredPassives?: string[]; // 触发的被动技能
     log: string[];             // 战斗日志
+    /**
+     * 本次施法真实作用到的棋盘格（含没站人的空格），由技能自己上报。
+     * 只供特效层画 AOE 底光，不参与任何数值判定：上报了的技能以真实格为准，
+     * 没上报的才回退到 skill-fx-coverage 的几何推导。
+     */
+    fxCoveredPositions?: Position[];
 }
 
 /** 伤害结果 */
@@ -171,6 +180,8 @@ export interface DamageResult {
     killed: boolean;           // 是否击杀
     /** 不可规避的固定伤害：直接扣除生命，无视护盾、闪避、免伤替代与伤害转移。 */
     unavoidable?: boolean;
+    /** 伤害来源标签（burn/bleed/chain…）：随战报日志 details.fxTag 透传给特效层。 */
+    logTag?: string;
 }
 
 /** 单局内按英雄累计的结算数据。召唤物的贡献会归并到其召唤者。 */
@@ -213,7 +224,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -316,6 +327,16 @@ export interface GameState {
     heroXRedirectTargetIds?: Record<string, string>;
     soulLampBeneficiaryIds?: Record<string, string>;
     skillSelectedHeroIds?: Record<string, string>;
+    // 技能 execute 回传给特效包装层的多格特效位置（读取后立即清除，不参与逻辑结算）：
+    // coveredPositions=技能自报的真实作用格（AOE 底光以此为准，未上报才回退几何推导）；
+    // splashPositions=溅射余波格；chainLinks=链式闪电传播格（按传播顺序）；
+    // fxVariant=条件形态的特效档案键（如绯雪击碎冰冻的 feixue_shatter），覆盖默认档案
+    skillFxExtras?: {
+        coveredPositions?: Position[];
+        splashPositions?: Position[];
+        chainLinks?: Position[];
+        fxVariant?: string;
+    };
 
     // 时空旅者·戴尔：每回合开始时记录的全体存活单位快照（生命与效果），供「时空回溯」恢复
     heroSnapshots?: Record<string, HeroRoundSnapshot>;

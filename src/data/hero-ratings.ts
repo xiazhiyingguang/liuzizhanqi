@@ -70,6 +70,9 @@ export const HERO_ABILITY_RATINGS: Record<string, HeroAbilityRatings> = {
     '星象师·诺亚': ratings(1, 5, 4, 2, 10, 10, 8),
     '太阳骑士·赫利俄斯': ratings(8, 6, 4, 2, 5, 7, 5),
     上官婉儿: ratings(7, 5, 9, 1, 1, 7, 8),
+    游隼: ratings(9, 4, 10, 3, 1, 8, 9),
+    叙白: ratings(1, 8, 4, 1, 10, 6, 6),
+    泠汐: ratings(8, 7, 4, 2, 6, 9, 8),
 };
 
 export function getHeroAbilityRatings(heroName: string): HeroAbilityRatings | undefined {

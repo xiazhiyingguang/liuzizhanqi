@@ -357,6 +357,180 @@
     }
 }
 
+/* ============================================================
+   技能特效预览：技能名旁的图标 + 悬停浮出的演示舞台
+   --board-cell-size 必须由舞台自己的祖先声明：ink-wash 里全部特效几何
+   都按它取值，而 .battle-board-stage 自带渐变底 / padding / overflow 不可复用。
+   网格间距固定 6px —— 跨格距离公式为 距离 × (var(--board-cell-size) + 6px)。
+   ============================================================ */
+.skill-fx-peek-trigger {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0.45;
+    cursor: pointer;
+    transition: opacity 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.skill-fx-peek-trigger svg {
+    width: 12px;
+    height: 12px;
+}
+
+.skill-fx-peek-trigger:hover,
+.skill-fx-peek-trigger:focus-visible {
+    opacity: 1;
+    background: #fff;
+    transform: scale(1.08);
+}
+
+.skill-fx-peek-panel {
+    position: fixed;
+    z-index: 100;
+    padding: 10px 12px 12px;
+    border: 1px solid rgba(212, 168, 67, 0.28);
+    border-radius: 14px;
+    background: rgba(247, 240, 223, 0.96);
+    box-shadow: 0 14px 42px rgba(36, 29, 18, 0.22);
+    backdrop-filter: blur(6px);
+    animation: skill-fx-peek-in 0.16s ease-out;
+}
+
+/* 只淡入：面板翻到上方时靠内联 translateY(-100%) 定位，动画不碰 transform */
+@keyframes skill-fx-peek-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.skill-fx-peek-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.skill-fx-peek-title {
+    font-family: "Ma Shan Zheng", "Noto Sans SC", sans-serif;
+    font-size: 15px;
+    color: #1a1a1a;
+}
+
+.skill-fx-peek-hint {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: rgba(26, 26, 26, 0.45);
+}
+
+.skill-fx-stage {
+    --codex-fx-cell: 56px;
+    --board-cell-size: var(--codex-fx-cell);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(26, 26, 26, 0.08);
+    border-radius: 12px;
+    background:
+        radial-gradient(circle at 28% 42%, rgba(255, 255, 255, 0.8), transparent 62%),
+        rgba(26, 26, 26, 0.035);
+}
+
+.skill-fx-stage-grid {
+    display: grid;
+    grid-template-columns: repeat(3, var(--board-cell-size));
+    grid-template-rows: repeat(2, var(--board-cell-size));
+    gap: 6px;
+    justify-content: center;
+    padding: calc(var(--board-cell-size) * 0.4) 6px;
+}
+
+.skill-fx-stage-cell {
+    position: relative;
+    width: var(--board-cell-size);
+    height: var(--board-cell-size);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.4);
+    box-shadow: inset 0 0 0 1px rgba(26, 26, 26, 0.05);
+}
+
+/* 施法格 / 目标格占位棋子：特效层 z-index 29，自然盖在它上面 */
+.skill-fx-stage-piece {
+    position: absolute;
+    inset: 23%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 34%, rgba(116, 126, 140, 0.92), rgba(44, 44, 56, 0.94));
+    color: rgba(255, 255, 255, 0.88);
+    font-size: calc(var(--board-cell-size) * 0.27);
+}
+
+.skill-fx-stage-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid rgba(26, 26, 26, 0.07);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    color: rgba(26, 26, 26, 0.55);
+}
+
+.skill-fx-stage-kind {
+    font-size: 12px;
+    color: var(--codex-fx-accent, #3d3d3d);
+}
+
+.skill-fx-stage-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(26, 26, 26, 0.14);
+}
+
+.skill-fx-stage-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 9px;
+    opacity: 0.62;
+}
+
+.skill-fx-stage-missing {
+    color: #c0392b;
+}
+
+.skill-fx-stage-note {
+    padding: 14px 12px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: rgba(26, 26, 26, 0.5);
+}
+
+.skill-fx-stage-replay {
+    margin-left: auto;
+    padding: 2px 9px;
+    border: 1px solid rgba(26, 26, 26, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.7);
+    font-size: 10px;
+    color: rgba(26, 26, 26, 0.62);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.skill-fx-stage-replay:hover {
+    border-color: var(--codex-fx-accent, rgba(26, 26, 26, 0.24));
+    background: #fff;
+    color: var(--codex-fx-accent, #1a1a1a);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .hero-radar-area,
     .hero-ability-bar-fill {

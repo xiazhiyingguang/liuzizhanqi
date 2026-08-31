@@ -18,7 +18,6 @@ import {
     hanjiangxueTianwei,
     huifengTianwei,
     changliTianwei,
-    youjunTianwei,
     getMirrorOwnerIdFromCloneId
 } from '../data/heroes';
 import {
@@ -28,6 +27,8 @@ import {
     findSoulLampBeneficiary,
     getDilanFeatherStacks,
     getSummonOwnerId,
+    getTideStacks,
+    totalTideOnEnemiesOf,
 } from '../data/extended-heroes';
 import { recordBattleDamage, recordBattleHealing, recordBattleKill } from './battle-statistics';
 import {
@@ -48,6 +49,9 @@ type DamageCalculationOptions = {
     critDamageBonus?: number;
     /** 固定伤害：跳过攻击、暴击、防御、增伤和免伤修正。 */
     fixedDamage?: boolean;
+    /** 伤害来源标签（burn/bleed/chain…）：写入战报日志 details.fxTag，
+     *  供棋盘飘字与格子特效按来源换色。 */
+    logTag?: string;
 };
 
 /**
@@ -158,6 +162,7 @@ export class DamageCalculator {
             if (!target) return;
 
             EffectManager.addCounter(hero, '破镜之刃', -1);
+            const bladeFrom = hero.position ? [...hero.position] as [number, number] : null;
             const damageResult = this.calculate(hero, target, 5, false);
             this.applyDamage(target, damageResult, hero, gameState);
 
@@ -167,6 +172,13 @@ export class DamageCalculator {
                     type: 'passive' as const,
                     player: hero.owner,
                     message: `${hero.name}触发"破镜之刃"，对${target.name}造成${damageResult.finalDamage}点伤害`,
+                    details: {
+                        kind: 'mirror-blade-strike',
+                        // 特效标记：Board 读到后派发"破镜飞刃"动画（镜刃自镜的位置飞向受害者）
+                        fxSkillId: 'mirror_blade',
+                        fxFrom: bladeFrom ?? undefined,
+                        fxTarget: target.position ? [...target.position] : undefined,
+                    },
                     timestamp: Date.now()
                 });
             }
@@ -201,6 +213,7 @@ export class DamageCalculator {
                 hpDamage: 0,
                 killed: false,
                 unavoidable: true,
+                logTag: options.logTag,
             };
         }
 
@@ -324,7 +337,8 @@ export class DamageCalculator {
             vampireAmount,
             shieldDamage: 0,
             hpDamage: 0,
-            killed: false
+            killed: false,
+            logTag: options.logTag
         };
     }
 
@@ -355,6 +369,39 @@ export class DamageCalculator {
                 false,
                 true,
                 { canCrit: false, fixedDamage: true }
+            );
+            this.applyDamage(target, damage, source, gameState);
+            totalDamage += damage.finalDamage;
+        }
+        return totalDamage;
+    }
+
+    /**
+     * 结算「流血」效果的移动伤害（逐格固定伤害，每格 effect.value 点）。
+     * 当前版本没有任何技能施加流血，本方法为通用位移结算的惰性兜底，
+     * 供游隼冲刺等强制位移路径统一调用；无流血效果时始终返回 0。
+     */
+    static applyBleedMovementDamage(target: Hero, movedSteps: number, gameState: GameState): number {
+        if (movedSteps <= 0 || target.state !== HeroState.ALIVE) return 0;
+        const bleedSources = target.effects
+            .filter(effect => effect.name === '流血' && (effect.value ?? 0) > 0)
+            .map(effect => this.findHeroById(effect.sourceHeroId, gameState))
+            .filter((source): source is Hero =>
+                !!source && source.state === HeroState.ALIVE && source.owner !== target.owner
+            );
+
+        let totalDamage = 0;
+        for (const source of bleedSources) {
+            if (target.state !== HeroState.ALIVE) break;
+            const damage = this.calculate(
+                source,
+                target,
+                movedSteps * (target.effects.find(
+                    effect => effect.name === '流血' && effect.sourceHeroId === source.id
+                )?.value ?? 2),
+                false,
+                true,
+                { canCrit: false, fixedDamage: true, logTag: 'bleed' }
             );
             this.applyDamage(target, damage, source, gameState);
             totalDamage += damage.finalDamage;
@@ -776,10 +823,45 @@ export class DamageCalculator {
             }
         }
 
-        if (actualTarget.passiveId === 'bard_passive' && actualTarget.currentHp < actualTarget.maxHp * 0.3) {
+        // 潮汐：只有泠汐的伤害会触发回血；读取的是本次命中前已有的层数（叠加发生在结算之后）
+        if (
+            appliedDamage > 0 &&
+            attacker.passiveId === 'lingxi_passive' &&
+            attacker.owner !== actualTarget.owner &&
+            actualTarget.position
+        ) {
+            const tide = getTideStacks(actualTarget);
+            if (tide > 0) {
+                const cells = [actualTarget.position, ...MovementSystem.getAreaPositions(actualTarget.position, 3)];
+                const friendly = cells
+                    .map(([row, col]) => gameState.board[row]?.[col])
+                    .filter((unit): unit is Hero =>
+                        !!unit && unit.owner === attacker.owner && unit.state === HeroState.ALIVE);
+                let healedCount = 0;
+                for (const ally of friendly) {
+                    if (this.applyHeal(ally, tide, gameState, attacker) > 0) healedCount++;
+                }
+                if (healedCount > 0) {
+                    this.addBattleLog(gameState, {
+                        type: 'passive',
+                        player: attacker.owner,
+                        message: `${attacker.name}激起潮音，${actualTarget.name}周围${healedCount}名友方各恢复${tide}点生命`,
+                    });
+                }
+            }
+        }
+
+        if (
+            actualTarget.passiveId === 'bard_passive' &&
+            (actualTarget.counters['bard_echo_used'] ?? 0) < 5 &&
+            actualTarget.currentHp < actualTarget.maxHp * 0.3
+        ) {
             const allies = actualTarget.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
             const passion = allies.reduce((sum, hero) => sum + (hero.counters['激情'] ?? 0), 0);
             if (passion > 0) {
+                // 一场战斗最多触发5次；只有真正治疗才计入次数
+                const used = (actualTarget.counters['bard_echo_used'] ?? 0) + 1;
+                actualTarget.counters['bard_echo_used'] = used;
                 const healed = this.applyHeal(actualTarget, passion * 3, gameState);
                 // 终曲回响：消耗全队激情，重新积攒后才能再次触发
                 for (const ally of allies) {
@@ -788,7 +870,7 @@ export class DamageCalculator {
                 this.addBattleLog(gameState, {
                     type: 'passive',
                     player: actualTarget.owner,
-                    message: `${actualTarget.name}触发终曲回响，消耗全队${passion}点激情，恢复${healed}点生命`
+                    message: `${actualTarget.name}触发终曲回响（${used}/5），消耗全队${passion}点激情，恢复${healed}点生命`
                 });
             }
         }
@@ -844,6 +926,7 @@ export class DamageCalculator {
                     targetHeroId: actualTarget.id,
                     amount: appliedDamage,
                     isCrit: damageResult.isCrit && appliedDamage > 0,
+                    fxTag: damageResult.logTag,
                     position: actualTarget.position ? [...actualTarget.position] : undefined,
                 }
             });
@@ -1149,7 +1232,12 @@ export class DamageCalculator {
             this.addBattleLog(gameState, {
                 type: 'kill',
                 player: killer.owner,
-                message: `${killer.name}击杀了${target.name}`
+                message: `${killer.name}击杀了${target.name}`,
+                details: {
+                    kind: 'clone-kill',
+                    victimHeroId: target.id,
+                    victimPosition: deathPosition ? [...deathPosition] : undefined,
+                }
             });
 
             if (target.position) {
@@ -1230,6 +1318,7 @@ export class DamageCalculator {
                 killerName: killer.name,
                 victimHeroId: target.id,
                 victimName: target.name,
+                victimPosition: deathPosition ? [...deathPosition] : undefined,
                 killCount: killer.killCount
             }
         });
@@ -1349,12 +1438,9 @@ export class DamageCalculator {
         if (tianweiHero && tianweiHero.id !== target.id && tianweiHero.owner !== target.owner) {
             if (tianweiHero.tianweiId === 'dilan_tianwei' && deathPosition) {
                 tianweiHero.counters['__dilan_kill_pos'] = deathPosition[0] * 6 + deathPosition[1];
-            } else if (tianweiHero.tianweiId === 'youjun_tianwei' && deathPosition) {
-                tianweiHero.counters['__youjun_kill_pos'] = deathPosition[0] * 6 + deathPosition[1];
             }
             this.triggerTianwei(tianweiHero, gameState);
             delete tianweiHero.counters['__dilan_kill_pos'];
-            delete tianweiHero.counters['__youjun_kill_pos'];
         }
         if (killer.id !== target.id && killer.owner !== target.owner) {
             this.resolveBountyRewards(target, killer, gameState);
@@ -1463,8 +1549,6 @@ export class DamageCalculator {
             huifengTianwei.execute(hero, gameState);
         } else if (hero.tianweiId === 'changli_tianwei') {
             changliTianwei.execute(hero, gameState);
-        } else if (hero.tianweiId === 'youjun_tianwei') {
-            youjunTianwei.execute(hero, gameState);
         } else if (hero.tianweiId === 'jetzmi_tianwei') {
             if (hero.owner === 'player1') gameState.deathCounters.player1Dead += 2;
             else gameState.deathCounters.player2Dead += 2;
@@ -1616,6 +1700,27 @@ export class DamageCalculator {
                     critDamageBonus: inSandDune ? 0.2 : 0,
                 });
                 this.applyDamage(target, pursuit, hero, gameState);
+            }
+        } else if (hero.tianweiId === 'lingxi_tianwei') {
+            // 天威·潮归：我方全员恢复场上潮汐总层数的生命，溢出部分转为自身护盾（上限10）
+            const tide = totalTideOnEnemiesOf(gameState, hero.owner);
+            if (tide > 0) {
+                const allies = (hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)
+                    .filter(candidate => candidate.state === HeroState.ALIVE);
+                let overflow = 0;
+                for (const ally of allies) {
+                    const healed = this.applyHeal(ally, tide, gameState, hero);
+                    overflow += Math.max(0, tide - healed);
+                }
+                const shieldBefore = hero.shield;
+                hero.shield = Math.min(10, hero.shield + overflow);
+                const gainedShield = hero.shield - shieldBefore;
+                this.addBattleLog(gameState, {
+                    type: 'tianwei',
+                    player: hero.owner,
+                    message: `${hero.name}唤起潮归：${allies.length}名友方各恢复${tide}点生命` +
+                        (gainedShield > 0 ? `，溢出凝为${gainedShield}点护盾（护盾${hero.shield}/10）` : ''),
+                });
             }
         } else if (hero.tianweiId === 'dilan_tianwei') {
             const encoded = hero.counters['__dilan_kill_pos'];

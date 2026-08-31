@@ -59,7 +59,24 @@ function Blink({ count }: { count: number }) {
     );
 }
 
-function partsFor(kind: HeroStatusFxKind): ReactNode {
+/** 闪电（Lucide zap 轮廓，ISC 协议），配色取 currentColor */
+function BoltGlyph() {
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+        </svg>
+    );
+}
+
+function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
     switch (kind) {
         case 'frozen':
             return (
@@ -70,6 +87,13 @@ function partsFor(kind: HeroStatusFxKind): ReactNode {
             );
         case 'stun':
             return <Orbit count={3} className="sfx-orbit-stars" />;
+        case 'paralysis':
+            return (
+                <>
+                    <i className="sfx-bolt"><BoltGlyph /></i>
+                    <Blink count={2} />
+                </>
+            );
         case 'stealth':
             return (
                 <>
@@ -84,11 +108,53 @@ function partsFor(kind: HeroStatusFxKind): ReactNode {
                     <i className="sfx-ring" />
                 </>
             );
+        case 'bounty-tianwei':
+            // 悬赏·天威再临：赤金印玺——旋转封印环 + 准星 + 金芒闪点
+            return (
+                <>
+                    <i className="sfx-ring sfx-bounty-seal" />
+                    <i className="sfx-cross" />
+                    <Blink count={1} />
+                </>
+            );
+        case 'bounty-revive':
+            // 悬赏·半血回生：翡翠回生纹——回生十字 + 上升生机
+            return (
+                <>
+                    <i className="sfx-cross sfx-bounty-revive-cross" />
+                    <i className="sfx-ring" />
+                    <Rise count={2} />
+                </>
+            );
+        case 'bounty-crit':
+            // 悬赏·永久暴击：绯红暴击刻——急旋锋刃十字 + 锐利闪点
+            return (
+                <>
+                    <i className="sfx-cross sfx-bounty-crit-cross" />
+                    <i className="sfx-cross sfx-bounty-crit-cross sfx-bounty-crit-cross-b" />
+                    <Blink count={1} />
+                </>
+            );
+        case 'bounty-vampire':
+            // 悬赏·永久吸血：暗紫汲取环——下坠血珠 + 汲取环
+            return (
+                <>
+                    <i className="sfx-ring sfx-bounty-vampire-ring" />
+                    <Drop count={3} />
+                </>
+            );
         case 'deathmark':
             return (
                 <>
                     <i className="sfx-ring" />
                     <Blink count={1} />
+                </>
+            );
+        case 'chainmark':
+            return (
+                <>
+                    <i className="sfx-bolt sfx-bolt-chain"><BoltGlyph /></i>
+                    <i className="sfx-ring sfx-chain-ring" />
                 </>
             );
         case 'fear':
@@ -100,6 +166,20 @@ function partsFor(kind: HeroStatusFxKind): ReactNode {
             );
         case 'wither':
             return <Rise count={3} />;
+        case 'burn':
+            return (
+                <>
+                    <i className="sfx-ring sfx-burn-ring" />
+                    <Rise count={3} />
+                </>
+            );
+        case 'bleed':
+            return (
+                <>
+                    <i className="sfx-ring sfx-bleed-ring" />
+                    <Drop count={2} />
+                </>
+            );
         case 'headwind':
         case 'tailwind':
             return (
@@ -205,6 +285,14 @@ function partsFor(kind: HeroStatusFxKind): ReactNode {
                     <Blink count={1} />
                 </>
             );
+        case 'xubai-orbs':
+            // 黑白球：环绕珠数 = 剩余颗数（上限3），黑白交替阴阳配色
+            return (
+                <Orbit
+                    count={Math.max(1, Math.min(3, hero?.counters['黑白球'] ?? 0))}
+                    className="sfx-orb-pearls"
+                />
+            );
         default:
             return null;
     }
@@ -217,7 +305,7 @@ export function HeroStatusFx({ hero }: { hero: Hero }) {
         <>
             {kinds.map(kind => (
                 <span key={kind} className={`status-fx sfx-${kind}`} aria-hidden="true">
-                    {partsFor(kind)}
+                    {partsFor(kind, hero)}
                 </span>
             ))}
         </>

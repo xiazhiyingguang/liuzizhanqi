@@ -89,6 +89,34 @@ describe('绯雪', () => {
         expect(outside.currentHp).toBe(outside.maxHp);
     });
 
+    it('技能一击碎冰冻时上报「破冰爆震」特效形态与 3x3 爆震范围', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 0]);
+        const target = addHero(state, 'moran', 'player2', [2, 2]);
+        EffectManager.addEffect(target, {
+            type: 'stun', name: '冰冻', duration: 1,
+            sourceHeroId: caster.id, description: '测试冰冻',
+        });
+
+        SkillSystem.executeSkill(caster, feixueSkill1, [[2, 2]], state);
+
+        expect(state.skillFxExtras?.fxVariant).toBe('feixue_shatter');
+        const covered = state.skillFxExtras?.coveredPositions ?? [];
+        expect(covered).toContainEqual([2, 2]);
+        expect(covered).toContainEqual([1, 1]);
+        expect(covered).toHaveLength(9);
+    });
+
+    it('技能一普通命中不上报特效形态（碎冰形态仅限击碎冰冻）', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 0]);
+        addHero(state, 'moran', 'player2', [2, 2]);
+
+        SkillSystem.executeSkill(caster, feixueSkill1, [[2, 2]], state);
+
+        expect(state.skillFxExtras).toBeUndefined();
+    });
+
     it('技能一即使先击杀冰冻主目标，也会完整结算破冰爆炸', () => {
         const state = makeGameState();
         const caster = addHero(state, 'feixue', 'player1', [2, 0]);

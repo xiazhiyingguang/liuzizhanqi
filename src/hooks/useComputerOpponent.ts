@@ -14,6 +14,7 @@ import {
     chooseComputerTemporaryDeadTarget,
     chooseComputerWukongStepPosition,
     chooseComputerWukongStrikeTarget,
+    isSelfPropellingSkill,
     planJointMoveForHero,
     resetCachedComputerTeam,
     scoreComputerPosition,
@@ -25,6 +26,7 @@ import { HeroState } from '../types/game';
 import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
 import { GameEngine } from '../core/game-engine';
+import { MovementSystem } from '../core/movement-system';
 
 const AI_PLAYER = 'player2' as const;
 const THINK_DELAY_MS = 430;
@@ -540,7 +542,12 @@ function executeWukongStep(
             return;
         }
         if (!wState.wukongMoved && wukong.state === 'alive' && wukong.position) {
-            const stepPos = chooseComputerWukongStepPosition(state, wukong);
+            // 与 store 同口径：本体可以先走到自身移动力可达的任意空格
+            const stepPos = chooseComputerWukongStepPosition(
+                state,
+                wukong,
+                MovementSystem.getMovablePositions(wukong, state)
+            );
             if (stepPos) {
                 store.executeSkill(stepPos);
                 return;
@@ -587,7 +594,7 @@ function executeWukongStep(
 
 /* --------------------------- 移动+技能联合规划 --------------------------- */
 
-const JOINT_PLAN_SCORE_THRESHOLD = 55;
+const JOINT_PLAN_SCORE_THRESHOLD = 26;
 
 interface CachedJointMove {
     casterId: string;
@@ -692,7 +699,12 @@ function executeBattleStep(
     if (configurePassiveChoice(state, caster)) return;
 
     const skillPlan = chooseComputerSkillPlan(state, caster);
-    const wantsReposition = !caster.hasMovedThisTurn && (!skillPlan || skillPlan.score < JOINT_PLAN_SCORE_THRESHOLD);
+    // 自带位移的技能（游隼疾掠）释放本身就完成了接敌：先走一步会把冲刺距离提前花光，
+    // 导致贴脸后冲刺变成负收益、AI 从此不用冲刺，因此这类技能直接原地释放。
+    const castInPlace = !!skillPlan && (
+        skillPlan.score >= JOINT_PLAN_SCORE_THRESHOLD || isSelfPropellingSkill(skillPlan.skillId)
+    );
+    const wantsReposition = !caster.hasMovedThisTurn && !castInPlace;
 
     // 联合规划：原地没有好技能时，评估"先移动到更优站位再放技能"是否显著更优
     if (wantsReposition) rememberJointMovePlan(state, caster);

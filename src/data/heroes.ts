@@ -1,14 +1,13 @@
-import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState, BattleLogEntry } from '../types/game';
+import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState } from '../types/game';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { recordBattleDamage, recordBattleHealing, recordBattleKill } from '../core/battle-statistics';
+import { executeHuifengTianwei } from '../core/huifeng-marks';
 import {
     EXTENDED_HERO_IDS,
     EXTENDED_HERO_INFO,
     EXTENDED_HERO_TEMPLATES,
     initializeExtendedHero,
-    addDilanFeather,
-    applyDilanWind,
 } from './extended-heroes';
 
 /**
@@ -357,7 +356,7 @@ export const hanjiangxueTianwei: TianweiSkill = {
 export const huifengPassive: PassiveSkill = {
     id: 'huifeng_passive',
     name: '锋鸣',
-    description: '攻击带有连破的目标时叠加锋鸣，3层自动释放连刃斩',
+    description: '每次攻击带啸刃的敌人叠1层锋鸣（上限3层）；满3层清空并自动释放连刃斩，3段各自随机攻击场上的敌人',
     triggerOn: 'always',
     execute: () => {}
 };
@@ -749,27 +748,9 @@ export const guyingTianwei: TianweiSkill = {
 export const huifengTianwei: TianweiSkill = {
     id: 'huifeng_tianwei',
     name: '天威',
-    description: '在周围四格留下持续3回合的刃痕',
+    description: '对场上所有带连破标记的敌人造成4点伤害，并各施加一层连破',
     execute: (hero, gameState) => {
-        if (!hero.position) return;
-        gameState.boardEffects ??= [];
-        const [row, col] = hero.position;
-        const positions: Position[] = [
-            [row - 1, col],
-            [row + 1, col],
-            [row, col - 1],
-            [row, col + 1]
-        ].filter(([r, c]) => r >= 0 && r < 6 && c >= 0 && c < 6) as Position[];
-        for (const position of positions) {
-            gameState.boardEffects.push({
-                id: `blade-mark-${Date.now()}-${Math.random()}`,
-                type: 'blade-mark',
-                position,
-                owner: hero.owner,
-                sourceHeroId: hero.id,
-                duration: 3
-            });
-        }
+        executeHuifengTianwei(hero, gameState);
     }
 };
 
@@ -780,49 +761,6 @@ export const changliTianwei: TianweiSkill = {
     execute: (hero) => {
         EffectManager.addCounter(hero, '暗夜星火', 4);
     }
-};
-
-/**
- * 游隼天威「裂空」：击杀敌人后，对死亡格所在整行与整列的其余敌人造成5点伤害，
- * 并各施加1层羽化与1层逆风（羽化联动帝兰的引爆与南风的移动伤害）。
- */
-export const youjunTianwei: TianweiSkill = {
-    id: 'youjun_tianwei',
-    name: '天威',
-    description: '击杀敌人后，对死亡格所在整行与整列的其余敌人造成5点伤害，并各施加1层羽化与1层逆风。',
-    execute: (hero, gameState) => {
-        const code = hero.counters['__youjun_kill_pos'];
-        if (code === undefined || !hero.position) return;
-        const dr = Math.floor(code / 6);
-        const dc = code % 6;
-        const enemies = (hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes)
-            .filter(e => e.state === HeroState.ALIVE && !!e.position);
-        const affected: Hero[] = [];
-        for (const target of enemies) {
-            const [tr, tc] = target.position!;
-            if ((tr === dr || tc === dc) && !(tr === dr && tc === dc)) {
-                affected.push(target);
-            }
-        }
-        DamageCalculator.asOneAttack(() => {
-            for (const target of affected) {
-                const dmg = DamageCalculator.calculate(hero, target, 5, false, false, { canCrit: true });
-                DamageCalculator.applyDamage(target, dmg, hero, gameState);
-                addDilanFeather(target, hero);
-                applyDilanWind(target, hero, '逆风');
-            }
-        });
-        if (affected.length > 0 && gameState.battleLog) {
-            const entry: BattleLogEntry = {
-                id: `log-${Date.now()}-${Math.random()}`,
-                type: 'tianwei',
-                player: hero.owner,
-                message: `${hero.name}触发天威·裂空，十字上的${affected.length}名敌人受到5点伤害并被施加羽化与逆风`,
-                timestamp: Date.now(),
-            };
-            gameState.battleLog.push(entry);
-        }
-    },
 };
 
 /**

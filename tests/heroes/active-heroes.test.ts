@@ -9,7 +9,6 @@ import {
     createWukongClone,
     AVAILABLE_HERO_IDS,
     changliTianwei,
-    huifengTianwei,
     moranTianwei,
     nightowlTianwei,
     wukongTianwei,
@@ -24,7 +23,6 @@ import {
     changliSkill1,
     changliSkill2,
     huifengSkill1,
-    huifengSkill2,
     liuliSkill1,
     liuliSkill2,
     mirrorSkill1,
@@ -268,6 +266,41 @@ describe('Baize', () => {
         expect(EffectManager.getCounter(baize, '天禄')).toBe(1);
     });
 
+    it('skill 1 按生命百分比最低选取目标，而不是绝对血量最低', () => {
+        const state = makeGameState();
+        const baize = addHero(state, 'baize', 'player1', [0, 0]);
+        const lowAbsolute = addHero(state, 'moran', 'player1', [0, 1]);
+        const lowRatio = addHero(state, 'liuli', 'player1', [0, 2]);
+
+        lowAbsolute.maxHp = 20;
+        lowAbsolute.currentHp = 10;      // 绝对血量更低，但只剩 50%
+        lowRatio.maxHp = 60;
+        lowRatio.currentHp = 18;         // 绝对血量更高，但只剩 30%
+
+        baizeSkill1.execute!(baize, [], state);
+
+        expect(lowRatio.currentHp, '应治疗生命百分比最低者').toBe(26);
+        expect(lowAbsolute.currentHp, '绝对血量更低的单位不该被优先治疗').toBe(10);
+        expect(EffectManager.getCounter(lowRatio, '白泽之力')).toBe(1);
+    });
+
+    it('skill 1 不治疗分身，转向生命百分比最低的英雄', () => {
+        const state = makeGameState();
+        const baize = addHero(state, 'baize', 'player1', [0, 0]);
+        const wukong = addHero(state, 'wukong', 'player1', [0, 3]);
+        const clone = createWukongClone('player1', wukong.id, [0, 4], 30);
+        clone.currentHp = 1;                     // 全场生命百分比最低
+        state.player1Heroes.push(clone);
+        const wounded = addHero(state, 'moran', 'player1', [0, 1]);
+        wounded.currentHp = 10;
+
+        baizeSkill1.execute!(baize, [], state);
+
+        expect(clone.currentHp, '分身不该吃到治疗').toBe(1);
+        expect(EffectManager.getCounter(clone, '白泽之力'), '白泽之力不该叠在分身上').toBe(0);
+        expect(wounded.currentHp, '治疗应转向最残的英雄').toBe(18);
+    });
+
     it('skill 2 heals when Tianlu is below three', () => {
         const state = makeGameState();
         const baize = addHero(state, 'baize', 'player1', [0, 0]);
@@ -311,77 +344,6 @@ describe('Huifeng', () => {
 
         expect(result.damageDealt).toEqual([4, 4, 4]);
         expect(EffectManager.getCounter(hero, '破锋')).toBe(3);
-    });
-
-    it('jumps one cell and leaves a three-round blade mark at the origin', () => {
-        const state = makeGameState();
-        const hero = addHero(state, 'huifeng', 'player1', [2, 2]);
-
-        const result = SkillSystem.executeSkill(hero, huifengSkill2, [[2, 3]], state);
-
-        expect(result.success).toBe(true);
-        expect(hero.position).toEqual([2, 3]);
-        expect(state.boardEffects).toEqual([
-            expect.objectContaining({
-                type: 'blade-mark',
-                position: [2, 2],
-                sourceHeroId: hero.id,
-                duration: 3,
-            }),
-        ]);
-    });
-
-    it('marks an enemy entering a blade-mark zone with LianPo', () => {
-        const state = makeGameState({
-            boardEffects: [{
-                id: 'mark',
-                type: 'blade-mark',
-                position: [2, 2],
-                owner: 'player1',
-                sourceHeroId: 'huifeng-source',
-                duration: 3,
-            }],
-        });
-        const enemy = addHero(state, 'moran', 'player2', [0, 2]);
-
-        expect(MovementSystem.moveHero(enemy, [1, 2], state)).toBe(true);
-        expect(enemy.effects).toEqual([
-            expect.objectContaining({ name: '连破', sourceHeroId: 'huifeng-source' }),
-        ]);
-    });
-
-    it('Tianwei places blade marks in four orthogonal cells', () => {
-        const state = makeGameState();
-        const hero = addHero(state, 'huifeng', 'player1', [2, 2]);
-
-        huifengTianwei.execute(hero, state);
-
-        expect(state.boardEffects).toHaveLength(4);
-        expect(state.boardEffects?.map(effect => effect.position)).toEqual(
-            expect.arrayContaining([[1, 2], [3, 2], [2, 1], [2, 3]]),
-        );
-    });
-
-    it('triggers an automatic combo when Fengming reaches three stacks', () => {
-        const state = makeGameState();
-        const hero = addHero(state, 'huifeng', 'player1', [2, 2]);
-        const enemy = addHero(state, 'liuli', 'player2', [2, 3]);
-        enemy.maxHp = 500;
-        enemy.currentHp = 500;
-        EffectManager.addEffect(enemy, {
-            type: 'mark',
-            name: '连破',
-            duration: 1,
-            sourceHeroId: hero.id,
-        });
-
-        huifengSkill1.execute!(hero, [enemy], state);
-        huifengSkill1.execute!(hero, [enemy], state);
-        const third = huifengSkill1.execute!(hero, [enemy], state);
-
-        expect(third.log.some(line => line.includes('自动释放连刃斩'))).toBe(true);
-        expect(EffectManager.getCounter(hero, '破锋')).toBe(12);
-        expect(EffectManager.hasEffect(enemy, '锋鸣')).toBe(false);
     });
 });
 

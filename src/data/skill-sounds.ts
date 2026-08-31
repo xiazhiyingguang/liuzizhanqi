@@ -15,9 +15,9 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     wukong_skill1: 'summon',     // 毫毛化身：召唤分身
     wukong_skill2: 'heavy_slash',// 大圣合击：合力重击
 
-    // ===== 惠风：玄光增益与再舞 =====
+    // ===== 回锋：连刃斩与风过留痕 =====
     huifeng_skill1: 'buff',
-    huifeng_skill2: 'dash',
+    huifeng_skill2: 'slash',
 
     // ===== 玄啸：惊鸿再舞、风过留痕 =====
     xuanxiao_skill1: 'dash',
@@ -46,6 +46,7 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     // ===== 明镜：破镜分光与镜像换位 =====
     mirror_skill1: 'ice',
     mirror_skill2: 'teleport',
+    mirror_blade: 'ice',       // 破镜之刃层数爆发（辅助特效，与破镜分光同音色）
 
     // ===== 墨文：时光回溯与逆时斩 =====
     mowen_skill1: 'teleport',
@@ -128,6 +129,7 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     // ===== 绯雪：破冰爆发与寒天收割 =====
     feixue_skill1: 'ice',
     feixue_skill2: 'snow',
+    feixue_shatter: 'ice', // 破冰爆震（技能1击碎冰冻形态）
 
     // ===== 风铃：强制锁敌与沙丘猎杀 =====
     fengling_skill1: 'curse',
@@ -152,6 +154,18 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     // ===== 戴尔：时空回溯与时空置换 =====
     dai_skill1: 'revive',
     dai_skill2: 'teleport',
+
+    // ===== 游隼：疾掠冲锋与四向风刃 =====
+    youjun_skill1: 'dash',
+    youjun_skill2: 'snow',
+
+    // ===== 叙白：净化治疗与黑白凝珠 =====
+    xubai_skill1: 'heal',
+    xubai_skill2: 'buff',
+
+    // ===== 泠汐：潮汐多段攻击 =====
+    lingxi_skill1: 'snow',
+    lingxi_skill2: 'impact',
 };
 
 /** 取技能对应音效，未登记的技能回落到通用打击音效。 */

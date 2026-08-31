@@ -26,13 +26,14 @@ describe('帝兰完整机制', () => {
         expect(dilan.skill2Id).toBe('dilan_skill2');
     });
 
-    it('技能1选择整行：伤害敌人并施加逆风，为友方施加顺风', () => {
+    it('技能1沿所选方向吹到边缘：该侧敌人受击并施加逆风，友方获得顺风，反方向不受影响', () => {
         const state = makeGameState();
         const dilan = addHero(state, 'dilan', 'player1', [2, 2]);
-        const ally = addHero(state, 'moran', 'player1', [2, 0]);
+        const ally = addHero(state, 'moran', 'player1', [2, 3]);
         const enemy = addHero(state, 'baize', 'player2', [2, 4]);
         const offAxis = addHero(state, 'zhenxiao', 'player2', [3, 4]);
-        dilan.counters['__dilan_skill1_axis'] = 0;
+        const behind = addHero(state, 'liuli', 'player2', [2, 0]);   // 反方向：不该被吹到
+        dilan.counters['__dilan_skill1_dir'] = 3;                    // 右
 
         const result = SkillSystem.executeSkill(dilan, dilanSkill1, [[2, 3]], state);
 
@@ -42,16 +43,18 @@ describe('帝兰完整机制', () => {
         expect(enemy.effects.find(effect => effect.name === '逆风')?.stackCount).toBe(1);
         expect(ally.effects.find(effect => effect.name === '顺风')?.stackCount).toBe(1);
         expect(offAxis.currentHp).toBe(offAxis.maxHp);
+        expect(behind.currentHp, '只作用所选方向到边缘，反方向不在范围内').toBe(behind.maxHp);
     });
 
     it('顺风与逆风按层数改变实际可移动距离', () => {
         const state = makeGameState();
-        const dilan = addHero(state, 'dilan', 'player1', [3, 3]);
+        const dilan = addHero(state, 'dilan', 'player1', [3, 0]);
         const ally = addHero(state, 'moran', 'player1', [3, 1]);
         const enemy = addHero(state, 'baize', 'player2', [3, 5]);
-        dilan.counters['__dilan_skill1_axis'] = 0;
+        dilan.counters['__dilan_skill1_dir'] = 3;                    // 右：友方与敌人同侧
         SkillSystem.executeSkill(dilan, dilanSkill1, [[3, 4]], state);
 
+        expect(ally.effects.find(effect => effect.name === '顺风')?.stackCount).toBe(1);
         expect(MovementSystem.getMovablePositions(ally, state).some(([r, c]) => r === 0 && c === 1)).toBe(true);
         expect(MovementSystem.getMovablePositions(enemy, state).every(position =>
             MovementSystem.getManhattanDistance(enemy.position!, position) <= 1
@@ -126,7 +129,7 @@ describe('帝兰完整机制', () => {
         const enemy = addHero(state, 'baize', 'player2', [2, 4]);
         dilan.counters['talent_1'] = 1;
         addDilanFeather(enemy, dilan, 3);
-        dilan.counters['__dilan_skill1_axis'] = 0;
+        dilan.counters['__dilan_skill1_dir'] = 3;
 
         const result = SkillSystem.executeSkill(dilan, dilanSkill1, [[2, 3]], state);
 
@@ -163,7 +166,7 @@ describe('帝兰完整机制', () => {
         addDilanFeather(enemy, nanfeng);
         expect(getDilanFeatherStacks(enemy)).toBe(3);
 
-        dilan.counters['__dilan_skill1_axis'] = 0;
+        dilan.counters['__dilan_skill1_dir'] = 3;
         const result = SkillSystem.executeSkill(dilan, dilanSkill1, [[2, 3]], state);
 
         expect(result.damageDealt).toEqual([9]);

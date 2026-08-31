@@ -9,11 +9,15 @@ import InkButton from '../ui/InkButton';
 import { getBattleOutcomePresentation, getLatestKillAnnouncement } from '../../core/battle-presentation';
 import TurnActionBanner from './TurnActionBanner';
 import BattleStatisticsModal from './BattleStatisticsModal';
+import BattleReplayModal from './BattleReplayModal';
+import { hasBattleReplay } from '../../services/battle-replay';
 import ReinforcementPanel from './ReinforcementPanel';
+import './battle-result.css';
 
 export default function BattleScene() {
     const [showExitConfirm, setShowExitConfirm] = useState(false);
     const [showBattleStatistics, setShowBattleStatistics] = useState(false);
+    const [showBattleReplay, setShowBattleReplay] = useState(false);
     const {
         currentPlayer,
         roundNumber,
@@ -142,46 +146,44 @@ export default function BattleScene() {
             {phase === 'ended' && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="battle-result">
                     {/* 遮罩 */}
-                    <div className="absolute inset-0 bg-ink/50 animate-fade-in backdrop-blur-sm" />
+                    <div className="absolute inset-0 bg-ink/55 animate-fade-in backdrop-blur-sm" />
 
-                    {/* 内容 */}
                     <div
-                        className="relative z-10 animate-fade-up"
-                        style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={outcome.title}
+                        className={`battle-result-card relative z-10 ${
+                            outcome.result === 'victory' ? 'is-victory' : 'is-defeat'
+                        }`}
                     >
-                        <div className="ink-card p-12 text-center min-w-[400px]">
-                            {/* 胜利标记 */}
-                            <div className="mb-6">
-                                <span className="text-8xl font-title" style={{
-                                    color: outcome.result === 'victory' ? '#2c3e6b' : '#8f2f2a',
-                                }}>
-                                    {outcome.mark}
-                                </span>
-                            </div>
+                        {/* 落印：胜=金印 败=朱印 */}
+                        <span className="battle-result-seal" aria-hidden="true">{outcome.mark}</span>
 
-                            <div className="battle-divider mb-6" />
+                        <h2 className="battle-result-title">{outcome.title}</h2>
+                        <p className="battle-result-desc">{outcome.description}</p>
 
-                            <p className="font-title text-2xl text-ink mb-8">
-                                {outcome.title}
-                            </p>
-
-                            <p className="-mt-5 mb-8 text-sm text-ink-faint font-body">
-                                {outcome.description}
-                            </p>
-
-                            <div className="flex items-center justify-center gap-3">
-                                <InkButton variant="secondary" size="sm" onClick={() => setShowBattleStatistics(true)}>
+                        <div className="battle-result-actions">
+                            <div className="battle-result-secondary">
+                                <InkButton
+                                    variant="secondary"
+                                    className="battle-result-sub-btn"
+                                    onClick={() => setShowBattleStatistics(true)}
+                                >
                                     伤害统计
                                 </InkButton>
-                                <InkButton variant="primary" size="lg" onClick={leaveBattle}>
-                                    返回主界面
-                                </InkButton>
+                                {hasBattleReplay() && (
+                                    <InkButton
+                                        variant="secondary"
+                                        className="battle-result-sub-btn"
+                                        onClick={() => setShowBattleReplay(true)}
+                                    >
+                                        查看回放
+                                    </InkButton>
+                                )}
                             </div>
-
-                            {/* 印章 */}
-                            <div className="mt-6 opacity-30">
-                                <span className="ink-seal text-2xl">终</span>
-                            </div>
+                            <InkButton variant="primary" size="md" onClick={leaveBattle}>
+                                返回主界面
+                            </InkButton>
                         </div>
                     </div>
                 </div>
@@ -189,6 +191,10 @@ export default function BattleScene() {
 
             {phase === 'ended' && showBattleStatistics && (
                 <BattleStatisticsModal onClose={() => setShowBattleStatistics(false)} />
+            )}
+
+            {phase === 'ended' && showBattleReplay && (
+                <BattleReplayModal onClose={() => setShowBattleReplay(false)} />
             )}
 
             {showExitConfirm && phase !== 'ended' && (

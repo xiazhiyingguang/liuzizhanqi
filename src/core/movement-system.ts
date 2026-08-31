@@ -1,8 +1,9 @@
-import { Position, Hero, GameState, HeroState } from '../types/game';
+import { BOARD_SIZE, Position, Hero, GameState, HeroState } from '../types/game';
 import { getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { isFreeWindLaneStep } from './wind-lane';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
+import { processWindBladeEntry } from './wind-blade';
 
 /**
  * 移动范围计算选项。
@@ -226,14 +227,35 @@ export class MovementSystem {
     }
 
     /**
+     * 泠汐技能2的前方 2×3 范围：沿指定方向前进 1、2 格，每格横向展开 3 格。
+     * 方向编码与帝兰技能2一致：0=上，1=下，2=左，3=右。
+     */
+    static getLingxiFrontRect(start: Position, directionCode: number): Position[] {
+        const [row, col] = start;
+        const positions: Position[] = [];
+        for (let depth = 1; depth <= 2; depth++) {
+            for (let side = -1; side <= 1; side++) {
+                let targetRow = row;
+                let targetCol = col;
+                if (directionCode === 0) { targetRow = row - depth; targetCol = col + side; }
+                else if (directionCode === 1) { targetRow = row + depth; targetCol = col + side; }
+                else if (directionCode === 2) { targetRow = row + side; targetCol = col - depth; }
+                else { targetRow = row + side; targetCol = col + depth; }
+                if (this.inBounds([targetRow, targetCol])) positions.push([targetRow, targetCol]);
+            }
+        }
+        return positions;
+    }
+
+    /**
      * 获取范围内的所有位置（曼哈顿距离）
      */
     static getPositionsInRange(center: Position, range: number): Position[] {
         const positions: Position[] = [];
         const [centerRow, centerCol] = center;
 
-        for (let row = 0; row < 6; row++) {
-            for (let col = 0; col < 6; col++) {
+        for (let row = 0; row < BOARD_SIZE; row++) {
+            for (let col = 0; col < BOARD_SIZE; col++) {
                 const pos: Position = [row, col];
                 if (this.getManhattanDistance(center, pos) <= range &&
                     (row !== centerRow || col !== centerCol)) {
@@ -576,32 +598,6 @@ export class MovementSystem {
             partner.position = partnerTo;
         }
 
-        // 敌方进入回锋刃痕周围一格时获得连破标记。
-        const bladeMarks = gameState.boardEffects?.filter(
-            effect =>
-                effect.type === 'blade-mark' &&
-                effect.owner !== hero.owner &&
-                this.getManhattanDistance(effect.position, to) <= 1
-        ) ?? [];
-        for (const mark of bladeMarks) {
-            const existing = hero.effects.find(
-                effect => effect.name === '连破' && effect.sourceHeroId === mark.sourceHeroId
-            );
-            if (existing) {
-                existing.duration = 1;
-            } else {
-                hero.effects.push({
-                    id: `effect-${Date.now()}-${Math.random()}`,
-                    type: 'mark',
-                    name: '连破',
-                    duration: 1,
-                    stackCount: 1,
-                    sourceHeroId: mark.sourceHeroId,
-                    description: '受到回锋攻击时获得锋鸣'
-                });
-            }
-        }
-
         // 到达己方冰晶位置：冰晶是一次性拾取物，被到达即消耗消失；
         // 冰甲在英雄尚未拥有时才附加（已有冰甲时冰晶同样被拾取）
         const crystal = gameState.boardEffects?.find(effect =>
@@ -634,15 +630,27 @@ export class MovementSystem {
             );
         }
 
+        // 游隼：累计本回合移动路径（疾掠的「上回合移动距离」倍率读取项）；
+        // 沿途踏入风刃格：自己收回风刃，敌人受到风刃固定伤害
+        if (hero.passiveId === 'youjun_passive') {
+            hero.counters['youjun_moved_path'] = (hero.counters['youjun_moved_path'] ?? 0) + movePath.length;
+        }
+        if (gameState.boardEffects?.some(effect => effect.type === 'wind-blade')) {
+            for (const cell of movePath) {
+                processWindBladeEntry(hero, cell, gameState);
+                if (hero.state !== HeroState.ALIVE) break;
+            }
+        }
+
         return true;
     }
 
     /**
-     * 检查位置是否在棋盘内
+     * 检查位置是否在棋盘内（公开：特效推导等处共用同一份边界口径）
      */
-    private static inBounds(pos: Position): boolean {
+    static inBounds(pos: Position): boolean {
         const [row, col] = pos;
-        return row >= 0 && row < 6 && col >= 0 && col < 6;
+        return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
     }
 
     /**

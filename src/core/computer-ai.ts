@@ -35,13 +35,26 @@ const BENCH_SIZE = 2;
 /** 最近一次使用过的技能会减分，促使 AI 轮换使用不同技能。 */
 const SKILL_REPEAT_PENALTY = 5;
 /** 斩杀优先奖励：模拟中确认击杀一名敌人时附加的评分，压过其他一切收益，让 AI 追着残血杀。 */
-const KILL_SCORE_BONUS = 180;
+const KILL_SCORE_BONUS = 205;
 /** 把敌人打成暂时阵亡的奖励（敌方可能拥有复活，故低于真实击杀）。 */
-const TEMP_DEAD_SCORE_BONUS = 40;
+const TEMP_DEAD_SCORE_BONUS = 45;
 /** 拥有"击杀后立即再动"天威的英雄，每次模拟击杀的额外收益。 */
 const TIANWEI_KILL_BONUS = 40;
 /** 多目标技能组合枚举时考虑的前 N 个高优先级目标。 */
 const MULTI_TARGET_COMBINATION_TOP = 6;
+/**
+ * 攻击性权重：AI 主动求战、愿意换血、优先压低敌方血线。
+ * damageWeight 决定"打出去的每 1 点伤害值多少分"，与 heroBoardValue 中
+ * 己方 1 点生命的 1.65 分相对；调到 1.05 后 AI 会接受约 1.6:1 的换血。
+ */
+const AGGRESSION = {
+    damageWeight: 1.05,
+    healingWeight: 0.42,
+    /** 位移型伤害技能（如游隼疾掠）每穿透一名敌人的额外价值 */
+    piercePerEnemy: 7,
+    /** 冲刺每推进一格的接敌价值 */
+    dashPerCell: 2,
+};
 /** 多段伤害技能：估算威胁伤害时按段数放大（如回锋连刃斩共 3 段）。 */
 const MULTI_HIT_SKILLS: Record<string, number> = {
     huifeng_skill1: 3,
@@ -60,9 +73,9 @@ interface DifficultyProfile {
 }
 
 const DIFFICULTY_PROFILES: Record<AiDifficulty, DifficultyProfile> = {
-    easy: { decisionTolerance: 8, skillTolerance: 18, blunderChance: 0.3, jointMoveTopK: 0, exposureWeight: 0.35 },
-    normal: { decisionTolerance: 4, skillTolerance: 9, blunderChance: 0.12, jointMoveTopK: 5, exposureWeight: 0.7 },
-    master: { decisionTolerance: 2, skillTolerance: 5, blunderChance: 0, jointMoveTopK: 6, exposureWeight: 1 },
+    easy: { decisionTolerance: 8, skillTolerance: 18, blunderChance: 0.3, jointMoveTopK: 0, exposureWeight: 0.3 },
+    normal: { decisionTolerance: 4, skillTolerance: 9, blunderChance: 0.12, jointMoveTopK: 5, exposureWeight: 0.55 },
+    master: { decisionTolerance: 2, skillTolerance: 5, blunderChance: 0, jointMoveTopK: 6, exposureWeight: 0.78 },
 };
 
 let currentDifficulty: AiDifficulty = 'master';
@@ -104,6 +117,17 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position): n
             return (caster.baseAttack ?? 0) * 3;
         case 'lilith_skill1':
             return 8;
+        case 'youjun_skill1': {
+            // 疾掠：按点击位置估算冲刺距离，伤害随冲刺距离与上回合移动距离攀升
+            const distance = Math.min(
+                5,
+                MovementSystem.getManhattanDistance(caster.position!, position)
+            );
+            const lastMove = Math.min(6, caster.counters['youjun_lastMove'] ?? 0);
+            return 5 * (1 + distance * 0.1) * (1 + lastMove * 0.1);
+        }
+        case 'youjun_skill2':
+            return 4;
         default:
             return null;
     }
@@ -774,7 +798,7 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
         }
     }
 
-    let valid = SkillSystem.getValidTargetPositions(caster, skill).filter(isBoardPosition);
+    let valid = SkillSystem.getValidTargetPositions(caster, skill, state).filter(isBoardPosition);
     if (skill.targetType === 'empty') {
         valid = valid.filter(([row, col]) => state.board[row][col] === null);
     }
@@ -828,7 +852,7 @@ function configureSimulationChoices(
         const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
         const dirCode = direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
         if (skill.id === 'dilan_skill1') {
-            caster.counters['__dilan_skill1_axis'] = dirCode <= 1 ? 1 : 0;
+            caster.counters['__dilan_skill1_dir'] = dirCode;
         } else {
             caster.counters['__dilan_skill2_dir'] = dirCode;
         }
@@ -864,14 +888,16 @@ function configureSimulationChoices(
 }
 
 function skillTypeBias(skill: Skill): number {
+    // 伤害技拿到最高的类型加分：分数接近时 AI 优先选择进攻；
+    // 其余类型仍保有各自的加分，功能技在收益真实时照样会被选用。
     switch (skill.type) {
-        case 'damage': return 5;
-        case 'control': return 9;
-        case 'summon': return 12;
-        case 'heal': return 4;
-        case 'buff': return 6;
-        case 'debuff': return 7;
-        default: return 3;
+        case 'damage': return 12;
+        case 'control': return 11;
+        case 'summon': return 11;
+        case 'debuff': return 8;
+        case 'buff': return 7;
+        case 'heal': return 5;
+        default: return 4;
     }
 }
 
@@ -904,6 +930,11 @@ function simulateSkillPlan(
             // 冰晶封路：放在敌方阵型附近封锁走位并生成冰甲点，距离越近价值越高
             const [row, col] = targetPositions[0] ?? [-1, -1];
             if (!isBoardPosition([row, col]) || simulated.board[row][col] !== null) return null;
+            // 已有冰晶的格子会被技能结算直接拒绝（施法失败不消耗行动），
+            // 若这里不当无效方案处理，AI 会每步重复同一个必败落点，对局原地空转
+            if (simulated.boardEffects?.some(effect =>
+                effect.type === 'ice-crystal' && effect.position[0] === row && effect.position[1] === col
+            )) return null;
             const nearbyEnemies = enemiesFor(simulated, simulatedCaster.owner).filter(enemy =>
                 enemy.position &&
                 MovementSystem.getManhattanDistance([row, col], enemy.position) <= 2
@@ -974,14 +1005,29 @@ function simulateSkillPlan(
                 hero.state === HeroState.ALIVE && isWukongCloneOf(hero, caster.id)
             ).length * 26
             : 0;
+        // 游隼疾掠是「位移 + 穿透」：一步接敌的距离与同时穿透的敌人数都是实打实的收益，
+        // 只按伤害数字计分会被"先走一步再打"的保守方案吃掉，导致 AI 从不用冲刺。
+        const dashBonus = skill.id === 'youjun_skill1' && caster.position && targetPositions[0]
+            ? (result.damageDealt?.length ?? 0) * AGGRESSION.piercePerEnemy
+                + MovementSystem.getManhattanDistance(caster.position, targetPositions[0]) * AGGRESSION.dashPerCell
+            : 0;
+        // 游隼四向风刃是布场：每道留下的风刃都会持续逼敌人走位、可被收回刷新疾掠，
+        // 给一点正分，避免它永远是 0 分而被施法闸门挡掉。
+        const bladeBonus = skill.id === 'youjun_skill2'
+            ? (simulated.boardEffects ?? []).filter(effect =>
+                effect.type === 'wind-blade' && effect.sourceHeroId === caster.id
+              ).length * 3
+            : 0;
         const score = afterScore - beforeScore
-            + damage * 0.65
-            + healing * 0.45
+            + damage * AGGRESSION.damageWeight
+            + healing * AGGRESSION.healingWeight
             + effectValue
             + kills * KILL_SCORE_BONUS
             + tempDeaths * TEMP_DEAD_SCORE_BONUS
             + tianweiBonus
             + cloneBonus
+            + dashBonus
+            + bladeBonus
             + (meaningfulResult ? skillTypeBias(skill) : 0)
             // 技能轮换：最近一次用过的技能减分，促使 AI 换着放技能
             - (lastSkillIndex === skillIndex ? SKILL_REPEAT_PENALTY : 0);
@@ -1061,18 +1107,19 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
         const distance = MovementSystem.getManhattanDistance(position, enemy.position!);
         const enemyReach = maximumSkillReach(enemy);
         const enemyHpRatio = effectiveHpRatio(enemy);
-        if (distance <= reach) score += ratings.输出 * 2.2 + ratings.控制 * 1.4 + (1 - enemyHpRatio) * 18;
-        score += Math.max(0, 6 - distance) * ratings.输出 * 0.22;
+        if (distance <= reach) score += ratings.输出 * 3 + ratings.控制 * 1.4 + (1 - enemyHpRatio) * 20;
+        score += Math.max(0, 6 - distance) * ratings.输出 * 0.32;
         if (!EffectManager.isStunned(enemy)) {
             if (distance <= enemyReach) {
                 // 直接威胁：敌人原地就能打到这个位置
                 const threat = estimateThreatAtPosition(enemy, position, hero);
                 if (threat > 0) {
-                    // 会被敌方单次技能直接击杀时威胁扣分大幅放大，残血英雄优先保命；
-                    // 敌方本回合已行动过则威胁大幅降低。
-                    const deathRisk = threat >= hero.currentHp ? 3.2 : 1;
+                    // 会被单次技能直接击杀时扣分大幅放大，越残血越怕死；
+                    // 非致命威胁只按低权重计分，让健康单位敢于压上换血。
+                    const lethal = threat >= hero.currentHp + hero.shield;
+                    const deathRisk = lethal ? (hpRatio < 0.35 ? 6 : 3.2) : 1;
                     const actedFactor = enemy.hasActedThisTurn ? 0.25 : 1;
-                    score -= threat * (0.35 + (1 - hpRatio) * 0.65) * actedFactor * deathRisk;
+                    score -= threat * (0.24 + (1 - hpRatio) * 0.5) * actedFactor * deathRisk;
                 } else {
                     // 没有直接伤害技能的治疗/辅助单位，保留轻微威慑分。
                     score -= (1.15 - hpRatio) * ratingsForHero(enemy).输出 * 0.5;
@@ -1083,7 +1130,7 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
                 const threat = estimateDamageAgainst(enemy, hero) * 0.5;
                 if (threat > 0) {
                     const deathRisk = threat >= hero.currentHp ? 1.2 : 1;
-                    score -= threat * (0.16 + (1 - hpRatio) * 0.35) * deathRisk;
+                    score -= threat * (0.12 + (1 - hpRatio) * 0.28) * deathRisk;
                 }
             }
         }
@@ -1097,19 +1144,19 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
     }
 
     score += (2.5 - Math.abs(position[0] - 2.5)) * 0.8;
-    if (hpRatio < 0.35) {
+    if (hpRatio < 0.28) {
         const nearestEnemy = enemies.reduce(
             (best, enemy) => Math.min(best, MovementSystem.getManhattanDistance(position, enemy.position!)),
             12
         );
-        score += nearestEnemy * (0.35 - hpRatio) * 9;
-    } else if (ratings.支援 >= 8 && hpRatio < 0.6) {
-        // 治疗/辅助型英雄更早后撤，避免被集火。
+        score += nearestEnemy * (0.28 - hpRatio) * 7;
+    } else if (ratings.支援 >= 8 && hpRatio < 0.5) {
+        // 治疗/辅助型英雄适当后撤，避免被集火。
         const nearestEnemy = enemies.reduce(
             (best, enemy) => Math.min(best, MovementSystem.getManhattanDistance(position, enemy.position!)),
             12
         );
-        score += nearestEnemy * (0.6 - hpRatio) * 3;
+        score += nearestEnemy * (0.5 - hpRatio) * 2.4;
     }
     return score;
 }
@@ -1220,7 +1267,15 @@ export interface ComputerJointMovePlan {
 /** 联合规划要求总分明显优于原地放技能才采纳的门槛。 */
 const JOINT_MOVE_MARGIN = 8;
 /** 联合规划中的技能本身也要有足够强度，避免为了一点站位分而浪费行动。 */
-const JOINT_MIN_PLAN_SCORE = 55;
+const JOINT_MIN_PLAN_SCORE = 30;
+
+/**
+ * 自带位移的伤害技能：释放本身就已经完成接敌与脱离，
+ * 不该再为它"先走一步"，否则会把冲刺距离额度提前花光（游隼疾掠的典型误用）。
+ */
+export function isSelfPropellingSkill(skillId: string | undefined): boolean {
+    return skillId === 'youjun_skill1';
+}
 
 /**
  * 移动+技能联合规划：枚举若干高价值站位，模拟"先移动到该格再放技能"的总收益。
@@ -1314,17 +1369,23 @@ export function chooseComputerWukongStrikeTarget(
 }
 
 /**
- * 孙悟空分身指挥：为本体/分身挑一格相邻移动位。
- * 只考虑移动过去后 3x3 内有敌人的格子（移动就是为了打出下一拳），
- * 再按走位安危排序取最优。
+ * 孙悟空分身指挥：为本体/分身挑一格移动位。
+ * 只考虑移动过去后 3x3 内有敌人的格子（移动就是为了打出下一拳），再按走位安危排序取最优。
+ * 候选格默认是四方向相邻格（分身仍走一格）；本体阶段由调用方传入其移动力可达的全部空格。
  */
-export function chooseComputerWukongStepPosition(state: GameState, unit: Hero): Position | null {
+export function chooseComputerWukongStepPosition(
+    state: GameState,
+    unit: Hero,
+    candidates?: Position[]
+): Position | null {
     if (!unit.position || unit.state !== HeroState.ALIVE) return null;
+    const [unitRow, unitCol] = unit.position;
+    const stepCells = candidates ?? (
+        [[-1, 0], [1, 0], [0, -1], [0, 1]] as const
+    ).map(([dr, dc]) => [unitRow + dr, unitCol + dc] as Position);
     let best: Position | null = null;
     let bestScore = -Infinity;
-    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
-        const row = unit.position[0] + dr;
-        const col = unit.position[1] + dc;
+    for (const [row, col] of stepCells) {
         if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) continue;
         if (state.board[row][col] !== null) continue;
         const hasTargetNearby = MovementSystem.getAreaPositions([row, col], 3).some(([areaRow, areaCol]) => {

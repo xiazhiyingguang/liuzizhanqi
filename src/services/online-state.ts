@@ -2,10 +2,15 @@ import { useGameStore } from '../store/game-store';
 import { soundManager } from '../core/sound-manager';
 import { getSkillSound } from '../data/skill-sounds';
 import {
+    collectImpactPositions,
     computeFxAngleDeg,
     computeFxDirection,
-    resolveSkillFx
+    resolveSkillFx,
+    SKILL_FX_PROFILES
 } from '../core/skill-fx';
+import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
+import { MovementSystem } from '../core/movement-system';
+import { getSkill } from '../data/skills';
 import type { Player, Position } from '../types/game';
 
 /**
@@ -151,8 +156,8 @@ export interface OnlineCastReplay {
     owner: Player;
     fromPos: Position;
     targetPos: Position;
-    /** 快照应用前最后一条日志的 id，用于在新日志里定位本次施法新增的部分 */
-    lastLogIdBefore: string | undefined;
+    /** 快照应用前的日志 id 集合，用于差分出新日志 */
+    logIdsBefore: Set<string>;
 }
 
 /**
@@ -179,30 +184,50 @@ export function prepareOnlineCastReplay(action: any): OnlineCastReplay | null {
         // 瞬移/位移类技能会改写 hero.position，必须在快照落地前读起始格
         fromPos: hero?.position ?? (targetPos as Position),
         targetPos: targetPos as Position,
-        lastLogIdBefore: state.battleLog[state.battleLog.length - 1]?.id,
+        logIdsBefore: new Set(state.battleLog.map(entry => entry.id)),
     };
 }
 
 /**
  * 施法表现回放（确认阶段）：与行动方 executeSkill 用同一判据——
  * 本次动作产生了非 system 类新日志，才视为真实施法并派发特效。
- * 日志按 id 定位而非按长度切片：battleLog 有 200 条上限，截断会让长度差算错。
+ * 新日志按 id 集合差分取出：battleLog 里伤害日志是原地 push、其余是换新数组，
+ * 两者混排后并不按时间有序，按锚点切片会把本次的伤害日志漏掉。
  */
 export function commitOnlineCastReplay(replay: OnlineCastReplay | null): void {
     if (!replay) return;
     const state = useGameStore.getState();
-    const anchor = state.battleLog.findIndex(entry => entry.id === replay.lastLogIdBefore);
-    const freshLogs = anchor >= 0 ? state.battleLog.slice(anchor + 1) : state.battleLog;
+    const freshLogs = state.battleLog.filter(entry => !replay.logIdsBefore.has(entry.id));
     if (!freshLogs.some(entry => entry.type !== 'system')) return;
 
     const angleDeg = computeFxAngleDeg(replay.fromPos, replay.targetPos);
+    // 与行动方 executeSkill 包装层同判据：命中格取本次新增日志，区域格按技能几何重算。
+    // 两者只依赖静态技能数据与已随快照同步的 battleLog，无需新增网络字段。
+    // 特例：绯雪技能1击碎冰冻时，行动方以 fxVariant 切换「破冰爆震」形态，
+    // 对端按其专属技能日志（"击碎了…的冰冻"）识别同一形态并同步铺 3x3 爆震范围。
+    const shatteredFrozen = replay.skillId === 'feixue_skill1' &&
+        freshLogs.some(entry => entry.type === 'skill' && /击碎了.+的冰冻/.test(entry.message));
+    const profile = shatteredFrozen
+        ? (SKILL_FX_PROFILES.feixue_shatter ?? resolveSkillFx(replay.skillId))
+        : resolveSkillFx(replay.skillId);
+    const impacts = collectImpactPositions(freshLogs, replay.targetPos);
     state.pushSkillFx({
-        profile: resolveSkillFx(replay.skillId),
+        profile,
         owner: replay.owner,
         fromPos: replay.fromPos,
         targetPos: replay.targetPos,
         angleDeg,
         direction: computeFxDirection(angleDeg),
+        impactPositions: impacts.impactPositions,
+        softImpactPositions: impacts.softImpactPositions,
+        coveredPositions: shatteredFrozen && replay.targetPos
+            ? [replay.targetPos, ...MovementSystem.getAreaPositions(replay.targetPos, 3)]
+            : computeFxCoveredPositions(
+                getSkill(replay.skillId),
+                replay.fromPos,
+                replay.targetPos,
+                profile
+            ),
     });
 }
 

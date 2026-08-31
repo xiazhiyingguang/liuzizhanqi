@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { GameEngine } from '../../src/core/game-engine';
 import { MovementSystem } from '../../src/core/movement-system';
 import { SkillSystem } from '../../src/core/skill-system';
-import { huifengSkill2, zhenxiaoSkill2 } from '../../src/data/skills';
+import { heroXSkill2 } from '../../src/data/extended-skills';
+import { zhenxiaoSkill2 } from '../../src/data/skills';
 import { GameState, Position } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
 
@@ -88,16 +89,16 @@ describe('震霄·束缚格', () => {
 
     it('技能造成的位移可以离开束缚区，普通移动不行', () => {
         const { state } = setupZone();
-        const jumper = addHero(state, 'huifeng', 'player2', [2, 3]);
+        const leaper = addHero(state, 'hero_x', 'player2', [2, 3]);
 
         // 同一格：普通移动走不出去
-        expect(MovementSystem.moveHero(jumper, [2, 4], state)).toBe(false);
+        expect(MovementSystem.moveHero(leaper, [2, 4], state)).toBe(false);
 
-        // 风过留痕（技能2跳跃）可以跳出区
-        jumper.counters['__huifeng_skill2_target'] = 2 * 6 + 4;
-        const result = SkillSystem.executeSkill(jumper, huifengSkill2, [[2, 4]], state);
+        // 增势跃迁（技能2瞬移）可以跳出区
+        leaper.counters['__extended_target'] = 2 * 6 + 4;
+        const result = SkillSystem.executeSkill(leaper, heroXSkill2, [[2, 4]], state);
         expect(result.success).toBe(true);
-        expect(jumper.position).toEqual([2, 4]);
+        expect(leaper.position).toEqual([2, 4]);
     });
 
     it('下一回合震霄行动结束后整片撤除，敌人恢复自由', () => {

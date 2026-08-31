@@ -5,6 +5,7 @@ import { GameEngine } from '../core/game-engine';
 import { createMirrorClone, getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { MovementSystem } from '../core/movement-system';
 import { EXTENDED_SKILLS } from './extended-skills';
+import { createHuifengStrikeContext, executeHuifengCombo, huifengMarkStrike, pickHuifengMarkTargets, HUIFENG_COMBO_BASE, HUIFENG_MARK_BASE, type HuifengStrikeContext } from '../core/huifeng-marks';
 
 /**
  * 墨阑的技能
@@ -15,12 +16,27 @@ function getAliveAllies(gameState: GameState, owner: Hero['owner']): Hero[] {
     return allies.filter(h => h.state === HeroState.ALIVE);
 }
 
+/** 分身与召唤物不享受针对"英雄"的治疗与增益 */
+function isRealHero(hero: Hero): boolean {
+    return hero.counters?.['__isClone'] !== 1 &&
+        hero.counters?.['__isSummon'] !== 1 &&
+        !hero.id.startsWith('wukong-clone|') &&
+        !hero.id.startsWith('mirror-clone|') &&
+        !hero.id.startsWith('t-summon|');
+}
+
+/** 白泽治疗对象：我方英雄中生命百分比最低者（不含分身与召唤物） */
 function getLowestHpAlly(gameState: GameState, owner: Hero['owner']): Hero | null {
-    const allies = getAliveAllies(gameState, owner);
+    const allies = getAliveAllies(gameState, owner).filter(isRealHero);
     if (allies.length === 0) return null;
     let best = allies[0];
+    let bestRatio = best.currentHp / Math.max(1, best.maxHp);
     for (const h of allies) {
-        if (h.currentHp < best.currentHp) best = h;
+        const ratio = h.currentHp / Math.max(1, h.maxHp);
+        if (ratio < bestRatio) {
+            best = h;
+            bestRatio = ratio;
+        }
     }
     return best;
 }
@@ -34,7 +50,7 @@ export const baizeSkill1: Skill = {
     id: 'baize_skill1',
     name: '瑞泽',
     type: 'heal',
-    description: '恢复我方血量最低单位生命，为目标+1白泽之力，自身+1天禄',
+    description: '恢复我方生命百分比最低的英雄（不含分身与召唤物），为目标+1白泽之力，自身+1天禄',
     rangeType: '全场',
     range: 6,
     targetType: 'any',
@@ -154,7 +170,7 @@ export const wukongSkill2: Skill = {
     id: 'wukong_skill2',
     name: '大圣合击',
     type: 'special',
-    description: '释放前只能移动一格，然后对一格内的一名敌人造成8伤害；本体与每个分身都可分别选择目标或跳过（跳过不影响其余单位出手）',
+    description: '释放前可先走到自身移动力可达的任意空格，然后对一格内的一名敌人造成8伤害；本体与每个分身都可分别选择目标或跳过（跳过不影响其余单位出手）',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
@@ -197,116 +213,69 @@ export const wukongSkill2: Skill = {
     }
 };
 
-function executeHuifengCombo(
-    caster: Hero,
-    target: Hero,
-    gameState: GameState,
-    triggerPassive: boolean
-): SkillExecuteResult {
-    const result: SkillExecuteResult = {
+function huifengOutput(context: HuifengStrikeContext): SkillExecuteResult {
+    return {
         success: true,
-        damageDealt: [],
+        damageDealt: context.damageDealt,
         healingDone: [],
         effectsApplied: [],
         triggeredPassives: [],
-        log: []
+        log: context.log
     };
-
-    for (let hit = 1; hit <= 3; hit++) {
-        if (target.state !== HeroState.ALIVE) break;
-        const stacks = EffectManager.getCounter(caster, '破锋');
-        const baseDamage = Math.floor(4 * (1 + stacks * 0.1));
-        const damage = DamageCalculator.calculate(caster, target, baseDamage, false);
-        DamageCalculator.applyDamage(target, damage, caster, gameState);
-        result.damageDealt?.push(damage.finalDamage);
-        EffectManager.addCounter(caster, '破锋', 1);
-        result.log.push(`${caster.name}第${hit}段攻击对${target.name}造成${damage.finalDamage}点伤害，破锋+1`);
-    }
-
-    const linked = target.effects.find(
-        effect => effect.name === '连破' && effect.sourceHeroId === caster.id
-    );
-    if (triggerPassive && linked && target.state === HeroState.ALIVE) {
-        EffectManager.addEffect(target, {
-            type: 'mark',
-            name: '锋鸣',
-            duration: 1,
-            stackCount: 1,
-            sourceHeroId: caster.id,
-            description: '达到3层时触发连刃斩'
-        });
-        const fengming = target.effects.find(
-            effect => effect.name === '锋鸣' && effect.sourceHeroId === caster.id
-        );
-        if ((fengming?.stackCount ?? 0) >= 3) {
-            target.effects = target.effects.filter(effect => effect !== fengming);
-            const bonus = executeHuifengCombo(caster, target, gameState, false);
-            result.damageDealt?.push(...(bonus.damageDealt ?? []));
-            result.log.push(`${caster.name}触发锋鸣，自动释放连刃斩`, ...bonus.log);
-        }
-    }
-
-    return result;
 }
 
+/**
+ * 回锋技能1「连刃斩」
+ * 对一格内的一个敌人连击3段，每段4点伤害（受破锋加成），每一段叠1层破锋（上限5层）。
+ * 若目标带啸刃，每一段还会为其叠1层锋鸣，满3层即自动释放随机目标的连刃斩。
+ */
 export const huifengSkill1: Skill = {
     id: 'huifeng_skill1',
     name: '连刃斩',
     type: 'damage',
-    description: '对一格内敌人进行3段攻击，每段4点伤害，每段获得1层破锋',
+    description: '对一格内的一个敌人连击3段，每段4点伤害并获得1层破锋（上限5层，每层提升10%伤害，加成回锋的所有伤害）；攻击带啸刃的目标会叠加锋鸣',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
     targetType: 'enemy',
     targetCount: 1,
-    baseDamage: 4,
+    baseDamage: HUIFENG_COMBO_BASE,
     scalesWithAttack: false,
     canCrit: true,
     execute: (caster, targets, gameState) => {
-        if (!targets[0]) return { success: false, log: [`${caster.name}没有找到目标`] };
-        return executeHuifengCombo(caster, targets[0], gameState, true);
+        const target = targets[0];
+        if (!target) return { success: false, log: [`${caster.name}没有找到目标`] };
+        const context = createHuifengStrikeContext();
+        executeHuifengCombo(caster, target, gameState, context, false);
+        return huifengOutput(context);
     }
 };
 
+/**
+ * 回锋技能2「风过留痕」
+ * 随机标记场上两名敌方单位（只剩一名时只标记那一名），各造成5点伤害（受破锋加成）
+ * 并留下永久「连破」；连破叠满2层时消耗这2层，凝成永久「啸刃」。
+ */
 export const huifengSkill2: Skill = {
     id: 'huifeng_skill2',
     name: '风过留痕',
-    type: 'special',
-    description: '跳到相邻空位，在原地留下持续3回合的刃痕',
-    rangeType: 'cross',
-    range: 1,
-    targetType: 'empty',
+    type: 'damage',
+    description: '随机标记场上两名敌方单位（只剩一名时只标记那一名）：各造成5点伤害并留下永久「连破」（无持续时间）；连破满2层会消耗这2层凝成永久「啸刃」',
+    rangeType: 'single',
+    range: 0,
+    targetType: 'self',
     targetCount: 1,
+    baseDamage: HUIFENG_MARK_BASE,
+    scalesWithAttack: false,
+    canCrit: true,
     execute: (caster, _targets, gameState) => {
-        const encoded = caster.counters['__huifeng_skill2_target'];
-        if (encoded === undefined || !caster.position) {
-            return { success: false, log: [`${caster.name}没有选择跳跃位置`] };
+        const chosen = pickHuifengMarkTargets(caster, gameState);
+        if (chosen.length === 0) return { success: false, log: [`${caster.name}场上没有可标记的敌方单位`] };
+        const context = createHuifengStrikeContext();
+        for (const target of chosen) {
+            huifengMarkStrike(caster, target, gameState, context);
         }
-        const target: Position = [Math.floor(encoded / 6), encoded % 6];
-        const from: Position = [...caster.position];
-        if (MovementSystem.getManhattanDistance(from, target) !== 1) {
-            return { success: false, log: ['只能跳跃到相邻一格'] };
-        }
-        if (!MovementSystem.moveHero(caster, target, gameState, undefined, { ignoreBindingZone: true })) {
-            return { success: false, log: ['目标位置不可到达'] };
-        }
-        if (caster.state !== HeroState.ALIVE) {
-            return { success: true, log: [`${caster.name}在跳跃中触发羽化伤害并阵亡`] };
-        }
-        caster.hasMovedThisTurn = true;
-        gameState.boardEffects ??= [];
-        gameState.boardEffects.push({
-            id: `blade-mark-${Date.now()}-${Math.random()}`,
-            type: 'blade-mark',
-            position: from,
-            owner: caster.owner,
-            sourceHeroId: caster.id,
-            duration: 3
-        });
-        return {
-            success: true,
-            log: [`${caster.name}跳跃到(${target[0] + 1},${target[1] + 1})，并在原地留下刃痕`]
-        };
+        return huifengOutput(context);
     }
 };
 
@@ -421,6 +390,7 @@ export const changliSkill2: Skill = {
         const baseDamage = Math.floor(8 * (1 + starfire * 0.1) * (1 + distance * 0.1));
         const damage = DamageCalculator.calculate(caster, target, baseDamage, false);
         DamageCalculator.applyDamage(target, damage, caster, gameState);
+
         let stunText = '';
         if (caster.counters['__changli_empowered'] === 1 && starfire >= 2) {
             EffectManager.addCounter(caster, '暗夜星火', -2);
@@ -601,7 +571,6 @@ export const zhenxiaoSkill1: Skill = {
 
     execute: (caster: Hero, targets: Hero[], gameState: GameState): SkillExecuteResult => {
         void targets;
-        void gameState;
         const result: SkillExecuteResult = {
             success: true,
             damageDealt: [],
@@ -682,6 +651,7 @@ export const zhenxiaoSkill2: Skill = {
         if (center) {
             const linkId = `zhenxiao-binding-${caster.id}-${(caster.counters['__actionSerial'] ?? 0) + 1}`;
             const cells: Position[] = [center, ...MovementSystem.getAreaPositions(center, 3)];
+            result.fxCoveredPositions = cells;
             gameState.boardEffects ??= [];
             for (const [row, col] of cells) {
                 gameState.boardEffects.push({
@@ -1502,7 +1472,8 @@ export const hanjiangxueSkill1: Skill = {
             healingDone: [],
             effectsApplied: [],
             triggeredPassives: [],
-            log: []
+            log: [],
+            fxCoveredPositions: positions,
         };
 
         DamageCalculator.asOneAttack(() => {

@@ -29,11 +29,11 @@ describe('和声按"每次攻击"触发', () => {
     it('帝兰顺逆长风命中两名敌人只回一次和声（5 点，而非 10 点）', () => {
         const state = makeGameState();
         const dilan = addHero(state, 'dilan', 'player1', [2, 2]);
-        addHero(state, 'baize', 'player2', [2, 0]);
+        addHero(state, 'baize', 'player2', [2, 3]);
         addHero(state, 'mowen', 'player2', [2, 4]);
         grantHarmony(dilan);
         dilan.currentHp = dilan.maxHp - 20;
-        dilan.counters['__dilan_skill1_axis'] = 0;
+        dilan.counters['__dilan_skill1_dir'] = 3;                    // 右：两名敌人同侧
 
         const result = SkillSystem.executeSkill(dilan, dilanSkill1, [[2, 3]], state);
 

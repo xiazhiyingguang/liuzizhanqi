@@ -2,20 +2,36 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from
 import { useGameStore } from '../../store/game-store';
 import { Position } from '../../types/game';
 import type { SkillFxEvent } from '../../core/skill-fx';
-import { isImpactFxKind } from '../../core/skill-fx';
+import { computeFxAngleDeg, computeFxCellDelayMs, computeFxDirection, isImpactFxKind, resolveSkillFx } from '../../core/skill-fx';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroStatusPopover from './HeroStatusPopover';
-import { SkillFxLifecycle, SkillFxVisual } from './SkillFxLayer';
+import { SkillAreaFx, SkillFxLifecycle, SkillFxVisual } from './SkillFxLayer';
 import { HeroStatusFx } from './HeroStatusFx';
+import { resolveYinyangLinks } from '../../core/yinyang-link-view';
 
 type FloatingDamage = {
     id: number;
     row: number;
     col: number;
     amount: number;
-    kind: 'damage' | 'crit' | 'heal';
+    kind: 'damage' | 'crit' | 'heal' | 'burn' | 'bleed' | 'chain';
     /** 同格错位序号：多段伤害/追击同时落格时错开显示，避免叠成一团 */
     offsetIndex: number;
+};
+
+/** 灼烧跳伤/流血移动掉血的格子小特效（一次性爆点，由 damage 日志 fxTag 驱动） */
+type MinorFx = {
+    id: number;
+    row: number;
+    col: number;
+    kind: 'burn-tick' | 'bleed-tick';
+};
+
+/** 英雄阵亡的水墨消散特效（由 kill 日志 details.victimPosition 驱动） */
+type DeathFx = {
+    id: number;
+    row: number;
+    col: number;
 };
 
 /** 同格飘字偏移表（px）：第 0 条居中，后续左右交错向上错开 */
@@ -55,6 +71,7 @@ export default function Board() {
         currentPlayer,
         libaiChainState,
         selectLibaiChainPosition,
+        pendingSkillTargetPositions,
         reinforcingPlayer,
         reinforcementSelectableHeroId,
         deployReinforcement
@@ -62,6 +79,10 @@ export default function Board() {
 
     // 伤害飘字：订阅战斗日志增量，把新产生的伤害解析到对应格子
     const [floatingDamages, setFloatingDamages] = useState<FloatingDamage[]>([]);
+    const [minorFx, setMinorFx] = useState<MinorFx[]>([]);
+    const [deathFx, setDeathFx] = useState<DeathFx[]>([]);
+    const [shakeKey, setShakeKey] = useState(0);
+    const shellRef = useRef<HTMLDivElement>(null);
     const seenLogIdsRef = useRef<Set<string> | null>(null);
     const floatingIdRef = useRef(0);
 
@@ -75,24 +96,73 @@ export default function Board() {
         if (fresh.length === 0) return;
 
         const next: FloatingDamage[] = [];
+        const nextMinor: MinorFx[] = [];
+        const nextDeath: DeathFx[] = [];
+        let killShakes = 0;
         for (const entry of fresh) {
             if (!entry.details) continue;
-            const { amount, isCrit, position } = entry.details as {
+            const { amount, isCrit, position, fxTag, victimPosition, fxSkillId, fxFrom, fxTarget } = entry.details as {
                 amount?: number;
                 isCrit?: boolean;
                 position?: number[];
+                fxTag?: string;
+                victimPosition?: number[];
+                fxSkillId?: string;
+                fxFrom?: number[];
+                fxTarget?: number[];
             };
+            // 引擎内部触发的攻击（如镜的"破镜之刃"）通过日志标记请求特效：
+            // fxSkillId 指向特效档案，fxFrom→fxTarget 为飞刃动线（无起点则原格起爆）
+            if (typeof fxSkillId === 'string' && fxTarget && fxTarget.length === 2) {
+                const targetCell: Position = [fxTarget[0], fxTarget[1]];
+                const fromCell: Position =
+                    fxFrom && fxFrom.length === 2 ? [fxFrom[0], fxFrom[1]] : targetCell;
+                const angle = computeFxAngleDeg(fromCell, targetCell);
+                useGameStore.getState().pushSkillFx({
+                    profile: resolveSkillFx(fxSkillId),
+                    owner: entry.player,
+                    fromPos: fromCell,
+                    targetPos: targetCell,
+                    angleDeg: angle,
+                    direction: computeFxDirection(angle),
+                });
+            }
+            // 阵亡特效：kill 日志携带阵亡格坐标，驱动水墨消散动画并触发全局震屏
+            if (entry.type === 'kill' && victimPosition && victimPosition.length === 2) {
+                nextDeath.push({
+                    id: floatingIdRef.current++,
+                    row: victimPosition[0],
+                    col: victimPosition[1],
+                });
+                killShakes += 1;
+                continue;
+            }
             if (typeof amount !== 'number' || amount <= 0) continue;
             if (!position || position.length !== 2) continue;
             if (entry.type === 'damage') {
+                // 来源标签：灼烧/流血/链电伤害的飘字换用专属配色
+                const taggedKind: FloatingDamage['kind'] =
+                    fxTag === 'burn' ? 'burn' :
+                    fxTag === 'bleed' ? 'bleed' :
+                    fxTag === 'chain' ? 'chain' :
+                    isCrit ? 'crit' : 'damage';
                 next.push({
                     id: floatingIdRef.current++,
                     row: position[0],
                     col: position[1],
                     amount,
-                    kind: isCrit ? 'crit' : 'damage',
+                    kind: taggedKind,
                     offsetIndex: 0,
                 });
+                // 灼烧跳伤/流血掉血：格子上一记小火爆点/血溅
+                if (fxTag === 'burn' || fxTag === 'bleed') {
+                    nextMinor.push({
+                        id: floatingIdRef.current++,
+                        row: position[0],
+                        col: position[1],
+                        kind: fxTag === 'burn' ? 'burn-tick' : 'bleed-tick',
+                    });
+                }
             } else if (entry.type === 'heal') {
                 next.push({
                     id: floatingIdRef.current++,
@@ -104,27 +174,56 @@ export default function Board() {
                 });
             }
         }
-        if (next.length === 0) return;
-
-        const ids = next.map(item => item.id);
-        setFloatingDamages(prev => {
-            const cellCounts = new Map<string, number>();
-            for (const item of prev) {
-                const key = `${item.row}-${item.col}`;
-                cellCounts.set(key, (cellCounts.get(key) ?? 0) + 1);
-            }
-            const withOffset = next.map(item => {
-                const key = `${item.row}-${item.col}`;
-                const idx = cellCounts.get(key) ?? 0;
-                cellCounts.set(key, idx + 1);
-                return { ...item, offsetIndex: idx };
+        if (next.length > 0) {
+            const ids = next.map(item => item.id);
+            setFloatingDamages(prev => {
+                const cellCounts = new Map<string, number>();
+                for (const item of prev) {
+                    const key = `${item.row}-${item.col}`;
+                    cellCounts.set(key, (cellCounts.get(key) ?? 0) + 1);
+                }
+                const withOffset = next.map(item => {
+                    const key = `${item.row}-${item.col}`;
+                    const idx = cellCounts.get(key) ?? 0;
+                    cellCounts.set(key, idx + 1);
+                    return { ...item, offsetIndex: idx };
+                });
+                return [...prev, ...withOffset];
             });
-            return [...prev, ...withOffset];
-        });
-        window.setTimeout(() => {
-            setFloatingDamages(prev => prev.filter(item => !ids.includes(item.id)));
-        }, 1000);
+            window.setTimeout(() => {
+                setFloatingDamages(prev => prev.filter(item => !ids.includes(item.id)));
+            }, 1000);
+        }
+        if (nextMinor.length > 0) {
+            const ids = nextMinor.map(item => item.id);
+            setMinorFx(prev => [...prev, ...nextMinor]);
+            window.setTimeout(() => {
+                setMinorFx(prev => prev.filter(item => !ids.includes(item.id)));
+            }, 750);
+        }
+        if (nextDeath.length > 0) {
+            const ids = nextDeath.map(item => item.id);
+            setDeathFx(prev => [...prev, ...nextDeath]);
+            window.setTimeout(() => {
+                setDeathFx(prev => prev.filter(item => !ids.includes(item.id)));
+            }, 1000);
+        }
+        if (killShakes > 0) {
+            setShakeKey(key => key + killShakes);
+        }
     }, [battleLog]);
+
+    // 击杀震屏：重触发式动画（先移除类名再强制回流，快速连杀时每杀都完整播放）
+    useEffect(() => {
+        if (shakeKey === 0) return;
+        const el = shellRef.current;
+        if (!el) return;
+        el.classList.remove('stage-shake');
+        void el.offsetWidth;
+        el.classList.add('stage-shake');
+        const timer = window.setTimeout(() => el.classList.remove('stage-shake'), 400);
+        return () => window.clearTimeout(timer);
+    }, [shakeKey]);
 
     const handleCellClick = (e: MouseEvent, row: number, col: number) => {
         e.preventDefault();
@@ -193,25 +292,41 @@ export default function Board() {
         return skillRange.length > 0 && isHighlighted(row, col);
     };
 
-    // 命中本格的技能特效事件：起手格渲染光环，目标格渲染主效
+    // 命中本格的技能特效事件：起手格渲染光环，目标格渲染主效，溅射格与链电链路格
+    // 渲染各自的多格变体；AOE 真正打到的每一格各渲染一份 impact，
+    // 落在作用区域但未被更强变体占用的格子渲染 area 贴地底光
+    type SkillFxVariant = 'caster' | 'target' | 'impact' | 'area' | 'splash' | 'chain';
+
     const skillFxAtCell = (row: number, col: number): Array<{
         event: SkillFxEvent;
-        variant: 'caster' | 'target';
+        variant: SkillFxVariant;
     }> => {
-        const hits: Array<{ event: SkillFxEvent; variant: 'caster' | 'target' }> = [];
-        for (const event of skillFx) {
-            if (event.fromPos[0] === row && event.fromPos[1] === col) {
-                hits.push({ event, variant: 'caster' });
+        const hits: Array<{ event: SkillFxEvent; variant: SkillFxVariant }> = [];
+        const pushHit = (event: SkillFxEvent, variant: SkillFxVariant) => {
+            if (!hits.some(hit => hit.event.id === event.id && hit.variant === variant)) {
+                hits.push({ event, variant });
             }
-            if (event.targetPos[0] === row && event.targetPos[1] === col) {
-                hits.push({ event, variant: 'target' });
+        };
+        const onCell = (cells: Position[] | undefined): boolean =>
+            (cells ?? []).some(([r, c]) => r === row && c === col);
+
+        for (const event of skillFx) {
+            if (onCell([event.fromPos])) pushHit(event, 'caster');
+            if (onCell([event.targetPos])) pushHit(event, 'target');
+            if (onCell(event.splashPositions)) pushHit(event, 'splash');
+            if (onCell(event.chainLinks)) pushHit(event, 'chain');
+            // 主目标格已承载完整主效，同格不再重复出 impact；其余命中格各来一份
+            if (!onCell([event.targetPos]) && onCell(event.impactPositions)) {
+                pushHit(event, 'impact');
+            } else if (onCell(event.coveredPositions)) {
+                pushHit(event, 'area');
             }
         }
         return hits;
     };
 
     return (
-        <div className="battle-board-shell">
+        <div className="battle-board-shell" ref={shellRef}>
             <SkillFxLifecycle />
             <div className="battle-field battle-board-frame">
                 <div className="battle-board-grid">
@@ -264,6 +379,12 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            const windBlade = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'wind-blade' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
 
                             let cellClass = 'battle-cell';
                             if (isSelected) cellClass += ' cell-selected';
@@ -271,12 +392,23 @@ export default function Board() {
                             else if (skillTarget) cellClass += ' cell-attack';
                             else if (isReinforceTarget(rowIndex, colIndex)) cellClass += ' cell-move';
 
-                            // 本格技能特效：命中型给格子整体震屏反馈（key 含事件 id，重复施放可重触发）
+                            // 本格技能特效：命中型给格子整体震屏反馈（key 含事件 id，重复施放可重触发）；
+                            // AOE 的每个命中格各震一次，延迟与特效层共用同一份波浪算法，
+                            // 避免多格同帧一起晃（柔光受益格不在命中型集合内，天然不抖）
                             const cellFx = skillFxAtCell(rowIndex, colIndex);
-                            const impactEvent = cellFx.find(
+                            const impactHit = cellFx.find(
                                 ({ event, variant }) =>
-                                    variant === 'target' && isImpactFxKind(event.profile.kind)
-                            )?.event;
+                                    (variant === 'target' || variant === 'impact') &&
+                                    isImpactFxKind(event.profile.kind)
+                            );
+                            const impactEvent = impactHit?.event;
+                            const impactDelayMs = impactHit
+                                ? computeFxCellDelayMs(impactHit.event.targetPos, [rowIndex, colIndex])
+                                : 0;
+                            // 多目标技能的已选格（如凋零播撒的第一角）：金色角标标记
+                            const pickedCorner = (pendingSkillTargetPositions ?? []).some(
+                                ([r, c]) => r === rowIndex && c === colIndex
+                            );
 
                             return (
                                 <div
@@ -296,8 +428,14 @@ export default function Board() {
                                                 '--fx-glow': impactEvent.profile.c1
                                                     ? `${impactEvent.profile.c1}66`
                                                     : undefined,
+                                                '--fx-cell-delay': `${impactDelayMs}ms`,
                                             } as CSSProperties}
                                         />
+                                    )}
+                                    {pickedCorner && (
+                                        <span className="cell-picked-corner" aria-hidden="true">
+                                            <i /><i /><i /><i />
+                                        </span>
                                     )}
                                     {/* 移动目标点 */}
                                     {moveTarget && !cell && (
@@ -343,6 +481,26 @@ export default function Board() {
                                             title={`风道：顺风吹向${WIND_LANE_DIRECTION_LABELS[lane.direction ?? 'right']}`}
                                         />
                                     ))}
+
+                                    {windBlade && (
+                                        <div
+                                            className={`bf-wind-blade bf-wind-blade-${windBlade.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title="风刃：敌人踏入受到4点伤害后消失；游隼经过时收回并刷新疾掠"
+                                        >
+                                            <svg
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                aria-hidden="true"
+                                            >
+                                                <path d="M4 12h11" />
+                                                <path d="M12 5 19 12 12 19" />
+                                                <path d="M4 7l3 2.5M4 17l3-2.5" />
+                                            </svg>
+                                        </div>
+                                    )}
 
                                     {iceCrystal && (
                                         <div
@@ -502,19 +660,22 @@ export default function Board() {
                                         </HeroStatusPopover>
                                     )}
 
-                                    {/* 伤害飘字 */}
+                                    {/* 伤害飘字：灼烧/流血/链电伤害使用专属来源配色 */}
                                     {floatingDamages
                                         .filter(damage => damage.row === rowIndex && damage.col === colIndex)
                                         .map(damage => {
                                             const [dx, dy] =
                                                 FLOATING_OFFSETS[damage.offsetIndex % FLOATING_OFFSETS.length];
+                                            const kindClass =
+                                                damage.kind === 'crit' ? ' is-crit' :
+                                                damage.kind === 'heal' ? ' is-heal' :
+                                                damage.kind === 'burn' ? ' is-burn' :
+                                                damage.kind === 'bleed' ? ' is-bleed' :
+                                                damage.kind === 'chain' ? ' is-chain' : '';
                                             return (
                                                 <div
                                                     key={damage.id}
-                                                    className={`floating-damage${
-                                                        damage.kind === 'crit' ? ' is-crit' :
-                                                        damage.kind === 'heal' ? ' is-heal' : ''
-                                                    }`}
+                                                    className={`floating-damage${kindClass}`}
                                                     style={{ '--dx': `${dx}px`, '--dy': `${dy}px` } as CSSProperties}
                                                 >
                                                     {damage.kind === 'heal' ? `+${damage.amount}` : damage.amount}
@@ -522,18 +683,83 @@ export default function Board() {
                                             );
                                         })}
 
-                                    {/* 英雄技能特效：起手格光环 + 目标格主效 */}
+                                    {/* 灼烧跳伤 / 流血掉血：格子上的小火爆点与血溅 */}
+                                    {minorFx
+                                        .filter(fx => fx.row === rowIndex && fx.col === colIndex)
+                                        .map(fx => (
+                                            <span
+                                                key={fx.id}
+                                                className={`tick-fx tick-fx-${fx.kind}`}
+                                                aria-hidden="true"
+                                            >
+                                                <i className="tick-fx-burst" />
+                                                <i className="tick-fx-ring" />
+                                                <i className="tick-fx-dot tick-fx-dot-1" />
+                                                <i className="tick-fx-dot tick-fx-dot-2" />
+                                                <i className="tick-fx-dot tick-fx-dot-3" />
+                                            </span>
+                                        ))}
+
+                                    {/* 英雄阵亡：水墨消散（棋子本体由状态变化自然移除） */}
+                                    {deathFx
+                                        .filter(fx => fx.row === rowIndex && fx.col === colIndex)
+                                        .map(fx => (
+                                            <span key={fx.id} className="death-fx" aria-hidden="true">
+                                                <i className="death-fx-core" />
+                                                <i className="death-fx-ghost" />
+                                                <i className="death-fx-ring" />
+                                                <i className="death-fx-cross death-fx-cross-a" />
+                                                <i className="death-fx-cross death-fx-cross-b" />
+                                                <i className="death-fx-splat death-fx-splat-1" />
+                                                <i className="death-fx-splat death-fx-splat-2" />
+                                                <i className="death-fx-splat death-fx-splat-3" />
+                                                <i className="death-fx-splat death-fx-splat-4" />
+                                                <i className="death-fx-splat death-fx-splat-5" />
+                                                <i className="death-fx-stain" />
+                                            </span>
+                                        ))}
+
+                                    {/* 英雄技能特效：起手格光环 + 目标格主效 + 溅射/链电多格变体 */}
                                     {skillFxAtCell(rowIndex, colIndex).map(({ event, variant }) => (
                                         <SkillFxVisual
                                             key={`${event.id}-${variant}`}
                                             event={event}
                                             variant={variant}
+                                            atPos={[rowIndex, colIndex]}
                                         />
                                     ))}
                                 </div>
                             );
                         })
                     )}
+
+                    {/* AOE 整体特效：覆盖整个作用范围的一体化动效（冲击波/火海/雷暴…），
+                        单元素跨格子铺在区域包围盒上，与逐格特效叠加而非替代 */}
+                    {skillFx.map(event =>
+                        event.areaBounds ? (
+                            <SkillAreaFx key={`area-${event.id}`} event={event} />
+                        ) : null
+                    )}
+
+                    {/* 阴阳师的阴阳线：施法者与被连接单位之间的持久连线（阳线金 / 阴线紫），
+                        由棋子身上的阳线/阴线效果实时驱动，断线或离场自动消失 */}
+                    {resolveYinyangLinks(board).map(link => (
+                        <div
+                            key={link.key}
+                            className={`yinyang-link yinyang-link-${link.kind}`}
+                            style={{
+                                '--l-r': link.from[0],
+                                '--l-c': link.from[1],
+                                '--l-len': link.length,
+                                '--l-rot': `${link.angleDeg}deg`,
+                            } as CSSProperties}
+                            aria-hidden="true"
+                        >
+                            <i className="yinyang-link-core" />
+                            <i className="yinyang-link-flow" />
+                            <i className="yinyang-link-pulse" />
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>

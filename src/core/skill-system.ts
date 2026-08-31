@@ -1,8 +1,10 @@
-import { Hero, Skill, Position, GameState, SkillExecuteResult, HeroState } from '../types/game';
+import { BOARD_SIZE, Hero, Skill, Position, GameState, SkillExecuteResult, HeroState } from '../types/game';
 import { MovementSystem } from './movement-system';
 import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
 import { recordBattleSkillUse } from './battle-statistics';
+import { youjunDashMaxDistance } from './wind-blade';
+import { isLingxiEchoPending } from '../data/extended-heroes';
 
 /**
  * 技能系统
@@ -10,15 +12,31 @@ import { recordBattleSkillUse } from './battle-statistics';
 export class SkillSystem {
     /**
      * 获取技能有效目标位置
+     * gameState 可选：游隼疾掠的落点范围取决于起点风道，需要读取棋盘效果；
+     * 未传入时按无风道加成的常规距离计算。
      */
     static getValidTargetPositions(
         caster: Hero,
-        skill: Skill
+        skill: Skill,
+        gameState?: GameState
     ): Position[] {
         if (!caster.position) return [];
 
         if (skill.targetType === 'self') {
             return caster.position ? [caster.position] : [];
+        }
+
+        // 游隼疾掠：四方向冲刺落点；起点处于同轴友方风道时该方向可冲刺整行/整列。
+        // 路径上的单位不再阻挡（友军照常穿过），但落点必须是空格
+        if (skill.id === 'youjun_skill1') {
+            const positions: Position[] = [];
+            for (const dir of ['up', 'down', 'left', 'right'] as const) {
+                const maxDistance = youjunDashMaxDistance(gameState as GameState, caster, dir);
+                positions.push(...MovementSystem.getLinePositions(caster.position, dir, maxDistance).filter(
+                    ([row, col]) => (gameState as GameState).board[row][col] === null
+                ));
+            }
+            return positions;
         }
 
         const positions: Position[] = [];
@@ -32,9 +50,23 @@ export class SkillSystem {
              return positions;
         }
 
-        // 南风旋风：5×5 方盒（切比雪夫距离≤2），且允许直接点自己脚下的风眼格
-        if (skill.id === 'nanfeng_skill1') {
+        // 5×5 方盒（切比雪夫距离≤2），且允许直接点自己脚下的格子
+        if (skill.id === 'nanfeng_skill1' || skill.id === 'xubai_skill1') {
             return MovementSystem.getBoxPositions(caster.position, 5);
+        }
+
+        // 泠汐技能1：与上一回合的回响合并时，实际范围扩大到 5×5，高亮要如实反映
+        if (skill.id === 'lingxi_skill1' && gameState) {
+            const merged = isLingxiEchoPending(caster, gameState, 'lingxi_echo1_round');
+            return MovementSystem.getBoxPositions(caster.position, merged ? 5 : 3);
+        }
+
+        // 泠汐技能2：两步交互——未定方向时只亮四个方向格，定了方向才展开前方 2×3
+        if (skill.id === 'lingxi_skill2' && caster.position) {
+            const dirCode = caster.counters['__lingxi_skill2_dir'];
+            return dirCode === undefined
+                ? MovementSystem.getCrossPositions(caster.position)
+                : MovementSystem.getLingxiFrontRect(caster.position, dirCode);
         }
 
         switch (skill.rangeType) {
@@ -62,8 +94,8 @@ export class SkillSystem {
 
             case '全场':
                 // 全场所有位置
-                for (let row = 0; row < 6; row++) {
-                    for (let col = 0; col < 6; col++) {
+                for (let row = 0; row < BOARD_SIZE; row++) {
+                    for (let col = 0; col < BOARD_SIZE; col++) {
                         positions.push([row, col]);
                     }
                 }
@@ -160,8 +192,9 @@ export class SkillSystem {
         // 如果技能有自定义执行函数，使用自定义函数
         if (skill.execute) {
             let finalTargetPositions = targetPositions;
+            // 引擎为群体技能展开过的完整范围格：特效层直接采用，不必再从静态元数据二次推导
+            let autoCoveredPositions: Position[] = [];
             let shouldClearGuyingDir = false;
-            let shouldClearHuifengTarget = false;
             let shouldClearExtendedTarget = false;
 
             if (targetPositions.length > 0) {
@@ -234,10 +267,19 @@ export class SkillSystem {
                 }
             }
 
-            if (skill.id === 'huifeng_skill2' && targetPositions.length === 1) {
-                const [row, col] = targetPositions[0];
-                caster.counters['__huifeng_skill2_target'] = row * 6 + col;
-                shouldClearHuifengTarget = true;
+            // 泠汐技能2：方向已由第一步确定；未走过 staging 的调用方（如 AI 直接点方向格）在此推导
+            if (skill.id === 'lingxi_skill2' && targetPositions.length === 1 && caster.position) {
+                if (caster.counters['__lingxi_skill2_dir'] === undefined) {
+                    const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
+                    if (direction) {
+                        caster.counters['__lingxi_skill2_dir'] =
+                            direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
+                    }
+                }
+                const dirCode = caster.counters['__lingxi_skill2_dir'];
+                if (dirCode !== undefined) {
+                    finalTargetPositions = MovementSystem.getLingxiFrontRect(caster.position, dirCode);
+                }
             }
 
             // 凋零之主技能1：两个对角位置展开为 2x2 区域
@@ -271,6 +313,7 @@ export class SkillSystem {
                 const fullRange = this.getValidTargetPositions(caster, skill);
                 if (fullRange.length > 0) {
                     finalTargetPositions = fullRange;
+                    autoCoveredPositions = fullRange;
                 }
             }
 
@@ -295,6 +338,11 @@ export class SkillSystem {
                 if (stalled) targets = [stalled];
             }
             const result = skill.execute(caster, targets, gameState);
+            // 特效作用区兜优先级：技能自报的真实格 > 引擎展开群体范围时用的那份格子。
+            // 后者让"选点高亮范围＝目标选择范围＝特效范围"三者天然同源，不再各算一遍
+            if (result.success && !result.fxCoveredPositions && autoCoveredPositions.length > 0) {
+                result.fxCoveredPositions = autoCoveredPositions;
+            }
             if (result.success) recordBattleSkillUse(gameState, caster, skill.id);
             if (
                 result.success &&
@@ -307,11 +355,25 @@ export class SkillSystem {
                     gameState.pendingExtraActionHeroIds[caster.owner] = caster.id;
                 }
             }
+            // 游隼被动「再动」：技能结算成功后可再移动一次（额外行动窗口由
+            // GameEngine.continueTurnFlow 标记为仅移动，收回风刃刷新疾掠后才放行技能1）
+            if (
+                result.success &&
+                caster.passiveId === 'youjun_passive' &&
+                caster.state === HeroState.ALIVE
+            ) {
+                gameState.pendingExtraActionHeroIds ??= {};
+                gameState.pendingExtraActionHeroIds[caster.owner] = caster.id;
+                gameState.battleLog?.push({
+                    id: `log-${Date.now()}-${Math.random()}`,
+                    type: 'passive' as const,
+                    player: caster.owner,
+                    message: `${caster.name}收势再起，还可以再移动一次`,
+                    timestamp: Date.now(),
+                });
+            }
             if (shouldClearGuyingDir) {
                 delete caster.counters['__guying_skill1_dir'];
-            }
-            if (shouldClearHuifengTarget) {
-                delete caster.counters['__huifeng_skill2_target'];
             }
             if (shouldClearExtendedTarget) {
                 delete caster.counters['__extended_target'];
@@ -447,8 +509,17 @@ export class SkillSystem {
         // 检查是否被眩晕
         if (EffectManager.isStunned(caster)) return false;
 
+        // 游隼再动窗口：额外行动里仅允许移动；收回风刃刷新疾掠后才放行技能1
+        if (
+            caster.passiveId === 'youjun_passive' &&
+            caster.counters['youjun_extra_move_only'] === 1 &&
+            (skill.id !== 'youjun_skill1' || caster.counters['youjun_skill1_refreshed'] !== 1)
+        ) {
+            return false;
+        }
+
         // 检查是否有有效目标
-        const validPositions = this.getValidTargetPositions(caster, skill);
+        const validPositions = this.getValidTargetPositions(caster, skill, gameState);
         if (skill.targetType === 'empty') {
             return validPositions.some(([row, col]) => gameState.board[row][col] === null);
         }
@@ -466,7 +537,6 @@ export class SkillSystem {
         skill: Skill,
         gameState: GameState
     ): Position[] {
-        void gameState;
-        return this.getValidTargetPositions(caster, skill);
+        return this.getValidTargetPositions(caster, skill, gameState);
     }
 }

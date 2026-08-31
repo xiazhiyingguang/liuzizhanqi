@@ -3,6 +3,7 @@ import { MovementSystem } from './movement-system';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
 import { findSoulLampBeneficiary, placeBounties } from '../data/extended-heroes';
+import { resolveLingxiEcho1 } from '../data/extended-skills';
 import { recordBattleHealing } from './battle-statistics';
 import { lanesAtPosition, windLaneNextCell } from './wind-lane';
 
@@ -165,7 +166,13 @@ export class GameEngine {
                     }
                 }
                 if (hero.passiveId === 'youjun_passive' && hero.state === HeroState.ALIVE && hero.position) {
-                    hero.counters['youjun_round_start_pos'] = hero.position[0] * 6 + hero.position[1];
+                    // 上一轮累计位移定格为「上回合移动距离」（疾掠倍率读取项），重新开始累计；
+                    // 再动限制与风刃刷新次数一并重置
+                    hero.counters['youjun_lastMove'] = Math.min(6, hero.counters['youjun_moved_path'] ?? 0);
+                    hero.counters['youjun_moved_path'] = 0;
+                    hero.counters['youjun_blade_refresh_used'] = 0;
+                    delete hero.counters['youjun_skill1_refreshed'];
+                    delete hero.counters['youjun_extra_move_only'];
                 }
             }
         }
@@ -317,6 +324,16 @@ export class GameEngine {
             gameState.actionsThisTurn++;
         }
 
+        // 泠汐「海螺回响」：泠汐本回合已行动后，下一个友方行动结束时补击
+        if (hero.passiveId !== 'lingxi_passive') {
+            const lingxi = (hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)
+                .find(candidate =>
+                    candidate.passiveId === 'lingxi_passive' &&
+                    candidate.state === HeroState.ALIVE &&
+                    candidate.hasActedThisTurn);
+            if (lingxi) resolveLingxiEcho1(lingxi, gameState);
+        }
+
         // 胜负必须先于换边、额外行动和进入下一轮结算。
         // TEMP_DEAD 不算场上存活单位，因此最后一个单位暂时阵亡会在这里立即失败。
         this.checkWinCondition(gameState);
@@ -428,6 +445,11 @@ export class GameEngine {
                 // 允许该英雄再次行动
                 extraHero.hasActedThisTurn = false;
                 extraHero.hasMovedThisTurn = false;
+                // 游隼被动「再动」：本次额外行动仅允许移动；
+                // 收回风刃刷新疾掠后由 canUseSkill/selectSkill 放行技能1
+                if (extraHero.passiveId === 'youjun_passive') {
+                    extraHero.counters['youjun_extra_move_only'] = 1;
+                }
 
                 // 记录原本应该轮到的玩家（如果还没记录过，且当前不是已经在额外行动中）
                 // 逻辑：如果当前是 P1 正常行动 -> 触发额外 -> 应该在额外结束后切给 P2
@@ -723,8 +745,7 @@ export class GameEngine {
     /**
      * 触发回合开始效果
      */
-    private static triggerTurnStartEffects(gameState: GameState): void {
-        const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
+    private static triggerTurnStartEffects(gameState: GameState): void {        const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
 
         for (const hero of allHeroes) {
             if (hero.state !== HeroState.ALIVE) continue;
@@ -822,15 +843,14 @@ export class GameEngine {
             this.moveShangguanBrushes(hero, gameState);
         }
 
-        // 游隼：记录本回合位移作为「上回合移动距离」，并清除再动守卫
-        if (hero.passiveId === 'youjun_passive' && hero.position) {
-            const code = hero.counters['youjun_round_start_pos'];
-            if (code !== undefined) {
-                const sr = Math.floor(code / 6);
-                const sc = code % 6;
-                const moved = Math.abs(hero.position[0] - sr) + Math.abs(hero.position[1] - sc);
-                hero.counters['youjun_lastMove'] = Math.min(6, moved);
-            }
+        // 游隼：仅移动的再动窗口结束时解除限制。
+        // 技能结算后发起的新再动会由 continueTurnFlow 重新打上标记，
+        // 因此这里只在「正在收尾自己的额外行动」时清除，避免误删刚打上的标记。
+        if (
+            hero.passiveId === 'youjun_passive' &&
+            gameState.performingExtraAction &&
+            gameState.activeHero?.id === hero.id
+        ) {
             delete hero.counters['youjun_extra_move_only'];
         }
 

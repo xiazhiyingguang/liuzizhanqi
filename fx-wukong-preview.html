@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>悟空·毫毛化身 特效预览</title>
+<link rel="stylesheet" href="/src/styles/ink-wash.css?direct" />
+<style>
+    body { margin: 0; padding: 40px; background: #f5f0e8; font-family: sans-serif; }
+    .demo-stage { display: inline-block; padding: 60px 90px; }
+    .demo-grid { display: grid; grid-template-columns: repeat(3, var(--board-cell-size)); gap: 6px; }
+    .demo-cell { position: relative; display: flex; align-items: center; justify-content: center;
+                 width: var(--board-cell-size); height: var(--board-cell-size);
+                 border: 1px solid rgba(26,26,26,.08); border-radius: 10px; background: rgba(255,255,255,.35); }
+    .demo-piece { position: relative; width: 56%; height: 56%; border-radius: 50%;
+                  background: radial-gradient(circle at 40% 35%, #6f7f8f, #2f3a46);
+                  color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+    .demo-label { margin-top: 26px; font-size: 13px; color: #555; }
+</style>
+</head>
+<body class="ink-paper">
+<div class="battle-board-stage demo-stage">
+    <div class="demo-grid">
+        <div class="demo-cell" id="caster"></div>
+        <div class="demo-cell"></div>
+        <div class="demo-cell" id="target"><div class="demo-piece">分身</div></div>
+    </div>
+    <div class="demo-label">施法格 → 空 → 目标格（travel-x = 2）</div>
+</div>
+
+<script>
+const VARS = '--fx-rot: 0deg; --fx-staff-rot: -90deg; --fx-travel-x: 2; --fx-travel-y: 0; --fx-dist: 2;';
+
+const HAIR_SVG = `<svg class="fx-hair-body" viewBox="0 0 20 44" aria-hidden="true">
+    <path d="M10 1 C 15 9, 16 27, 10 43 C 4 27, 5 9, 10 1 Z" fill="#c0801f" />
+    <path d="M10 4 C 13 11, 13.6 26, 10 40 C 6.4 26, 7 11, 10 4 Z" fill="#ffd98a" />
+    <path d="M10 6.5 C 11.3 13, 11.5 26, 10 37.5" fill="none" stroke="#fffbf0" stroke-width="1.2" stroke-linecap="round" />
+</svg>`;
+
+const hair = (extra = '') => `<i class="fx-hair ${extra}"><i class="fx-hair-arc">${HAIR_SVG}</i></i>`;
+
+const motes = Array.from({ length: 8 }, (_, i) => 12 + i * 45)
+    .map(a => `<i class="fx-clone-mote" style="--fx-angle: ${a}deg"></i>`).join('');
+
+document.getElementById('caster').innerHTML =
+    `<span class="skill-fx skill-fx-kind-wukong-clone skill-fx-caster skill-fx-owner-p1" style="${VARS}">
+        <span class="fx-anchor" style="${VARS}">
+            <i class="fx-hair-pluck"></i>
+            ${hair('fx-hair-echo fx-hair-echo-2')}
+            ${hair('fx-hair-echo fx-hair-echo-1')}
+            <i class="fx-hair"><i class="fx-hair-arc"><i class="fx-hair-trail"></i>${HAIR_SVG}</i></i>
+        </span>
+    </span>`;
+
+document.getElementById('target').innerHTML =
+    `<span class="skill-fx skill-fx-kind-wukong-clone skill-fx-target skill-fx-owner-p1" style="${VARS}">
+        <span class="fx-anchor">
+            <i class="fx-clone-ring fx-clone-ring-1"></i>
+            <i class="fx-clone-ring fx-clone-ring-2"></i>
+            <i class="fx-clone-core"></i>
+            <i class="fx-clone-flash"></i>
+            <i class="fx-smoke fx-smoke-1"></i>
+            <i class="fx-smoke fx-smoke-2"></i>
+            <i class="fx-smoke fx-smoke-3"></i>
+            <i class="fx-smoke fx-smoke-4"></i>
+            <i class="fx-smoke fx-smoke-5"></i>
+            ${motes}
+            <i class="fx-clone-figure"></i>
+            <i class="fx-clone-figure fx-clone-figure-b"></i>
+        </span>
+    </span>`;
+
+window.freezeAt = (t) => {
+    document.getAnimations().forEach(a => { a.pause(); a.currentTime = t; });
+    return document.getAnimations().length;
+};
+window.play = () => document.getAnimations().forEach(a => a.play());
+</script>
+</body>
+</html>

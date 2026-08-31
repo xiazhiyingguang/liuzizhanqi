@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useGameStore } from '../../store/game-store';
 import { HERO_CLASSES, HERO_CODEX, HeroCodexEntry, SKILL_TYPE_LABELS } from '../../data/hero-codex';
 import { HERO_ABILITY_KEYS, getAbilityHighlights, getHeroAbilityRatings, HeroAbilityKey } from '../../data/hero-ratings';
@@ -6,6 +6,7 @@ import { getHeroFullBodyUrl } from '../../data/hero-assets';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroIcon from '../ui/HeroIcon';
 import HeroRadarChart from './HeroRadarChart';
+import SkillFxPreview from './SkillFxPreview';
 import './hero-codex.css';
 
 const CLASS_THEME: Record<string, { color: string; soft: string; label: string }> = {
@@ -37,12 +38,14 @@ function AbilityCard({
     subtitle,
     description,
     accent,
+    trailing,
 }: {
     mark: string;
     title: string;
     subtitle: string;
     description: string;
     accent: string;
+    trailing?: ReactNode;
 }) {
     return (
         <article className="group rounded-xl border border-ink/[0.07] bg-white/45 p-4 transition-colors hover:bg-white/70">
@@ -56,6 +59,7 @@ function AbilityCard({
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-baseline gap-x-2">
                         <h4 className="font-title text-xl text-ink">{title}</h4>
+                        {trailing}
                         <span className="text-[10px] tracking-[.14em] text-ink-faint">{subtitle}</span>
                     </div>
                     <p className="mt-1.5 text-sm leading-6 text-ink-light">{description}</p>
@@ -237,6 +241,13 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
                         subtitle={`${SKILL_TYPE_LABELS[skill.type]} · 射程 ${skill.range}`}
                         description={skill.description}
                         accent={theme.color}
+                        trailing={
+                            <SkillFxPreview
+                                skillId={`${hero.id}_skill${index + 1}`}
+                                skillName={skill.name}
+                                accent={theme.color}
+                            />
+                        }
                     />
                 ))}
                 <AbilityCard

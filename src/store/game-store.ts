@@ -8,21 +8,42 @@ import { GameEngine } from '../core/game-engine';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { sendPlayerAction, syncGameState } from '../services/socket-service';
+import { noteReplayStep } from '../services/battle-replay';
 import { checkAllYinyangLinks, checkYinyangLinks } from '../data/extended-heroes';
-import { getDilanFrontRect, getLibaiFrontRect, hasShangguanDashOption, performShangguanDashSegment, ZUIYI_MAX } from '../data/extended-skills';
+import { drainPendingSkillFxRequests, getDilanFrontRect, getDilanSkill1Cells, getLibaiFrontRect, grantLingxiAssist, hasShangguanDashOption, performShangguanDashSegment, settleXubaiOrbs, triggerXubaiEntrance, ZUIYI_MAX } from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
 import { soundManager } from '../core/sound-manager';
 import { audioManager } from '../audio/audio-manager';
 import { getSkillSound } from '../data/skill-sounds';
 import {
+    collectImpactPositions,
     computeFxAngleDeg,
     computeFxDirection,
+    computeSkillAreaBounds,
     resolveSkillFx,
+    SKILL_FX_PROFILES,
     type SkillFxEvent,
 } from '../core/skill-fx';
+import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
 
 /** 技能特效事件的自增序号（仅本地视觉层使用） */
 let skillFxSeq = 0;
+
+/** 合并特效格位并按 "row:col" 去重，保持先后来格顺序；全空时返回 undefined */
+function mergeFxPositions(...groups: Array<Position[] | undefined>): Position[] | undefined {
+    const seen = new Set<string>();
+    const cells: Position[] = [];
+    for (const group of groups) {
+        for (const cell of group ?? []) {
+            const key = `${cell[0]}:${cell[1]}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                cells.push(cell);
+            }
+        }
+    }
+    return cells.length > 0 ? cells : undefined;
+}
 
 type WukongSkill2Phase = 'pickWukongTarget' | 'pickCloneTarget';
 
@@ -157,6 +178,28 @@ function getEnemyPositionsInArea(center: Position, owner: Hero['owner'], gameSta
     return positions;
 }
 
+/** 合并若干坐标列表，去掉重复格 */
+function mergePositions(...lists: Position[][]): Position[] {
+    const seen = new Set<string>();
+    const merged: Position[] = [];
+    for (const list of lists) {
+        for (const position of list) {
+            const key = `${position[0]}-${position[1]}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(position);
+        }
+    }
+    return merged;
+}
+
+/** 大圣合击本体阶段允许走到的格子：按自身移动力计算的全部空格 */
+function getWukongComboStepPositions(wukong: Hero, gameState: GameState): Position[] {
+    if (!wukong.position) return [];
+    return MovementSystem.getMovablePositions(wukong, gameState)
+        .filter(([row, col]) => gameState.board[row][col] === null);
+}
+
 /**
  * 大圣合击的分身推进：从 startIndex 起找下一个「还有事可做」的分身
  * （周围有可打敌人，或尚未移动且还有相邻空位）。
@@ -275,6 +318,9 @@ interface GameStore extends GameState {
     skillRange: Position[];
     wukongSkill2State?: WukongSkill2State;
     suppressOnlineBroadcast: boolean;
+    // 瞬态标记：本次 executeSkill 只是技能流程中的占位移动（如悟空大圣合击的先走再打），
+    // 特效包装层读到后跳过本次特效派发并清除标记
+    suppressNextSkillFx?: boolean;
     // 英雄技能特效事件队列（瞬态视觉层，动画结束后自动清除）
     skillFx: SkillFxEvent[];
     pushSkillFx: (event: Omit<SkillFxEvent, 'id' | 'bornAt'>) => void;
@@ -708,6 +754,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 player: 'player1',
                 message: '战斗开始！第1轮'
             });
+            // 叙白被动「初雪」：首次登场按落位抚育周围友军
+            const live = get();
+            for (const hero of [...live.player1Heroes, ...live.player2Heroes]) {
+                if (hero.passiveId === 'xubai_passive') triggerXubaiEntrance(hero, live);
+            }
+            set({
+                board: live.board.map(row => [...row]),
+                player1Heroes: [...live.player1Heroes],
+                player2Heroes: [...live.player2Heroes],
+                battleLog: [...get().battleLog],
+            });
         }
 
         return true;
@@ -849,6 +906,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             message: `${hero.name}从替补席上场！`
         });
 
+        // 叙白被动「初雪」：补员上场同样算一次登场（内部计数器保证整场只触发一次）
+        if (hero.passiveId === 'xubai_passive') triggerXubaiEntrance(hero, get());
+
         // 用最新状态驱动引擎续跑：可能还有其他待补员方，或恢复被挂起的回合流程
         const latest = get();
         GameEngine.afterReinforcementDeployed(latest);
@@ -973,13 +1033,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
         }
 
+        // 叙白「黑白凝珠」：英雄行动开始时结算黑白球（每人每轮一次，只在行动方触发）
+        const orbMessage = hero && hero.owner === state.currentPlayer
+            ? settleXubaiOrbs(hero, state)
+            : null;
+        // 泠汐「潮声相和」：下一个出手的友方领走泠汐积攒的助力层数
+        const assistLayers = hero ? grantLingxiAssist(hero, state) : 0;
+
         set({
             selectedHero: hero,
             highlightedPositions: [],
             selectedSkill: null,
             moveRange: [],
-            skillRange: []
+            skillRange: [],
+            battleLog: [...get().battleLog]
         });
+        if (orbMessage) {
+            get().addLog({ type: 'passive', player: state.currentPlayer, message: orbMessage });
+        }
+        if (hero && assistLayers > 0) {
+            get().addLog({
+                type: 'passive',
+                player: hero.owner,
+                message: `${hero.name}领到泠汐的潮声相和，攻击提升${20 * assistLayers}%`
+            });
+        }
+        if (orbMessage || assistLayers > 0) {
+            sendOnlineStateIfNeeded(get());
+        }
     },
 
     showMoveRange: () => {
@@ -1085,6 +1166,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const zuizhendaoPath = hero.passiveId === 'zuizhendao_passive' && fromPosition
             ? MovementSystem.getMovePath(hero, to, state)
             : [];
+        // 游隼：移动前快照累计位移，供撤回时回退（撤回后疾掠倍率不受已撤销移动影响）
+        const youjunPathBefore = hero.passiveId === 'youjun_passive'
+            ? (hero.counters['youjun_moved_path'] ?? 0)
+            : 0;
         const success = MovementSystem.moveHero(hero, to, state);
 
         if (success) {
@@ -1098,6 +1183,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             // 归位本身不再结算羽化伤害，正向移动的伤害也不退还）
             if (fromPosition) {
                 hero.counters['__move_from'] = fromPosition[0] * 6 + fromPosition[1];
+            }
+            if (hero.passiveId === 'youjun_passive') {
+                hero.counters['__youjun_move_steps'] =
+                    (hero.counters['youjun_moved_path'] ?? 0) - youjunPathBefore;
             }
 
             // 醉枕刀被动：踩过带醉意（>=1层）的友方格子 -> 交换1层醉意并再次移动一次
@@ -1250,10 +1339,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         // 撤回即回到移动前的状态：清掉进行中的技能选择痕迹，重新选择技能时从第一步开始
         delete hero.counters['__zuizhendao_skill1_dir'];
-        delete hero.counters['__dilan_skill1_axis'];
+        delete hero.counters['__dilan_skill1_dir'];
         delete hero.counters['__dilan_skill2_dir'];
         delete hero.counters['__nanfeng_skill2_dir'];
         delete hero.counters['__libai_skill2_dir'];
+        delete hero.counters['__lingxi_skill2_dir'];
+
+        // 游隼：回退这次移动计入的路径位移；移动途中若收回过风刃，
+        // 对应的疾掠刷新一并撤销（风刃本身不恢复，刷新次数保留已消耗状态）
+        const youjunSteps = hero.counters['__youjun_move_steps'];
+        if (hero.passiveId === 'youjun_passive' && typeof youjunSteps === 'number') {
+            hero.counters['youjun_moved_path'] =
+                Math.max(0, (hero.counters['youjun_moved_path'] ?? 0) - youjunSteps);
+            delete hero.counters['youjun_skill1_refreshed'];
+        }
+        delete hero.counters['__youjun_move_steps'];
 
         get().addLog({
             type: 'move',
@@ -1313,6 +1413,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 type: 'system',
                 player: hero.owner,
                 message: `${hero.name}酒意翻涌：请先点击高亮的历史位置瞬移，或跳过攻击`
+            });
+            return;
+        }
+
+        // 游隼再动窗口：额外行动里仅允许移动；收回风刃刷新疾掠后才放行技能1
+        if (
+            hero.passiveId === 'youjun_passive' &&
+            hero.counters['youjun_extra_move_only'] === 1 &&
+            !(skillId === 'youjun_skill1' && hero.counters['youjun_skill1_refreshed'] === 1)
+        ) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}的再动只能移动（收回风刃可刷新疾掠）`
             });
             return;
         }
@@ -1388,11 +1502,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
             syncWukongCritToSelfAndClones(hero, state);
 
-            const rangePositions = MovementSystem.getAreaPositions(hero.position, 3);
+            // 本体可以先走再打：除了 3×3 的攻击格，把可达空格也一并高亮出来
+            const rangePositions = mergePositions(
+                MovementSystem.getAreaPositions(hero.position, 3),
+                getWukongComboStepPositions(hero, state)
+            );
             get().addLog({
                 type: 'system',
                 player: hero.owner,
-                message: '请选择本体的攻击目标（可先移动一格再攻击）'
+                message: '请选择本体的攻击目标（可先移动到任意可达格再攻击）'
             });
             set({
                 selectedSkill: skill,
@@ -1481,7 +1599,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 type: 'system',
                 player: hero.owner,
                 message: skill.id === 'dilan_skill1'
-                    ? '请选择横向或纵向，决定顺逆长风作用的行列'
+                    ? '请选择顺逆长风吹向（上下左右，只作用该方向到边缘的一列/一行）'
                     : skill.id === 'nanfeng_skill2'
                         ? '请选择风道吹向（上下左右）'
                         : '请选择风压横扫的方向（上下左右）',
@@ -1513,7 +1631,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 显示技能范围
         const rangePositions = SkillSystem.getValidTargetPositions(
             hero,
-            skill
+            skill,
+            state
         );
 
         // 获取有效目标
@@ -1526,10 +1645,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
             baizeReviveTargetHeroId: undefined,
             changliSkill2Empowered: false,
             jetzmiSkill1Enhanced: false,
+            pendingSkillTargetPositions: [],
             highlightedPositions: rangePositions,
             skillRange: rangePositions,
             moveRange: []
         });
+
+        if (skill.id === 'youjun_skill1') {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: '请选择疾掠的落点（上下左右直线；身处同轴友方风道时可冲刺整行/整列）'
+            });
+        }
     },
 
     selectBaizeReviveTarget: (heroId: string) => {
@@ -1825,13 +1953,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
                         return;
                     }
 
-                    const movable = getAdjacentEmptyPositions(hero.position, state);
+                    const movable = getWukongComboStepPositions(hero, state);
                     const isMovePos = movable.some(([mr, mc]) => mr === r && mc === c);
                     if (!isMovePos) {
                         get().addLog({
                             type: 'system',
                             player: hero.owner,
-                            message: '只能移动一格到空位'
+                            message: '只能移动到本回合可达的空位'
                         });
                         return;
                     }
@@ -1847,11 +1975,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     }
 
                     const nextRange = hero.position ? MovementSystem.getAreaPositions(hero.position, 3) : [];
+                    // 这一趟走位计入本回合移动：即使整链被取消，也不能再白走一次
+                    hero.hasMovedThisTurn = true;
                     set({
                         board: state.board.map(row => [...row]),
                         highlightedPositions: nextRange,
                         skillRange: nextRange,
                         moveRange: [],
+                        // 占位移动不是施法：抑制特效包装层把移动副作用日志误判为施法
+                        suppressNextSkillFx: true,
                         wukongSkill2State: {
                             ...wState,
                             wukongMoved: true
@@ -2135,6 +2267,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
                                 highlightedPositions: nextRange,
                                 skillRange: nextRange,
                                 moveRange: [],
+                                // 分身占位移动同样不是施法
+                                suppressNextSkillFx: true,
                                 wukongSkill2State: {
                                     ...wState,
                                     cloneMovedById
@@ -2313,8 +2447,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 泠汐技能2：与帝兰技能2一致——点击方向格即定方向并立即施放（同一次点击继续走施法流程）
+        if (skill.id === 'lingxi_skill2' && hero.counters['__lingxi_skill2_dir'] === undefined) {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定涌潮方向' });
+                return;
+            }
+            const dirCode = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+            hero.counters['__lingxi_skill2_dir'] = dirCode;
+            const rect = MovementSystem.getLingxiFrontRect(hero.position, dirCode);
+            set({
+                highlightedPositions: rect,
+                skillRange: rect,
+                moveRange: []
+            });
+        }
+
         if (
-            (skill.id === 'dilan_skill1' && hero.counters['__dilan_skill1_axis'] === undefined) ||
+            (skill.id === 'dilan_skill1' && hero.counters['__dilan_skill1_dir'] === undefined) ||
             (skill.id === 'dilan_skill2' && hero.counters['__dilan_skill2_dir'] === undefined)
         ) {
             if (!hero.position) return;
@@ -2327,10 +2483,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 get().addLog({ type: 'system', player: hero.owner, message: '请先点击相邻方向格' });
                 return;
             }
+            const dirCode = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
             if (skill.id === 'dilan_skill1') {
-                hero.counters['__dilan_skill1_axis'] = isDirUp || isDirDown ? 1 : 0;
+                hero.counters['__dilan_skill1_dir'] = dirCode;
+                // 顺逆长风只作用半个轴：选定方向后把该方向到边缘的一整条线亮出来
+                const ray = getDilanSkill1Cells(hero, dirCode);
+                set({ highlightedPositions: ray, skillRange: ray, moveRange: [] });
             } else {
-                hero.counters['__dilan_skill2_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+                hero.counters['__dilan_skill2_dir'] = dirCode;
                 const rect = getDilanFrontRect(hero);
                 set({ highlightedPositions: rect, skillRange: rect, moveRange: [] });
             }
@@ -2409,14 +2569,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
             if (!duplicate && pending.length + 1 < effectiveCount) {
                 const next = [...pending, targetPos];
-                set({ pendingSkillTargetPositions: next });
-                get().addLog({
-                    type: 'system',
-                    player: hero.owner,
-                    message: canFinishEarly
-                        ? `已选择${next.length}个目标；继续选择，或再次点击已选目标立即释放`
-                        : `已选择${next.length}/${effectiveCount}个目标`
-                });
+                if (skill.id === 'wither_lord_skill1') {
+                    // 第二步范围收窄：只保留能与第一角构成 2x2 的对角格，点第二角即确定
+                    const [fr, fc] = targetPos;
+                    const diagonals = ([[fr - 1, fc - 1], [fr - 1, fc + 1], [fr + 1, fc - 1], [fr + 1, fc + 1]]
+                        .filter(([r, c]) => isValidBoardPosition([r, c]))) as Position[];
+                    set({ pendingSkillTargetPositions: next, highlightedPositions: diagonals, skillRange: diagonals });
+                    get().addLog({
+                        type: 'system',
+                        player: hero.owner,
+                        message: '第一角已选定，点击高亮对角格确定 2x2 区域'
+                    });
+                } else {
+                    set({ pendingSkillTargetPositions: next });
+                    get().addLog({
+                        type: 'system',
+                        player: hero.owner,
+                        message: canFinishEarly
+                            ? `已选择${next.length}个目标；继续选择，或再次点击已选目标立即释放`
+                            : `已选择${next.length}/${effectiveCount}个目标`
+                    });
+                }
                 const afterProgress = get();
                 sendOnlineActionIfNeeded(afterProgress, {
                     type: 'skill',
@@ -2458,6 +2631,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 技能自报的真实作用格：交给特效包装层画 AOE 底光（未上报的技能才回退几何推导）
+        if (result.fxCoveredPositions?.length) {
+            const extras = get().skillFxExtras;
+            set({
+                skillFxExtras: {
+                    ...extras,
+                    coveredPositions: mergeFxPositions(
+                        extras?.coveredPositions,
+                        result.fxCoveredPositions
+                    ),
+                },
+            });
+        }
+
         // 添加日志
         for (const log of result.log) {
             get().addLog({
@@ -2472,7 +2659,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             delete hero.counters['__zuizhendao_skill1_dir'];
         }
         if (hero.passiveId === 'dilan_passive') {
-            delete hero.counters['__dilan_skill1_axis'];
+            delete hero.counters['__dilan_skill1_dir'];
             delete hero.counters['__dilan_skill2_dir'];
         }
         if (hero.passiveId === 'nanfeng_passive') {
@@ -3094,14 +3281,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const before = get();
         const hero = before.selectedHero;
         const skill = before.selectedSkill;
-        // 日志按 id 锚点定位而非长度切片：battleLog 有 200 条上限，
-        // 后期截断后长度差不再变化，会把真实施法误判为"未发生"而丢掉特效
-        const lastLogIdBefore = before.battleLog[before.battleLog.length - 1]?.id;
+        // 日志基线取施法前的 id 集合快照，施法后按集合差分取新增部分。
+        // 不能按锚点切片或长度差：battleLog 有 200 条上限，截断后长度差不再变化；
+        // 更关键的是伤害日志由 DamageCalculator 原地 push 进调用方持有的那个数组，
+        // 与 addLog 生成的新数组混排后 battleLog 并不按时间有序，
+        // 切片会把本次施法的伤害日志整段留在锚点之前（逐命中格特效因此丢失）
+        const logIdsBefore = new Set(before.battleLog.map(entry => entry.id));
         // 施法前的位置快照：瞬移/移动类技能会改写 hero.position，
         // 必须在执行前捕获起手格
         const casterFromPos: Position = hero?.position ?? targetPos;
 
         get().executeSkillBase(targetPos);
+
+        // 占位移动标记（悟空大圣合击"先走再打"）：本次点击只是走位，
+        // 移动副作用日志（拾冰晶/羽化伤害等）不代表施法，跳过特效派发
+        if (get().suppressNextSkillFx) {
+            set({ suppressNextSkillFx: undefined });
+            return;
+        }
 
         // 位移类技能（瞬移/换位/击退等）会改变阵型：结算后立即检查阴阳线距离
         const afterCast = get();
@@ -3113,20 +3310,44 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
 
         if (!hero || !skill) return;
-        const logsAfter = get().battleLog;
-        const anchor = logsAfter.findIndex(entry => entry.id === lastLogIdBefore);
-        const freshLogs = anchor >= 0 ? logsAfter.slice(anchor + 1) : logsAfter;
+        const freshLogs = get().battleLog.filter(entry => !logIdsBefore.has(entry.id));
         const castHappened = freshLogs.some(entry => entry.type !== 'system');
         if (!castHappened) return;
 
+        // 技能 execute 回传给本层的多格特效位置：读取后立即清除，避免残留到下一次
+        // 施法或被联机快照带走过期数据。coveredPositions 由技能自报真实作用格；
+        // splashPositions / chainLinks 仍无人写入。
+        const skillFxExtras = afterCast.skillFxExtras;
+        if (skillFxExtras) {
+            set({ skillFxExtras: undefined });
+        }
+
         const angleDeg = computeFxAngleDeg(casterFromPos, targetPos);
+        // 多格反馈：命中格取本次施法新增的 damage/heal 日志（每条都带受害者当时的格子）；
+        // 区域格优先用技能自报的真实作用格，没上报的才按技能几何推导兜底
+        const profile = resolveSkillFx(skill.id);
+        // 条件形态覆盖：技能 execute 自报 fxVariant（如绯雪击碎冰冻）时改用专属档案
+        const fxVariantProfile = skillFxExtras?.fxVariant
+            ? SKILL_FX_PROFILES[skillFxExtras.fxVariant]
+            : undefined;
+        const impacts = collectImpactPositions(freshLogs, targetPos);
+        const coveredPositions = skillFxExtras?.coveredPositions?.length
+            ? skillFxExtras.coveredPositions
+            : computeFxCoveredPositions(skill, casterFromPos, targetPos, profile);
         get().pushSkillFx({
-            profile: resolveSkillFx(skill.id),
+            profile: fxVariantProfile ?? profile,
             owner: hero.owner,
             fromPos: casterFromPos,
             targetPos,
             angleDeg,
             direction: computeFxDirection(angleDeg),
+            splashPositions: skillFxExtras?.splashPositions,
+            chainLinks: skillFxExtras?.chainLinks,
+            impactPositions: impacts.impactPositions,
+            softImpactPositions: impacts.softImpactPositions,
+            coveredPositions,
+            // AOE 整体特效的覆盖范围：区域格包围盒；全场伤害技（暗夜燎原等）回退整盘
+            areaBounds: computeSkillAreaBounds(skill, coveredPositions) ?? undefined,
         });
     },
 
@@ -3167,7 +3388,43 @@ export const useGameStore = create<GameStore>((set, get) => ({
             // 特效队列是纯本地视觉状态，不清理会把上一局末次的施法动画带进新局
             skillFx: [],
             wukongSkill2State: undefined,
+            suppressNextSkillFx: undefined,
             suppressOnlineBroadcast: false
         });
     }
 }));
+
+/**
+ * 延迟段（泠汐的海螺回响、回潮拍岸）在引擎内部结算，走不到 `executeSkill` 的特效包装层。
+ * 数据层把"该播一次什么特效"记进队列，这里在每次状态提交后统一派发，
+ * 于是人类行动、人机 AI 与结束行动链上的补击都有同样的画面与音效。
+ * `pushSkillFx` 自身也会触发本订阅，但队列已被取空，不会递归。
+ */
+useGameStore.subscribe(() => {
+    const requests = drainPendingSkillFxRequests();
+    for (const request of requests) {
+        soundManager.playSkill(request.skillId, getSkillSound(request.skillId));
+        const angleDeg = computeFxAngleDeg(request.fromPos, request.targetPos);
+        useGameStore.getState().pushSkillFx({
+            profile: resolveSkillFx(request.skillId),
+            owner: request.owner,
+            fromPos: request.fromPos,
+            targetPos: request.targetPos,
+            angleDeg,
+            direction: computeFxDirection(angleDeg),
+            impactPositions: request.impactPositions,
+            coveredPositions: request.impactPositions,
+        });
+    }
+});
+
+/**
+ * 对局回放录制：每次状态提交后记一帧（内部按签名去重，纯视觉提交不会产生新帧）。
+ * 挂在这里而不是分散到各个 action 里，是因为有几类提交根本不走
+ * `sendOnlineActionIfNeeded` / `sendOnlineStateIfNeeded`
+ * （例如 `endHeroAction` 全员不可用时的自动跳过），订阅式挂点才能全覆盖。
+ * 回调只读不写，因此不会再触发本订阅。
+ */
+useGameStore.subscribe(state => {
+    noteReplayStep(state);
+});

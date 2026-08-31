@@ -266,15 +266,15 @@ export default function SkillPanel() {
                     (selectedHero.counters['暗夜星火'] ?? 0) >= 2 && (
                     <button
                         onClick={toggleChangliSkill2Empowered}
-                        className={`skill-btn ${
-                            changliSkill2Empowered
-                                ? 'border-purple-600 bg-purple-600/10 text-purple-800'
-                                : 'border-ink/15 text-ink-light'
-                        }`}
+                        aria-pressed={changliSkill2Empowered}
+                        className={`skill-option ${changliSkill2Empowered ? 'skill-option-on' : ''}`}
                     >
-                        {changliSkill2Empowered
-                            ? '已选择：消耗2层星火尝试眩晕'
-                            : '强化释放：消耗2层星火（可选）'}
+                        <span className="skill-option-mark" aria-hidden="true" />
+                        <span className="skill-option-text">
+                            {changliSkill2Empowered
+                                ? '已选择：消耗2层星火尝试眩晕'
+                                : '强化释放：消耗2层星火（可选）'}
+                        </span>
                     </button>
                 )}
 
@@ -283,15 +283,15 @@ export default function SkillPanel() {
                     (selectedHero.counters['jetzmi_form'] ?? 0) !== 1 && (
                     <button
                         onClick={toggleJetzmiSkill1Enhanced}
-                        className={`skill-btn ${
-                            jetzmiSkill1Enhanced
-                                ? 'border-purple-600 bg-purple-600/10 text-purple-800'
-                                : 'border-ink/15 text-ink-light'
-                        }`}
+                        aria-pressed={jetzmiSkill1Enhanced}
+                        className={`skill-option ${jetzmiSkill1Enhanced ? 'skill-option-on' : ''}`}
                     >
-                        {jetzmiSkill1Enhanced
-                            ? '已选择：消耗2点亡灵共鸣攻击第二目标'
-                            : '强化释放：消耗2点亡灵共鸣（可选）'}
+                        <span className="skill-option-mark" aria-hidden="true" />
+                        <span className="skill-option-text">
+                            {jetzmiSkill1Enhanced
+                                ? '已选择：消耗2点亡灵共鸣攻击第二目标'
+                                : '强化释放：消耗2点亡灵共鸣（可选）'}
+                        </span>
                     </button>
                 )}
 

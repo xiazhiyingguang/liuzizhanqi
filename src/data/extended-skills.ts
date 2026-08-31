@@ -3,12 +3,15 @@ import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
 import { MovementSystem } from '../core/movement-system';
 import { WindLaneDirection, createWindLane, windLaneAxis, windLaneDirectionFromCode } from '../core/wind-lane';
-import { BoardEffect, Effect, GameState, Hero, HeroState, Player, Position, Skill, SkillExecuteResult } from '../types/game';
+import { placeWindBlade, retractWindBladesOnCells, WIND_BLADE_DAMAGE, youjunDashMaxDistance } from '../core/wind-blade';
+import { BOARD_SIZE, BoardEffect, Effect, GameState, Hero, HeroState, Player, Position, Skill, SkillExecuteResult } from '../types/game';
 import {
     addHeroToOwnerList,
     addDilanFeather,
+    addTide,
     applyDilanWind,
     consumeDilanFeather,
+    consumeTide,
     createTPaintingSummon,
     currentDeadCount,
     getAllies,
@@ -16,6 +19,7 @@ import {
     getDilanFeatherStacks,
     getLivingHeroes,
     getSummonOwnerId,
+    isLingxiEchoPending,
     resonanceCount,
 } from './extended-heroes';
 
@@ -35,7 +39,7 @@ function damageOne(
     area = false,
     ignoreDefense = false,
     scalesWithAttack = false,
-    options: { forceCrit?: boolean; canCrit?: boolean } = {}
+    options: { forceCrit?: boolean; canCrit?: boolean; fixedDamage?: boolean; logTag?: string } = {}
 ) {
     let adjusted = amount;
     if (scalesWithAttack) {
@@ -174,6 +178,8 @@ export const jetzmiSkill1: Skill = {
         }
         const base = kingForm ? resonance : 6 + resonance;
         const output = result();
+        // 终焉斩斩的是离散的 1~2 个目标，不是 3×3 区域：特效底光只铺真正被斩的格
+        output.fxCoveredPositions = chosen.map(target => [...target.position!] as Position);
         for (const target of chosen) {
             const damage = damageOne(caster, target, base, gameState, false, false, true);
             output.damageDealt?.push(damage.finalDamage);
@@ -427,6 +433,8 @@ export const soulLampSkill1: Skill = {
     targetCount: 1,
     execute: (caster, _targets, gameState) => {
         if (!caster.position) return fail('没有合法位置');
+        // 法阵区：以自己为中心的 3×3（dark-circle 判定 abs≤1）
+        const zone = MovementSystem.getBoxPositions(caster.position, 3);
         gameState.boardEffects ??= [];
         gameState.boardEffects.push({
             id: `dark-circle-${Date.now()}-${Math.random()}`,
@@ -437,7 +445,9 @@ export const soulLampSkill1: Skill = {
             duration: 2,
         });
         GameEngine.tempDeath(caster, gameState);
-        return result([`${caster.name}展开暗夜法阵并暂时阵亡`]);
+        const output = result([`${caster.name}展开暗夜法阵并暂时阵亡`]);
+        output.fxCoveredPositions = zone;
+        return output;
     },
 };
 
@@ -521,7 +531,10 @@ export const heroXSkill2: Skill = {
         );
         for (const ally of allies) EffectManager.addShield(ally, 5);
         EffectManager.addCounter(caster, '增势', allies.length);
-        return result([`${caster.name}为${allies.length}名友方提供护盾并获得${allies.length}层增势`]);
+        const output = result([`${caster.name}为${allies.length}名友方提供护盾并获得${allies.length}层增势`]);
+        // 护盾按落点曼哈顿距离 ≤1 结算：作用区就是落点 + 上下左右
+        output.fxCoveredPositions = [target, ...MovementSystem.getCrossPositions(target)];
+        return output;
     },
 };
 
@@ -586,6 +599,10 @@ export const witherLordSkill1: Skill = {
         if (!enemies.length) return fail('2x2区域内没有敌人');
         const base = 5 + resonanceCount(caster.owner, gameState);
         const output = result();
+        // 2×2 外接区由引擎按两次点击展开进 targets：整块交给特效层铺底光
+        output.fxCoveredPositions = targets
+            .filter(target => !!target.position)
+            .map(target => [...target.position!] as Position);
         DamageCalculator.asOneAttack(() => {
             for (const target of enemies) {
                 const damage = damageOne(caster, target, base, gameState, true);
@@ -693,6 +710,7 @@ function jinwuBurstAt(jinwu: Hero, center: Position, gameState: GameState): Skil
     const targets = positions.map(([r, c]) => gameState.board[r][c])
         .filter((hero): hero is Hero => !!hero && hero.owner !== jinwu.owner && hero.state === HeroState.ALIVE);
     const output = result();
+    output.fxCoveredPositions = positions;
     DamageCalculator.asOneAttack(() => {
         for (const target of targets) {
             const damage = damageOne(jinwu, target, targets.length * 3, gameState, true);
@@ -876,6 +894,11 @@ export const feynmanSkill2: Skill = {
         const maxRow = Math.min(5, Math.max(a[0], b[0]) + margin);
         const minCol = Math.max(0, Math.min(a[1], b[1]) - margin);
         const maxCol = Math.min(5, Math.max(a[1], b[1]) + margin);
+        // 真实作用矩形＝两点外接盒（能量≥3 时四周各外扩一格），逐格交给特效层
+        const rectCells: Position[] = [];
+        for (let row = minRow; row <= maxRow; row++) {
+            for (let col = minCol; col <= maxCol; col++) rectCells.push([row, col]);
+        }
         const targetsInArea = getLivingHeroes(getEnemies(caster, gameState)).filter(target =>
             target.position &&
             target.position[0] >= minRow && target.position[0] <= maxRow &&
@@ -888,6 +911,7 @@ export const feynmanSkill2: Skill = {
             0
         );
         const output = result();
+        output.fxCoveredPositions = rectCells;
         DamageCalculator.asOneAttack(() => {
             for (const target of targetsInArea) {
                 const damage = damageOne(caster, target, 8 + markCount * 2, gameState, true);
@@ -939,7 +963,8 @@ export const wangcaiSkill2: Skill = {
         if (!targets.length) return fail('没有友方目标');
         const transformed = caster.counters['wangcai_transformed'] === 1;
         const value = transformed ? 0.4 : 0.2;
-        for (const target of targets.slice(0, 2)) {
+        const chosen = targets.slice(0, 2);
+        for (const target of chosen) {
             const existing = target.effects.find(
                 effect => effect.name === '来财' && effect.sourceHeroId === caster.id
             );
@@ -950,7 +975,10 @@ export const wangcaiSkill2: Skill = {
                 description: '提高攻击与防御，出手时为旺财增加财气',
             });
         }
-        return result([`${targets.length}名友方获得来财`]);
+        const output = result([`${targets.length}名友方获得来财`]);
+        // 来财只落在离散的一两名友方身上，不是菱形区域
+        output.fxCoveredPositions = chosen.map(target => [...target.position!] as Position);
+        return output;
     },
 };
 
@@ -1068,7 +1096,12 @@ export const lilithSkill2: Skill = {
                 addFear(enemy, caster, 1);
             }
         }
-        return { ...result(), damageDealt: [damage.finalDamage] };
+        // 蔓延判据即"以初始目标为中心曼哈顿≤2"：作用区取同一份菱形 + 目标本格
+        const spreadCells: Position[] = [
+            [...target.position] as Position,
+            ...MovementSystem.getPositionsInRange(target.position, 2),
+        ];
+        return { ...result(), damageDealt: [damage.finalDamage], fxCoveredPositions: spreadCells };
     },
 };
 
@@ -1144,6 +1177,7 @@ export const libaiSkill2: Skill = {
             .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
         if (targets.length === 0) return fail('前方范围内没有敌人');
         const output = result();
+        output.fxCoveredPositions = rect;
         DamageCalculator.asOneAttack(() => {
             for (const target of targets) {
                 const damage = damageOne(caster, target, zuiyi * 4, gameState, true);
@@ -1399,6 +1433,13 @@ export const feixueSkill1: Skill = {
 
         if (!shattered || !targetPosition) return output;
 
+        // 特效管线：本次击碎了冰冻——上报「破冰爆震」专属形态与 3x3 爆震范围，
+        // 供 executeSkill 包装层覆盖默认档案（fxVariant）并铺 AOE 整体特效（coveredPositions）
+        gameState.skillFxExtras = {
+            fxVariant: 'feixue_shatter',
+            coveredPositions: [targetPosition, ...MovementSystem.getAreaPositions(targetPosition, 3)],
+        };
+
         const splashDamage = caster.counters['talent_2'] ? 8 : 6;
         const splashTargets = MovementSystem.getAreaPositions(targetPosition, 3)
             .map(([row, col]) => gameState.board[row][col])
@@ -1556,6 +1597,8 @@ export const fenglingSkill2: Skill = {
     canCrit: false,
     execute: (caster, _targets, gameState) => {
         if (!caster.position) return fail('风铃尚未部署');
+        // 沙丘区：以自身为中心的 3×3（锚点记录中心，判定按 abs≤1）
+        const zone = MovementSystem.getBoxPositions(caster.position, 3);
         gameState.boardEffects ??= [];
         gameState.boardEffects = gameState.boardEffects.filter(effect =>
             !(effect.type === 'sand-dune' && effect.sourceHeroId === caster.id)
@@ -1569,7 +1612,9 @@ export const fenglingSkill2: Skill = {
             duration: 2,
         });
         EffectManager.setCounter(caster, '沙丘闪避', 0);
-        return result([`${caster.name}在周围创造了持续2回合的沙丘猎场`]);
+        const output = result([`${caster.name}在周围创造了持续2回合的沙丘猎场`]);
+        output.fxCoveredPositions = zone;
+        return output;
     },
 };
 
@@ -1617,11 +1662,29 @@ function dealDilanSkillHit(
     return { damage: hit.finalDamage, detonatedStacks };
 }
 
+/**
+ * 帝兰技能1的作用格：从自身沿所选方向一直延伸到棋盘边缘（不含自己所在格）。
+ * 方向编码：0=上，1=下，2=左，3=右。
+ */
+export function getDilanSkill1Cells(caster: Hero, directionCode: number): Position[] {
+    if (!caster.position) return [];
+    const [row, col] = caster.position;
+    const [dr, dc] =
+        directionCode === 0 ? [-1, 0] : directionCode === 1 ? [1, 0] : directionCode === 2 ? [0, -1] : [0, 1];
+    const cells: Position[] = [];
+    for (let step = 1; step < 6; step++) {
+        const next: Position = [row + dr * step, col + dc * step];
+        if (next[0] < 0 || next[0] > 5 || next[1] < 0 || next[1] > 5) break;
+        cells.push(next);
+    }
+    return cells;
+}
+
 export const dilanSkill1: Skill = {
     id: 'dilan_skill1',
     name: '顺逆长风',
     type: 'damage',
-    description: '选择所在行或列：对轴线上所有敌人造成3点伤害并施加1层逆风；所有友方改为获得1层顺风。致知1使伤害提高至4点',
+    description: '选择上下左右任一方向：对该方向上从自身延伸到边缘的直线，敌人造成3点伤害并施加1层逆风，友方改为获得1层顺风。致知1使伤害提高至4点',
     rangeType: 'line',
     range: 6,
     targetType: 'any',
@@ -1630,16 +1693,13 @@ export const dilanSkill1: Skill = {
     canCrit: true,
     execute: (caster, _targets, gameState) => {
         if (!caster.position) return fail('帝兰尚未部署');
-        const axis = caster.counters['__dilan_skill1_axis'];
-        if (axis !== 0 && axis !== 1) return fail('请先选择行或列');
-        delete caster.counters['__dilan_skill1_axis'];
-        const [casterRow, casterCol] = caster.position;
-        const line: Hero[] = [];
-        for (let index = 0; index < 6; index++) {
-            const hero = axis === 0 ? gameState.board[casterRow][index] : gameState.board[index][casterCol];
-            if (hero && hero !== caster && hero.state === HeroState.ALIVE) line.push(hero);
-        }
-        if (line.length === 0) return fail('所选行列上没有其他角色');
+        const directionCode = caster.counters['__dilan_skill1_dir'];
+        if (directionCode === undefined) return fail('请先选择顺逆长风的方向');
+        delete caster.counters['__dilan_skill1_dir'];
+        const line = getDilanSkill1Cells(caster, directionCode)
+            .map(([row, col]) => gameState.board[row][col])
+            .filter((hero): hero is Hero => !!hero && hero !== caster && hero.state === HeroState.ALIVE);
+        if (line.length === 0) return fail('该方向上没有其他角色');
 
         const output = result();
         const baseDamage = caster.counters['talent_1'] ? 4 : 3;
@@ -1686,6 +1746,7 @@ export const dilanSkill2: Skill = {
         if (enemies.length === 0) return fail('前方范围内没有敌人');
 
         const output = result();
+        output.fxCoveredPositions = rect;
         const baseDamage = caster.counters['talent_2'] ? 4 : 3;
         const [dr, dc] = dilanDirectionStep(dirCode);
         const hitEnemies: Hero[] = [];
@@ -1762,6 +1823,7 @@ export const nanfengSkill1: Skill = {
 
         const output = result();
         const cells: Position[] = [center, ...MovementSystem.getAreaPositions(center, 3)];
+        output.fxCoveredPositions = cells;
         const enemies = cells
             .map(([row, col]) => gameState.board[row][col])
             .filter((hero): hero is Hero =>
@@ -1838,7 +1900,13 @@ export const nanfengSkill2: Skill = {
             : [caster.position[0], lineCell[1]];
         createWindLane(gameState, caster, anchor, direction);
 
+        // 风道沿锚点整行/整列铺开：把这条线交给特效层
+        const laneCells: Position[] = [];
+        for (let step = 0; step < BOARD_SIZE; step++) {
+            laneCells.push(windLaneAxis(direction) === 'row' ? [anchor[0], step] : [step, anchor[1]]);
+        }
         const output = result();
+        output.fxCoveredPositions = laneCells;
         output.log.push(
             `${caster.name}引风成道：${getNanfengLineDescription(direction, anchor)}${nanfengWindLabel(dirCode)}风起，风廊铺满6格`
         );
@@ -2152,10 +2220,145 @@ export const shangguanSkill2: Skill = {
 };
 
 /**
- * 游隼技能2「乘风」
- * 朝四方向之一免费滑行最多3格（不消耗移动力），落地叠加1层「乘风」（下次疾掠伤害+15%/层，最多2层，疾掠时消耗）。
- * 乘风结束后可再次移动一次。
+ * 游隼技能1「疾掠」
+ * 选择四方向之一冲刺：常规最多 3 格；起点处于同轴友方风道上时可顺着风道
+ * 冲刺整行/整列。路径上的友军与敌人都不阻挡，只要落点（点击格）是盘内空格
+ * 就能直穿过去，路径上的敌人受到 5×(1+冲刺距离×0.1)×(1+上回合移动距离×0.1) 伤害。
+ * 疾掠同时收回路径上的风刃，并消耗已武装的疾掠刷新。
  */
+export const youjunSkill1: Skill = {
+    id: 'youjun_skill1',
+    name: '疾掠',
+    type: 'damage',
+    description: '选择四方向之一冲刺（常规最多3格，身处同轴友方风道时可冲刺整行/整列），路径上的友军与敌人都可穿过、落点须为空格，穿透敌人造成 5×(1+冲刺距离×0.1)×(1+上回合移动距离×0.1) 伤害；沿途收回风刃并刷新疾掠',
+    rangeType: 'line',
+    range: 5,
+    targetType: 'any',
+    targetCount: 'all',
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('游隼不在场上');
+        const clicked = encodedTarget(caster);
+        if (!clicked) return fail('未选择疾掠落点');
+        const direction = MovementSystem.getDirection(caster.position, clicked);
+        if (!direction) return fail('疾掠必须沿上下左右之一的直线冲刺');
+        const maxDistance = youjunDashMaxDistance(gameState, caster, direction);
+        const clickedDistance = MovementSystem.getManhattanDistance(caster.position, clicked);
+        if (clickedDistance > maxDistance) {
+            return fail(maxDistance >= 5
+                ? '疾掠最远只能冲刺到棋盘边缘'
+                : '常规疾掠最多3格，需身处同轴友方风道才能冲刺整行/整列');
+        }
+
+        // 落点必须是盘内空格；路径上的友军与敌人都可直接穿过
+        if (
+            clicked[0] < 0 || clicked[0] >= 6 || clicked[1] < 0 || clicked[1] >= 6 ||
+            gameState.board[clicked[0]][clicked[1]] !== null
+        ) {
+            return fail('疾掠落点必须是空格');
+        }
+
+        const deltas: Record<'up' | 'down' | 'left' | 'right', [number, number]> = {
+            up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1],
+        };
+        const [dr, dc] = deltas[direction];
+        const start: Position = [caster.position[0], caster.position[1]];
+        const landing: Position = [clicked[0], clicked[1]];
+        const piercedEnemies: Hero[] = [];
+        for (let step = 1; step < clickedDistance; step++) {
+            const occupant = gameState.board[start[0] + dr * step][start[1] + dc * step];
+            if (occupant && occupant.state === HeroState.ALIVE && occupant.owner !== caster.owner) {
+                piercedEnemies.push(occupant);
+            }
+        }
+
+        const dashDistance = clickedDistance;
+        const lastMove = Math.min(6, caster.counters['youjun_lastMove'] ?? 0);
+        const baseDamage = 5 * (1 + dashDistance * 0.1) * (1 + lastMove * 0.1);
+
+        const output = result();
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of piercedEnemies) {
+                const damage = damageOne(caster, enemy, baseDamage, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+            }
+        });
+
+        // 位移到落点；冲刺的逐格位移同样结算羽化与流血类移动伤害
+        gameState.board[start[0]][start[1]] = null;
+        gameState.board[landing[0]][landing[1]] = caster;
+        caster.position = landing;
+        DamageCalculator.applyDilanMovementDamage(caster, dashDistance, gameState);
+        DamageCalculator.applyBleedMovementDamage(caster, dashDistance, gameState);
+
+        // 消耗已武装的疾掠刷新；收回冲刺路径上的风刃（刷新供下一轮冲锋使用）
+        delete caster.counters['youjun_skill1_refreshed'];
+        const traversed: Position[] = [];
+        for (let step = 1; step <= dashDistance; step++) {
+            traversed.push([start[0] + dr * step, start[1] + dc * step]);
+        }
+        retractWindBladesOnCells(caster, traversed, gameState);
+
+        const hitText = piercedEnemies.length > 0
+            ? `，穿透${piercedEnemies.length}名敌人共造成${output.damageDealt?.reduce((sum, amount) => sum + amount, 0) ?? 0}点伤害`
+            : '';
+        output.log.unshift(
+            `${caster.name}疾掠${dashDistance}格（上回合移动${lastMove}格）${hitText}`
+        );
+        return output;
+    },
+};
+
+/**
+ * 游隼技能2「四向风刃」
+ * 风刃不抛出：直接在周围一格的上、下、左、右四个位置各留下一道风刃，持续3回合；
+ * 敌人踏入风刃格受到4点不可规避、无视护盾的固定伤害，风刃随即消失；
+ * 释放时若相邻格已站着敌人，同样按接触结算——立即吃到这4点伤害且该方向不留风刃；
+ * 友军所在格照样留刃（友方不受风刃伤害），只有棋盘外的方向放不出。
+ * 游隼经过风刃时将其收回，每回合第一次收回会刷新疾掠。
+ */
+export const youjunSkill2: Skill = {
+    id: 'youjun_skill2',
+    name: '四向风刃',
+    type: 'damage',
+    description: '在周围一格的上、下、左、右各留下一道风刃（友军所在格也会留刃，友方不受伤害；棋盘外方向除外），持续3回合；敌人踏入风刃格受到4点固定伤害并使风刃消失，释放时已贴身的敌人立即吃到这次伤害。游隼经过风刃时将其收回，每回合第一次收回刷新疾掠',
+    rangeType: 'single',
+    range: 0,
+    targetType: 'self',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('游隼不在场上');
+
+        const [row, col] = caster.position;
+        const output = result();
+        let placed = 0;
+        let hitCount = 0;
+        let totalDamage = 0;
+        const bladeCells: Position[] = [];
+        DamageCalculator.asOneAttack(() => {
+            for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+                const cell: Position = [row + dr, col + dc];
+                if (cell[0] < 0 || cell[0] >= 6 || cell[1] < 0 || cell[1] >= 6) continue;
+                bladeCells.push(cell);
+                const occupant = gameState.board[cell[0]][cell[1]];
+                if (occupant && occupant.state === HeroState.ALIVE && occupant.owner !== caster.owner) {
+                    // 敌人正站在落刃格上：按接触风刃结算，风刃随即消耗、不留在该格
+                    const damage = damageOne(caster, occupant, WIND_BLADE_DAMAGE, gameState, true, false, false, { fixedDamage: true, canCrit: false });
+                    output.damageDealt?.push(damage.finalDamage);
+                    totalDamage += damage.finalDamage;
+                    hitCount++;
+                    continue;
+                }
+                placeWindBlade(gameState, caster, cell);
+                placed++;
+            }
+        });
+        output.fxCoveredPositions = bladeCells;
+
+        const hitText = hitCount > 0 ? `，割中${hitCount}名敌人共${totalDamage}点伤害` : '';
+        output.log.push(`${caster.name}在四周布下${placed}道风刃${hitText}`);
+        return output;
+    },
+};
 
 /**
  * 沉渊·镇岳技能1「渊引」：
@@ -2412,6 +2615,395 @@ export const daiSkill2: Skill = {
     },
 };
 
+/**
+ * 叙白「净化恢复」
+ */
+
+export const XUBAI_ORB_MAX = 3;
+export const XUBAI_ORB_HEAL = 4;
+/** 生命低于自身上限的这个比例时，行动开始会消耗黑白球回血 */
+export const XUBAI_HP_THRESHOLD = 0.4;
+
+/**
+ * 负面效果口径：只清 `type === 'debuff'` 的效果。
+ * 猎杀令属于标记、冰冻与眩晕属于状态，均不在净化范围内。
+ */
+function purgeNegativeEffects(target: Hero): string[] {
+    const purged = target.effects.filter(effect => effect.type === 'debuff').map(effect => effect.name);
+    if (purged.length > 0) {
+        target.effects = target.effects.filter(effect => effect.type !== 'debuff');
+    }
+    return purged;
+}
+
+function purgeRandomNegativeEffect(target: Hero): string | null {
+    const negatives = target.effects.filter(effect => effect.type === 'debuff');
+    if (negatives.length === 0) return null;
+    const picked = negatives[Math.floor(Math.random() * negatives.length)];
+    target.effects = target.effects.filter(effect => effect !== picked);
+    return picked.name;
+}
+
+/**
+ * 黑白球结算：某个友方英雄行动开始时，若其生命低于上限40%，
+ * 逐颗消耗叙白存着的黑白球，每颗回复4点，直到回到40%以上或用尽。
+ * 每个英雄每轮只结算一次；只在被选中行动的一方触发，因此敌方回合完全不回血。
+ */
+export function settleXubaiOrbs(hero: Hero, gameState: GameState): string | null {
+    if (hero.state !== HeroState.ALIVE) return null;
+    if (hero.counters['__xubai_orb_round'] === gameState.roundNumber) return null;
+    hero.counters['__xubai_orb_round'] = gameState.roundNumber;
+
+    const keeper = getLivingHeroes(getAllies(hero, gameState)).find(candidate =>
+        candidate.passiveId === 'xubai_passive' && (candidate.counters['黑白球'] ?? 0) > 0
+    );
+    if (!keeper) return null;
+
+    let consumed = 0;
+    let healed = 0;
+    while (hero.currentHp < hero.maxHp * XUBAI_HP_THRESHOLD && (keeper.counters['黑白球'] ?? 0) > 0) {
+        keeper.counters['黑白球'] = (keeper.counters['黑白球'] ?? 0) - 1;
+        const gained = DamageCalculator.applyHeal(hero, XUBAI_ORB_HEAL, gameState, keeper);
+        if (gained <= 0) break;
+        consumed++;
+        healed += gained;
+    }
+    if (consumed === 0) return null;
+    return `${hero.name}消耗${consumed}颗黑白球，恢复${healed}点生命`;
+}
+
+/**
+ * 被动「初雪」：叙白每场战斗首次登场时，恢复登场位置3×3范围内友方（含自己）8点生命，
+ * 并各净化随机1个负面效果。补员上场也算登场，但整场只触发一次。
+ */
+export function triggerXubaiEntrance(hero: Hero, gameState: GameState): void {
+    if (hero.state !== HeroState.ALIVE || !hero.position) return;
+    if (hero.counters['__xubai_entered'] === 1) return;
+    hero.counters['__xubai_entered'] = 1;
+
+    const cells: Position[] = [hero.position, ...MovementSystem.getAreaPositions(hero.position, 3)];
+    const nearby = cells
+        .map(([row, col]) => gameState.board[row]?.[col])
+        .filter((unit): unit is Hero =>
+            !!unit && unit.owner === hero.owner && unit.state === HeroState.ALIVE);
+
+    const names: string[] = [];
+    for (const ally of nearby) {
+        const healed = DamageCalculator.applyHeal(ally, 8, gameState, hero);
+        const purged = purgeRandomNegativeEffect(ally);
+        if (healed > 0 || purged) {
+            names.push(`${ally.name}${healed > 0 ? `回复${healed}` : ''}${purged ? `净化${purged}` : ''}`);
+        }
+    }
+    if (names.length === 0) return;
+
+    gameState.battleLog?.push({
+        id: `log-${Date.now()}-${Math.random()}`,
+        type: 'passive',
+        player: hero.owner,
+        message: `${hero.name}初至战场，抚育周围友军：${names.join('、')}`,
+        timestamp: Date.now(),
+    });
+}
+
+export const xubaiSkill1: Skill = {
+    id: 'xubai_skill1',
+    name: '涤秽回春',
+    type: 'heal',
+    description: '恢复5×5范围内一名友方8点生命，并净化其身上所有负面效果；每净化1个额外恢复2点生命',
+    rangeType: 'area',
+    range: 2,
+    areaSize: 5,
+    targetType: 'any',
+    targetCount: 1,
+    baseHeal: 8,
+    execute: (caster, targets, gameState) => {
+        const ally = targets.find(target =>
+            target.owner === caster.owner && target.state === HeroState.ALIVE);
+        if (!ally) return fail('范围内没有可治疗的友方');
+
+        const purged = purgeNegativeEffects(ally);
+        const healed = DamageCalculator.applyHeal(ally, 8 + purged.length * 2, gameState, caster);
+
+        const output = result();
+        output.healingDone?.push(healed);
+        output.log.push(
+            `${ally.name}恢复${healed}点生命${purged.length > 0 ? `，净化${purged.join('、')}` : '，身上没有负面效果'}`
+        );
+        return output;
+    },
+};
+
+export const xubaiSkill2: Skill = {
+    id: 'xubai_skill2',
+    name: '黑白凝珠',
+    type: 'buff',
+    description: `凝聚黑白球至${XUBAI_ORB_MAX}颗：此后我方英雄每次行动开始时，若其生命低于上限40%，自动消耗黑白球每颗恢复${XUBAI_ORB_HEAL}点生命，直到回到40%以上`,
+    rangeType: 'area',
+    range: 0,
+    areaSize: 3,
+    targetType: 'self',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        void gameState;
+        caster.counters['黑白球'] = XUBAI_ORB_MAX;
+        return result([`${caster.name}凝出黑白球（${XUBAI_ORB_MAX}颗）`]);
+    },
+};
+
+/**
+ * 泠汐「潮汐多段攻击」
+ *
+ * 延迟段挂在泠汐自己的计数器上，只有跨到更晚的回合才可结算：
+ * - lingxi_echo1_round：技能1的回响，由"泠汐本回合已行动后的下一个友方行动结束"触发
+ * - lingxi_echo2_round / lingxi_echo2_dir：技能2的回潮，由"下一回合技能攻击结束"触发
+ * - lingxi_assist_pending：被动待发放的助力层数，由下一个出手的友方领取
+ */
+export const LINGXI_ECHO1_DAMAGE = 3;
+export const LINGXI_MERGED_DAMAGE = 5;
+export const LINGXI_ECHO2_DAMAGE = 8;
+
+/**
+ * 延迟段特效请求队列。
+ *
+ * 回响在引擎里结算（友方行动结束、或另一次施法的收尾），走不到 store 的
+ * `executeSkill` 特效包装层，于是伤害飘字有、专属特效与音效没有。
+ * 数据层把"该播一次什么特效"记到这里，store 在状态提交后统一取走派发。
+ */
+export interface PendingSkillFxRequest {
+    skillId: string;
+    owner: Player;
+    fromPos: Position;
+    targetPos: Position;
+    impactPositions: Position[];
+}
+
+let pendingSkillFxRequests: PendingSkillFxRequest[] = [];
+
+export function drainPendingSkillFxRequests(): PendingSkillFxRequest[] {
+    if (pendingSkillFxRequests.length === 0) return [];
+    const requests = pendingSkillFxRequests;
+    pendingSkillFxRequests = [];
+    return requests;
+}
+
+function requestSkillFx(request: PendingSkillFxRequest): void {
+    pendingSkillFxRequests.push(request);
+}
+
+function lingxiEnemiesInCells(cells: Position[], gameState: GameState, caster: Hero): Hero[] {
+    return cells
+        .map(([row, col]) => gameState.board[row]?.[col])
+        .filter((unit): unit is Hero =>
+            !!unit && unit.owner !== caster.owner && unit.state === HeroState.ALIVE);
+}
+
+function lingxiBoxEnemies(caster: Hero, gameState: GameState, size: number): Hero[] {
+    if (!caster.position) return [];
+    return lingxiEnemiesInCells(MovementSystem.getBoxPositions(caster.position, size), gameState, caster);
+}
+
+/** 一次攻击命中：伤害结算（潮汐回血在 damage-calculator 内统一处理）+ 可选叠加一层潮汐 */
+function lingxiStrike(
+    caster: Hero, target: Hero, damage: number, gameState: GameState, grantTide: boolean
+): number {
+    const hit = DamageCalculator.calculate(caster, target, damage, false);
+    DamageCalculator.applyDamage(target, hit, caster, gameState, true);
+    if (grantTide && target.state === HeroState.ALIVE) addTide(target, caster, 1);
+    return hit.finalDamage;
+}
+
+/** 技能2的回潮：沿施放时记录的方向补击 2×3，一次性消耗命中敌人的潮汐并按层数×3自疗 */
+function resolveLingxiEcho2(caster: Hero, gameState: GameState, output: SkillExecuteResult): void {
+    caster.counters['lingxi_echo2_round'] = 0;
+    const dirCode = caster.counters['lingxi_echo2_dir'];
+    if (!caster.position || dirCode === undefined || dirCode < 0) return;
+
+    const enemies = lingxiEnemiesInCells(
+        MovementSystem.getLingxiFrontRect(caster.position, dirCode), gameState, caster);
+    if (enemies.length === 0) {
+        output.log.push(`${caster.name}的回潮拍岸落空，前方没有敌人`);
+        return;
+    }
+
+    let consumedTide = 0;
+    const hitCells: Position[] = [];
+    for (const enemy of enemies) {
+        if (enemy.position) hitCells.push([...enemy.position] as Position);
+        output.damageDealt?.push(lingxiStrike(caster, enemy, LINGXI_ECHO2_DAMAGE, gameState, false));
+        consumedTide += consumeTide(enemy);
+    }
+    if (caster.position && hitCells.length > 0) {
+        requestSkillFx({
+            skillId: 'lingxi_skill2',
+            owner: caster.owner,
+            fromPos: [...caster.position] as Position,
+            targetPos: hitCells[0],
+            impactPositions: hitCells,
+        });
+    }
+    if (consumedTide > 0) {
+        const healed = DamageCalculator.applyHeal(caster, consumedTide * 3, gameState, caster);
+        output.log.push(
+            `${caster.name}回潮拍岸，命中${enemies.length}名敌人并消耗${consumedTide}层潮汐，恢复${healed}点生命`
+        );
+    } else {
+        output.log.push(`${caster.name}回潮拍岸，命中${enemies.length}名敌人`);
+    }
+}
+
+/** 一次攻击动作收尾：先结算已跨回合的技能2回潮，再为被动积攒一层助力 */
+function finishLingxiAttack(caster: Hero, gameState: GameState, output: SkillExecuteResult): void {
+    if (isLingxiEchoPending(caster, gameState, 'lingxi_echo2_round')) {
+        resolveLingxiEcho2(caster, gameState, output);
+    }
+    caster.counters['lingxi_assist_pending'] = (caster.counters['lingxi_assist_pending'] ?? 0) + 1;
+}
+
+/**
+ * 被动「潮声相和」：泠汐每次攻击动作后积攒一层助力，
+ * 下一个开始出手的友方一次性领走全部层数，每层 +20% 攻击（同一效果叠加，跨回合保留）。
+ */
+export function grantLingxiAssist(hero: Hero, gameState: GameState): number {
+    if (hero.state !== HeroState.ALIVE) return 0;
+    const lingxi = (hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)
+        .find(candidate => candidate.passiveId === 'lingxi_passive' && candidate.id !== hero.id);
+    const pending = lingxi?.counters['lingxi_assist_pending'] ?? 0;
+    if (!lingxi || pending <= 0) return 0;
+
+    lingxi.counters['lingxi_assist_pending'] = 0;
+    const existing = hero.effects.find(effect => effect.name === '泠汐攻击提升');
+    const layers = (existing?.stackCount ?? 0) + pending;
+    if (existing) {
+        existing.stackCount = layers;
+        existing.value = 0.2 * layers;
+        existing.duration = 2;
+    } else {
+        EffectManager.addEffect(hero, {
+            type: 'buff',
+            name: '泠汐攻击提升',
+            duration: 2,
+            value: 0.2 * layers,
+            stackCount: layers,
+            sourceHeroId: lingxi.id,
+            description: `泠汐的潮声相和：攻击提升${Math.round(20 * layers)}%`,
+        });
+    }
+    return layers;
+}
+
+/**
+ * 技能1的回响：由 GameEngine 在"泠汐本回合已行动、且下一个友方行动结束"时调用。
+ * 回响自身不再续挂延迟段——只有再次施放技能1才会把链条接下去。
+ */
+export function resolveLingxiEcho1(caster: Hero, gameState: GameState): void {
+    if (!isLingxiEchoPending(caster, gameState, 'lingxi_echo1_round')) return;
+    if (caster.counters['__lingxi_resolving'] === 1) return;
+    caster.counters['lingxi_echo1_round'] = 0;
+
+    const enemies = lingxiBoxEnemies(caster, gameState, 3);
+    if (enemies.length === 0) return;
+
+    caster.counters['__lingxi_resolving'] = 1;
+    const hitCells: Position[] = [];
+    try {
+        for (const enemy of enemies) {
+            if (enemy.position) hitCells.push([...enemy.position] as Position);
+            lingxiStrike(caster, enemy, LINGXI_ECHO1_DAMAGE, gameState, true);
+        }
+    } finally {
+        delete caster.counters['__lingxi_resolving'];
+    }
+    if (caster.position && hitCells.length > 0) {
+        requestSkillFx({
+            skillId: 'lingxi_skill1',
+            owner: caster.owner,
+            fromPos: [...caster.position] as Position,
+            targetPos: hitCells[0],
+            impactPositions: hitCells,
+        });
+    }
+
+    gameState.battleLog?.push({
+        id: `log-${Date.now()}-${Math.random()}`,
+        type: 'passive',
+        player: caster.owner,
+        message: `${caster.name}的海螺回响再起，命中${enemies.length}名敌人并施加潮汐`,
+        timestamp: Date.now(),
+    });
+    // 回响同样算一次攻击动作
+    caster.counters['lingxi_assist_pending'] = (caster.counters['lingxi_assist_pending'] ?? 0) + 1;
+}
+
+export const lingxiSkill1: Skill = {
+    id: 'lingxi_skill1',
+    name: '海螺回响',
+    type: 'damage',
+    description: '对周围3×3的敌人造成2点伤害并各施加1层潮汐；下一回合自己行动后的下一个友方行动结束时自动补击3点。若下一回合再次施放，前一段与本次合并为5×5、5点伤害，并继续挂下一段',
+    rangeType: 'area',
+    range: 0,
+    areaSize: 3,
+    targetType: 'enemy',
+    targetCount: 'all',
+    baseDamage: 2,
+    canCrit: true,
+    execute: (caster, _targets, gameState) => {
+        const merged = isLingxiEchoPending(caster, gameState, 'lingxi_echo1_round');
+        const cells = caster.position
+            ? MovementSystem.getBoxPositions(caster.position, merged ? 5 : 3)
+            : [];
+        const enemies = lingxiEnemiesInCells(cells, gameState, caster);
+        if (enemies.length === 0) return fail('周围没有敌人');
+
+        const output = result();
+        output.fxCoveredPositions = cells;
+        const damage = merged ? LINGXI_MERGED_DAMAGE : 2;
+        for (const enemy of enemies) {
+            output.damageDealt?.push(lingxiStrike(caster, enemy, damage, gameState, true));
+        }
+        // 每次施放（含合并）都为下一回合续上一发回响
+        caster.counters['lingxi_echo1_round'] = gameState.roundNumber;
+        output.log.push(
+            `${caster.name}吹响海螺${merged ? '，两段潮声合并为5×5/5点' : ''}，命中${enemies.length}名敌人`
+        );
+        finishLingxiAttack(caster, gameState, output);
+        return output;
+    },
+};
+
+export const lingxiSkill2: Skill = {
+    id: 'lingxi_skill2',
+    name: '涌潮拍岸',
+    type: 'damage',
+    description: '对前方2×3的敌人造成3点伤害；下一回合技能攻击结束后自动沿同一方向再拍一次，造成8点伤害并一次性消耗命中敌人的潮汐，每层为自身恢复3点生命',
+    rangeType: 'line',
+    range: 2,
+    targetType: 'enemy',
+    targetCount: 'all',
+    baseDamage: 3,
+    canCrit: true,
+    execute: (caster, _targets, gameState) => {
+        const dirCode = caster.counters['__lingxi_skill2_dir'];
+        delete caster.counters['__lingxi_skill2_dir'];
+        if (dirCode === undefined || !caster.position) return fail('请先选择涌潮方向');
+
+        const cells = MovementSystem.getLingxiFrontRect(caster.position, dirCode);
+        const enemies = lingxiEnemiesInCells(cells, gameState, caster);
+        if (enemies.length === 0) return fail('前方范围内没有敌人');
+
+        const output = result();
+        output.fxCoveredPositions = cells;
+        for (const enemy of enemies) {
+            output.damageDealt?.push(lingxiStrike(caster, enemy, 3, gameState, false));
+        }
+        caster.counters['lingxi_echo2_round'] = gameState.roundNumber;
+        caster.counters['lingxi_echo2_dir'] = dirCode;
+        output.log.push(`${caster.name}涌潮拍岸，命中${enemies.length}名敌人，回潮蓄势待发`);
+        finishLingxiAttack(caster, gameState, output);
+        return output;
+    },
+};
+
 export const EXTENDED_SKILLS: Record<string, Skill> = {
     skeletonking_skill1: skeletonkingSkill1,
     skeletonking_skill2: skeletonkingSkill2,
@@ -2461,4 +3053,10 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     chenyuan_skill2: chenyuanSkill2,
     dai_skill1: daiSkill1,
     dai_skill2: daiSkill2,
+    youjun_skill1: youjunSkill1,
+    youjun_skill2: youjunSkill2,
+    xubai_skill1: xubaiSkill1,
+    xubai_skill2: xubaiSkill2,
+    lingxi_skill1: lingxiSkill1,
+    lingxi_skill2: lingxiSkill2,
 };
