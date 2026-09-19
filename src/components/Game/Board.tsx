@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
-import { useGameStore } from '../../store/game-store';
-import { Position } from '../../types/game';
+import { useGameStore, getPendingActionCells } from '../../store/game-store';
+import { Position, type Hero } from '../../types/game';
+import { GameEngine } from '../../core/game-engine';
 import type { SkillFxEvent } from '../../core/skill-fx';
 import { computeFxAngleDeg, computeFxCellDelayMs, computeFxDirection, isImpactFxKind, resolveSkillFx } from '../../core/skill-fx';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroStatusPopover from './HeroStatusPopover';
 import { SkillAreaFx, SkillFxLifecycle, SkillFxVisual } from './SkillFxLayer';
 import { HeroStatusFx } from './HeroStatusFx';
-import { resolveYinyangLinks } from '../../core/yinyang-link-view';
+import { WindBladeGlyph } from './WindBladeGlyph';
+import { resolveHeroLinks } from '../../core/hero-link-view';
 
 type FloatingDamage = {
     id: number;
@@ -51,6 +53,13 @@ const WIND_LANE_DIRECTION_LABELS: Record<'up' | 'down' | 'left' | 'right', strin
     right: '东',
 };
 
+/** 挂起选格时的提示语（天威/被动触发后必须在棋盘上说清楚"现在点哪"） */
+const PENDING_CHOICE_HINTS: Record<string, { title: string; detail: string }> = {
+    'yunying-liehuo': { title: '烈火燎原', detail: '点选云缨相邻的方向格，决定这道火线烧向哪条线' },
+    'xueqi-tianwei': { title: '血契·天威', detail: '点选一处空格跃落' },
+    'schrodinger-tianwei': { title: '薛定谔·天威', detail: '点选一格确定观测落点' },
+};
+
 export default function Board() {
     const {
         board,
@@ -74,8 +83,28 @@ export default function Board() {
         pendingSkillTargetPositions,
         reinforcingPlayer,
         reinforcementSelectableHeroId,
-        deployReinforcement
+        deployReinforcement,
+        player1Heroes,
+        player2Heroes,
+        roundNumber,
+        selectedSkill,
+        daiReviveHeroId,
+        selectDaiReviveTarget
     } = useGameStore();
+
+    // 挂起的棋盘动作：可点格直接从挂起态推导，不依赖各条 set 路径是否记得同步 skillRange，
+    // 否则会出现"天威已经触发、棋盘上却没有任何提示"的错觉
+    const pendingChoiceHero = pendingBoardAction
+        ? [...player1Heroes, ...player2Heroes].find(item => item.id === pendingBoardAction.heroId)
+        : undefined;
+    const pendingChoiceCells = pendingBoardAction
+        ? getPendingActionCells({ pendingBoardAction, player1Heroes, player2Heroes })
+        : [];
+    const pendingChoiceHint = pendingBoardAction
+        ? PENDING_CHOICE_HINTS[pendingBoardAction.type]
+        : undefined;
+    const isPendingChoice = (row: number, col: number): boolean =>
+        pendingChoiceCells.some(([r, c]) => r === row && c === col);
 
     // 伤害飘字：订阅战斗日志增量，把新产生的伤害解析到对应格子
     const [floatingDamages, setFloatingDamages] = useState<FloatingDamage[]>([]);
@@ -255,6 +284,15 @@ export default function Board() {
             return;
         }
 
+        // 戴尔「时空回溯」第一段：点击时空停滞残影锚定要唤回的阵亡单位，随后在空格上选落点
+        if (selectedSkill?.id === 'dai_skill1') {
+            const ghost = stasisGhostAt(row, col);
+            if (ghost && isStasisAnchorable(ghost)) {
+                selectDaiReviveTarget(ghost.id);
+                return;
+            }
+        }
+
         if (moveRange.length > 0 && isHighlighted(row, col)) {
             moveHero(targetPos);
             return;
@@ -318,12 +356,30 @@ export default function Board() {
             // 主目标格已承载完整主效，同格不再重复出 impact；其余命中格各来一份
             if (!onCell([event.targetPos]) && onCell(event.impactPositions)) {
                 pushHit(event, 'impact');
-            } else if (onCell(event.coveredPositions)) {
+            } else if (onCell(event.coveredPositions) &&
+                // 燎原火墙的首格已由 target 那份高火焰承载，别再叠一份同尺寸火舌
+                !(event.profile.kind === 'liehuo-blaze' && onCell([event.targetPos]))) {
                 pushHit(event, 'area');
             }
         }
         return hits;
     };
+
+    // 时空停滞残影：被戴尔凝固时间的阵亡单位，其死亡格上留下的可点残影
+    const stasisGhostAt = (row: number, col: number): Hero | null => {
+        if (board[row]?.[col]) return null;
+        return [...player1Heroes, ...player2Heroes].find(hero =>
+            GameEngine.isInStasis(hero, roundNumber) &&
+            hero.position?.[0] === row && hero.position?.[1] === col
+        ) ?? null;
+    };
+
+    // 残影是否可点：本方戴尔选中「时空回溯」且尚未锚定时，第一段就是点残影
+    const isStasisAnchorable = (ghost: Hero): boolean =>
+        selectedSkill?.id === 'dai_skill1' &&
+        !daiReviveHeroId &&
+        selectedHero?.passiveId === 'dai_passive' &&
+        selectedHero?.owner === ghost.owner;
 
     return (
         <div className="battle-board-shell" ref={shellRef}>
@@ -385,10 +441,26 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 时空停滞残影：本格空着、但躺着一个被戴尔凝固时间的阵亡单位
+                            const stasisGhost = stasisGhostAt(rowIndex, colIndex);
+                            const stasisAnchored = stasisGhost !== null && daiReviveHeroId === stasisGhost.id;
+                            const stasisCallable = stasisGhost !== null && isStasisAnchorable(stasisGhost);
 
                             let cellClass = 'battle-cell';
+                            // 复活落点是"把人放下来"，不是攻击：用补员落位那套青金标记，避免整盘泛红
+                            const reviveLanding = daiReviveHeroId !== undefined && skillTarget;
+                            // 烈火燎原这类"只有几格可选"的挂起选择：给一套专属焰色脉冲标记，
+                            // 不能和普通攻击高亮混为一谈，否则玩家不知道被动已经触发
+                            const pendingChoice = pendingBoardAction?.type === 'yunying-liehuo' &&
+                                isPendingChoice(rowIndex, colIndex);
+                            // 箭头朝向即这条火线烧过去的方向（云缨 → 本格）
+                            const pendingChoiceRot = pendingChoice && pendingChoiceHero?.position
+                                ? computeFxAngleDeg(pendingChoiceHero.position, [rowIndex, colIndex])
+                                : 0;
                             if (isSelected) cellClass += ' cell-selected';
+                            else if (pendingChoice) cellClass += ' cell-pending-choice';
                             else if (moveTarget) cellClass += ' cell-move';
+                            else if (reviveLanding) cellClass += ' cell-move';
                             else if (skillTarget) cellClass += ' cell-attack';
                             else if (isReinforceTarget(rowIndex, colIndex)) cellClass += ' cell-move';
 
@@ -437,6 +509,16 @@ export default function Board() {
                                             <i /><i /><i /><i />
                                         </span>
                                     )}
+                                    {/* 烈火燎原等待选向的方向格：焰环 + 指向这条火线的箭头 */}
+                                    {pendingChoice && (
+                                        <span
+                                            className="cell-pending-mark"
+                                            aria-hidden="true"
+                                            style={{ '--pc-rot': `${pendingChoiceRot}deg` } as CSSProperties}
+                                        >
+                                            <i className="cell-pending-arrow" />
+                                        </span>
+                                    )}
                                     {/* 移动目标点 */}
                                     {moveTarget && !cell && (
                                         <div className="w-3 h-3 rounded-full bg-jade/30 shadow-[0_0_6px_rgba(45,106,79,0.3)]" />
@@ -447,6 +529,14 @@ export default function Board() {
                                         <div
                                             className="h-3 w-3 rotate-45 border border-gold/60 bg-gold/10 shadow-[0_0_6px_rgba(212,168,67,0.35)]"
                                             title="替补上场位置"
+                                        />
+                                    )}
+
+                                    {/* 复活落位点（残影格自身由金环表达可选，不再叠菱形标记） */}
+                                    {reviveLanding && !cell && !stasisGhost && (
+                                        <div
+                                            className="h-3 w-3 rotate-45 border border-gold/60 bg-gold/10 shadow-[0_0_6px_rgba(212,168,67,0.35)]"
+                                            title="时空回溯复活落点"
                                         />
                                     )}
 
@@ -484,21 +574,10 @@ export default function Board() {
 
                                     {windBlade && (
                                         <div
-                                            className={`bf-wind-blade bf-wind-blade-${windBlade.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            className={`bf-wind-blade bf-wind-blade-${windBlade.owner === 'player1' ? 'p1' : 'p2'} bf-wind-blade-${windBlade.direction ?? 'up'} pointer-events-none`}
                                             title="风刃：敌人踏入受到4点伤害后消失；游隼经过时收回并刷新疾掠"
                                         >
-                                            <svg
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                aria-hidden="true"
-                                            >
-                                                <path d="M4 12h11" />
-                                                <path d="M12 5 19 12 12 19" />
-                                                <path d="M4 7l3 2.5M4 17l3-2.5" />
-                                            </svg>
+                                            <WindBladeGlyph />
                                         </div>
                                     )}
 
@@ -606,8 +685,30 @@ export default function Board() {
                                         </div>
                                     )}
 
+                                    {/* 时空停滞残影：可被戴尔「时空回溯」唤回的阵亡单位 */}
+                                    {stasisGhost && (
+                                        <div
+                                            className={`dai-stasis-ghost pointer-events-none${stasisCallable ? ' dai-stasis-callable' : ''}${stasisAnchored ? ' dai-stasis-anchored' : ''}`}
+                                            data-testid={`dai-stasis-${stasisGhost.id}`}
+                                            title={`时空停滞：${stasisGhost.name}（时间已被凝固，戴尔·时空回溯可将其唤回）`}
+                                        >
+                                            <span className="dai-stasis-clock" aria-hidden="true">
+                                                <i /><i />
+                                            </span>
+                                            <span className="dai-stasis-ring" aria-hidden="true" />
+                                            <span className="dai-stasis-ring dai-stasis-ring-2" aria-hidden="true" />
+                                            <HeroAvatar
+                                                heroId={stasisGhost.id}
+                                                heroName={stasisGhost.name}
+                                                size={44}
+                                                className="dai-stasis-avatar"
+                                            />
+                                            <span className="dai-stasis-name">{stasisGhost.name}</span>
+                                        </div>
+                                    )}
+
                                     {/* 技能目标标记 */}
-                                    {skillTarget && !cell && (
+                                    {skillTarget && !cell && !reviveLanding && (
                                         <div className="w-3 h-3 rounded-full bg-vermillion/30 shadow-[0_0_6px_rgba(192,57,43,0.3)]" />
                                     )}
 
@@ -741,12 +842,12 @@ export default function Board() {
                         ) : null
                     )}
 
-                    {/* 阴阳师的阴阳线：施法者与被连接单位之间的持久连线（阳线金 / 阴线紫），
-                        由棋子身上的阳线/阴线效果实时驱动，断线或离场自动消失 */}
-                    {resolveYinyangLinks(board).map(link => (
+                    {/* 英雄之间的持久连线（阳线金 / 阴线玄紫 / 血契赤红血线）：
+                        由棋子身上的持续效果实时驱动，断线、离场或到期后自动消失 */}
+                    {resolveHeroLinks(board).map(link => (
                         <div
                             key={link.key}
-                            className={`yinyang-link yinyang-link-${link.kind}`}
+                            className={`hero-link hero-link-${link.kind}`}
                             style={{
                                 '--l-r': link.from[0],
                                 '--l-c': link.from[1],
@@ -755,11 +856,21 @@ export default function Board() {
                             } as CSSProperties}
                             aria-hidden="true"
                         >
-                            <i className="yinyang-link-core" />
-                            <i className="yinyang-link-flow" />
-                            <i className="yinyang-link-pulse" />
+                            <i className="hero-link-core" />
+                            <i className="hero-link-flow" />
+                            <i className="hero-link-pulse" />
                         </div>
                     ))}
+                    {/* 天威/被动挂起选格时的提示条：触发的那一刻就得说清楚触发了什么、点哪里 */}
+                    {pendingBoardAction && pendingChoiceHint && (
+                        <div className="board-pending-prompt" data-testid="board-pending-prompt" role="status">
+                            <span className="board-pending-flame" aria-hidden="true" />
+                            <span className="board-pending-title font-title">
+                                {pendingChoiceHero ? `${pendingChoiceHero.name}·${pendingChoiceHint.title}` : pendingChoiceHint.title}
+                            </span>
+                            <span className="board-pending-detail font-body">{pendingChoiceHint.detail}</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

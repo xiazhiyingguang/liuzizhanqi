@@ -56,14 +56,23 @@ export type SkillFxKind =
     | 'ember-flare'     // 焰浪：火热闪焰 + 上升余烬
     | 'storm-bolt'      // 雷霆：锯齿电光闪击 + 震环
     | 'gale-vortex'     // 旋风：对旋涡环 + 风纹
+    | 'wind-blade-volley' // 四向风刃：四弯风刃自施法者向上下左右射出
     | 'chord-notes'     // 乐律：音符上浮 + 弦波涟漪
     | 'time-rewind'     // 时溯：倒转符环 + 逆走指针
     | 'frost-spikes'    // 寒江雪·冰刺天降：巨型冰锥自空砸落 + 碎冰迸溅 + 严寒雾
     | 'guying-swordqi'  // 孤影·寒星剑气：冷焰巨剑光斜劈 + 星芒炸裂
     | 'mirror-blades'   // 镜·破镜飞刃：三枚镜刃自三方合击 + 碎镜闪光
     | 'xubai-pearls'    // 叙白·黑白凝珠：三颗阴阳珠汇聚环绕
-    | 'lingxi-wave'     // 泠汐·海浪涟漪：层叠浪环荡开 + 浪花泡沫
+    | 'lingxi-wave'     // 泠汐·海浪涟漪：潮面漫染 + 多道浪环一圈圈荡开 + 浪尖白沫
     | 'lingxi-fan'      // 泠汐·涌潮折扇：自施法者展开的巨扇横扫
+    | 'xueqi-scythe'    // 血契·血誓横扫：红色镰刀绕自身旋转一圈，刀尖拖出血色扫弧
+    | 'fengling-claw'   // 风铃·爪牙撕裂：三道扇形爪痕依次撕开 + 亮爪尖 + 沙砾迸溅
+    | 'fengling-pounce' // 风铃·掠沙闪袭：残影自起手格跨格疾闪至目标格，落点补一记爪咬尘爆
+    | 'zuizhen-throw'   // 醉枕刀·醉掷寒锋：掷刀疾飞 + 沿冲刺路径铺展的琥珀光轨与逐段疾光残影，沿途每格各吃一记贯斩
+    | 'zuizhen-wheel'   // 醉枕刀·醉影换位：落位后一柄太刀绕格心旋满一周，刃尖拖出旋扫弧光，周身一圈斩痕依次亮起
+    | 'yunying-sweep'   // 云缨·星火照野：长枪横扰，弧刃按拍逐条甩开（时序分明）+ 收势枪杆抽打
+    | 'yunying-thrust'  // 云缨·踏火长驱：整杆长枪（枪杆/枪头/红缨）贯出一记，到位炸震环 + 震格
+    | 'liehuo-blaze'    // 云缨·烈火燎原：火线沿射线逐格引燃，火焰柱一路烧到棋盘尽头
     | 'ink';            // 默认兜底：墨韵波纹
 
 /** 特效原型的中文展示名（供图鉴等处呈现；新增原型时由类型强制补齐） */
@@ -96,6 +105,7 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'ember-flare': '焰浪',
     'storm-bolt': '雷霆',
     'gale-vortex': '旋风',
+    'wind-blade-volley': '四向风刃',
     'chord-notes': '乐律',
     'time-rewind': '时溯',
     'frost-spikes': '冰刺天降',
@@ -104,6 +114,14 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'xubai-pearls': '黑白凝珠',
     'lingxi-wave': '海浪涟漪',
     'lingxi-fan': '涌潮折扇',
+    'xueqi-scythe': '血镰旋环',
+    'zuizhen-throw': '醉掷疾影',
+    'zuizhen-wheel': '醉影旋斩',
+    'fengling-claw': '爪牙撕裂',
+    'fengling-pounce': '掠沙闪袭',
+    'yunying-sweep': '乱樱枪影',
+    'yunying-thrust': '踏火一刺',
+    'liehuo-blaze': '燎原火墙',
     'ink': '墨韵波纹',
 };
 
@@ -118,7 +136,7 @@ export interface SkillFxProfile {
     /** 区域底光的覆盖形状。缺省时由技能自身的 rangeType/areaSize/range/targetCount
      *  推导（见 skill-fx-coverage.ts）；引擎里带特判展开的技能需在此显式声明，
      *  'none' 表示不铺底光（全场技等只需命中格反馈） */
-    fxArea?: number | 'line' | 'cross' | 'bar' | 'diamond' | 'self' | 'none';
+    fxArea?: number | 'line' | 'cross' | 'bar' | 'diamond' | 'self' | 'self-box' | 'none';
 }
 
 /** 攻击方向的八向标签 */
@@ -277,12 +295,14 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     lilith_skill2: { kind: 'hex-curse', durationMs: 1050, c1: '#8c3fd8', c2: '#ff4d6d' },     // 恐惧蔓延
 
     // ===== 醉枕刀：醉卧沙场（酒琥珀）=====
-    zuizhendao_skill1: { kind: 'pierce', durationMs: 850, c1: '#e8a860', c2: '#ffd9a0' },     // 醉掷寒锋
-    zuizhendao_skill2: { kind: 'phase-swap', durationMs: 900, c1: '#d89050', c2: '#ffe0b0' }, // 醉影换位
+    zuizhendao_skill1: { kind: 'zuizhen-throw', durationMs: 1000, c1: '#e8a860', c2: '#ffd9a0', fxArea: 'none' }, // 醉掷寒锋：掷刀+沿真实路径逐格跟踪的疾影光轨
+    zuizhendao_skill2: { kind: 'zuizhen-wheel', durationMs: 1150, c1: '#d89050', c2: '#ffe0b0', fxArea: 'none' }, // 醉影换位：换位后太刀绕身旋斩一周
 
     // ===== 风铃：大漠孤影（流沙金）=====
-    fengling_skill1: { kind: 'shadow-dash', durationMs: 850, c1: '#e0c080', c2: '#c89050' },  // 流沙追猎
-    fengling_skill2: { kind: 'ground-zone', durationMs: 1050, c1: '#d8b070', c2: '#f0d8a0' }, // 沙丘猎场
+    fengling_skill1: { kind: 'fengling-claw', durationMs: 900, c1: '#f5d9a0', c2: '#c89050' },  // 流沙追猎：爪牙撕裂
+    fengling_skill2: { kind: 'ground-zone', durationMs: 1050, c1: '#d8b070', c2: '#f0d8a0' },    // 沙丘猎场
+    // 天威「猎砂追击」的闪袭特效（非技能，由战报标记派发）
+    fengling_pounce: { kind: 'fengling-pounce', durationMs: 1080, c1: '#ffe6b0', c2: '#a4682c' },
 
     // ===== 帝兰：御风羽君（顺逆风青）=====
     dilan_skill1: { kind: 'gale-vortex', durationMs: 950, c1: '#9fe8c8', c2: '#d8fff0' },     // 顺逆长风
@@ -291,6 +311,12 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     // ===== 南风：御风行者（天青）=====
     nanfeng_skill1: { kind: 'gale-vortex', durationMs: 1000, c1: '#8fd8ff', c2: '#ffffff' },  // 扶摇
     nanfeng_skill2: { kind: 'ground-zone', durationMs: 1000, c1: '#b0e8ff', c2: '#e0f6ff' },  // 引风成道
+
+    // ===== 云缨：瑞火缨枪（焰橙金）=====
+    yunying_skill1: { kind: 'yunying-sweep', durationMs: 1350, c1: '#ffcf7a', c2: '#ff7a3c' },   // 星火照野：弧刃逐条甩开，收势枪杆抽打
+    yunying_skill2: { kind: 'yunying-thrust', durationMs: 1000, c1: '#ffb347', c2: '#ff4d2e' },  // 踏火长驱：整杆长枪贯出一记，到位炸震环
+    // 烈火燎原：祥瑞满层引燃（非技能，由 store 挂起选择后显式派发，带射线覆盖格）
+    yunying_liehuo: { kind: 'liehuo-blaze', durationMs: 1900, c1: '#ff7a3c', c2: '#ffe08a' },
 
     // ===== 上官婉儿：墨笔惊鸿（墨色）=====
     shangguan_skill1: { kind: 'pierce', durationMs: 850, c1: '#4a4a5a', c2: '#8a8ab0' },      // 落笔
@@ -306,15 +332,24 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
 
     // ===== 游隼：裂风猎隼（风青）=====
     youjun_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#8fd8ff', c2: '#e0f6ff' },    // 疾掠
-    youjun_skill2: { kind: 'gale-vortex', durationMs: 1000, c1: '#b0e8ff', c2: '#ffffff' },   // 四向风刃
+    youjun_skill2: { kind: 'wind-blade-volley', durationMs: 1000, c1: '#5cc8f0', c2: '#eafaff' },   // 四向风刃：四弯风刃射向周身四格
 
     // ===== 叙白：净化治疗与黑白凝珠（素白青 / 暖金）=====
     xubai_skill1: { kind: 'blessing', durationMs: 1050, c1: '#dff2e6', c2: '#9fd8c0' },       // 涤秽回春
     xubai_skill2: { kind: 'xubai-pearls', durationMs: 1150, c1: '#f4f8ff', c2: '#2c2c38' },   // 黑白凝珠：三珠汇聚环绕
 
     // ===== 泠汐：潮汐多段攻击（潮青 / 月白）=====
-    lingxi_skill1: { kind: 'lingxi-wave', durationMs: 1100, c1: '#7fd8e8', c2: '#e0f8ff' },   // 海螺回响：海浪涟漪
+    // 涟漪要压在浅色水墨盘面上才看得见，故主色取深潮青而非亮青
+    lingxi_skill1: { kind: 'lingxi-wave', durationMs: 1200, c1: '#2b83ad', c2: '#9ce6f7' },   // 海螺回响：海浪涟漪
     lingxi_skill2: { kind: 'lingxi-fan', durationMs: 1050, c1: '#5ab8d8', c2: '#c8f0ff' },    // 涌潮拍岸：折扇展开横扫
+
+    // ===== 惊鸿·止水：掠水绕后与止水决渊（月白青 / 静水蓝）=====
+    jinghong_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#8fb8d8', c2: '#e8f6ff' },   // 掠水惊鸿：残影跨格疾闪，落点补一记斩
+    jinghong_skill2: { kind: 'radial-burst', durationMs: 1150, c1: '#4f9fc4', c2: '#dff4ff' },  // 止水决渊：以自身为中心的潮环炸开
+
+    // ===== 血契：血誓横扫与强锁（赤血 / 骨白）作用区均以施法者为中心 =====
+    xueqi_skill1: { kind: 'xueqi-scythe', durationMs: 900, c1: '#c0392f', c2: '#ffd0c6', fxArea: 'self-box' }, // 血誓横扫：血镰绕身旋一圈（天威复用此档案）
+    xueqi_skill2: { kind: 'cage-bind', durationMs: 1000, c1: '#8e2f2a', c2: '#e8a49b', fxArea: 'self-box' },   // 血契锁：笼环收拢圈定周身
 };
 
 /** 英雄级兜底档案（该英雄的技能未逐一定制时，取其技能一档案） */
@@ -373,8 +408,14 @@ const SKILL_FX_IMPACT_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>([
     'feixue-blade',
     'feixue-stomp',
     'feixue-shatter',
+    'fengling-claw',
+    'fengling-pounce',
     'lingxi-wave',
     'lingxi-fan',
+    'zuizhen-throw',
+    'zuizhen-wheel',
+    'yunying-sweep',
+    'yunying-thrust',
 ]);
 
 export function isImpactFxKind(kind: SkillFxKind): boolean {
@@ -401,6 +442,11 @@ const SKILL_FX_PER_TARGET_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>
     'feixue-blade',
     'feixue-stomp',
     'feixue-shatter',
+    'lingxi-wave',
+    'zuizhen-throw',
+    // 突刺本身就是命中特写：射线上每名敌人各吃一记长枪贯刺
+    // （星火照野的乱樱枪影刻意不入列，避免 3×3 每格都甩一遍弧刃糊成一片）
+    'yunying-thrust',
 ]);
 
 export function isPerTargetFxKind(kind: SkillFxKind): boolean {
@@ -505,10 +551,12 @@ export type SkillAreaFxKind =
     | 'thunderstorm' // 雷暴压顶：区域闪白 + 多道落雷错落劈下 + 电弧余韵
     | 'cage'         // 缚域成形：四边锁栏收拢 + 四角封印 + 中心锁定闪光
     | 'runearray'    // 守护法阵：覆盖范围的双旋巨符环 + 错落光柱
+    | 'rippletide'   // 潮纹涟漪：潮面漫染 + 起伏浪环自中心一圈圈荡向区域边缘
     | 'groundwave'   // 领域地波：贴地椭圆波由心荡开 + 区域滞留辉光
     | 'slashwave'    // 巨刃横扫：循攻击方向掠过整片区域的巨型弧刃
     | 'icespikes'    // 冰刺天降：冰锥成片自空砸落覆盖整个区域
-    | 'iceshatter';  // 破冰爆震：冰面轰然炸裂，冰棱自中心向外环射 + 霜原闪光
+    | 'iceshatter'   // 破冰爆震：冰面轰然炸裂，冰棱自中心向外环射 + 霜原闪光
+    | 'firewall';    // 燎原火墙：火线自施法者一端沿射线烧到尽头 + 灼地焦痕 + 热浪扭曲
 
 /**
  * 从区域格集合求包围盒；空集合返回 null。
@@ -549,6 +597,7 @@ export function computeSkillAreaBounds(
 /** 逐格原型 → 区域整体原型 的映射（未列出的走 shockwave 兜底） */
 const AREA_FX_KIND_MAP: Partial<Record<SkillFxKind, SkillAreaFxKind>> = {
     'ember-flare': 'firestorm',
+    'liehuo-blaze': 'firewall',
     'storm-bolt': 'thunderstorm',
     'cage-bind': 'cage',
     'magic-array': 'runearray',
@@ -557,7 +606,7 @@ const AREA_FX_KIND_MAP: Partial<Record<SkillFxKind, SkillAreaFxKind>> = {
     'ground-zone': 'groundwave',
     'frost-spikes': 'icespikes',
     'feixue-shatter': 'iceshatter',
-    'lingxi-wave': 'groundwave',
+    'lingxi-wave': 'rippletide',
     'triple-slash': 'slashwave',
     'arc-slash': 'slashwave',
     // 治疗祝福/增益类法阵化，避免区域级爆炸感盖过辅助语义

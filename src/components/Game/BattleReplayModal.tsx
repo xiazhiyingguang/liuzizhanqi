@@ -111,23 +111,26 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
     return (
         <Shell onClose={onClose}>
             <div className="relative z-10 flex h-[min(92vh,860px)] w-[min(1120px,96vw)] flex-col overflow-hidden ink-card animate-fade-up">
-                <header className="flex items-center justify-between gap-4 border-b border-gold/15 px-5 py-3">
-                    <div>
+                <header className="flex min-h-[74px] items-center justify-between gap-4 border-b border-gold/15 px-5 py-3">
+                    <div className="min-w-0">
                         <h2 id="battle-replay-title" className="font-title text-lg text-ink">对局回放</h2>
-                        <p className="mt-0.5 text-[11px] text-ink-faint">
+                        <p
+                            className="mt-0.5 truncate text-[11px] text-ink-faint"
+                            title={`第 ${current + 1} / ${frames.length} 步 · 第 ${frame.round} 回合 · ${frame.player === 'player1' ? '玩家一' : '玩家二'}行动${actorName ? ` · 行动者：${actorName}` : ''}`}
+                        >
                             第 {current + 1} / {frames.length} 步 · 第 {frame.round} 回合 · {frame.player === 'player1' ? '玩家一' : '玩家二'}行动
                             {actorName ? ` · 行动者：${actorName}` : ''}
                             {replay.coarsened ? ' · 为节省内存已按回合抽样' : ''}
                         </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-shrink-0 items-center gap-2">
                         <span className="text-[11px] text-ink-faint">← → 逐步，空格播放</span>
                         <InkButton variant="ghost" size="sm" sfx="cancel" onClick={onClose}>关闭</InkButton>
                     </div>
                 </header>
 
                 <div className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
-                    <div className="flex min-w-0 flex-col gap-3 overflow-y-auto light-scrollbar pr-1">
+                    <div className="replay-stable-scroll flex min-w-0 flex-col gap-3 overflow-y-auto light-scrollbar pr-1">
                         <ReplayBoard frame={frame} statics={replay.statics} deltas={deltas} />
                         <ReplayRoster replay={replay} frameIndex={current} />
                     </div>
@@ -135,7 +138,7 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                     <aside className="flex w-[320px] flex-shrink-0 flex-col gap-3 min-h-0">
                         <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-ink/8 bg-rice-light/60">
                             <h3 className="border-b border-ink/8 px-3 py-2 font-title text-sm text-ink">本步战报</h3>
-                            <div ref={narrationRef} className="min-h-0 flex-1 overflow-y-auto light-scrollbar px-3 py-2">
+                            <div ref={narrationRef} className="replay-stable-scroll min-h-0 flex-1 overflow-y-auto light-scrollbar px-3 py-2">
                                 {stepLogs.length === 0 ? (
                                     <p className="text-[12px] text-ink-faint">（本步没有产生新战报，多为流程推进或站位变化）</p>
                                 ) : stepLogs.map(entry => (
@@ -153,7 +156,7 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
 
                         <section className="rounded-lg border border-ink/8 bg-rice-light/60 px-3 py-2">
                             <h3 className="font-title text-sm text-ink">关键节点</h3>
-                            <div className="mt-2 flex max-h-[168px] flex-wrap gap-1.5 overflow-y-auto light-scrollbar">
+                            <div className="replay-stable-scroll mt-2 flex max-h-[168px] flex-wrap gap-1.5 overflow-y-auto light-scrollbar">
                                 {replay.marks.length === 0 ? (
                                     <p className="text-[12px] text-ink-faint">本局没有识别到击杀/天威等关键节点。</p>
                                 ) : replay.marks.map(mark => (
@@ -238,23 +241,29 @@ function Shell({ children, onClose }: BattleReplayModalProps & { children: React
 /** 含未上场单位的花名册：替补席、暂时阵亡与真实阵亡都要能看到，否则回放里会"凭空少人" */
 function ReplayRoster({ replay, frameIndex }: { replay: BattleReplay; frameIndex: number }) {
     const frame = replay.frames[frameIndex];
+    // 名单按登记顺序（= 上场顺序）排，绝不按血量排：
+    // 血量每步都在变，按血量排会让名字在逐帧翻动时来回跳位。
     const byOwner = ([1, 2] as const).map(slot => {
         const owner = slot === 1 ? 'player1' : 'player2';
-        const units = frame.units
-            .filter(unit => replay.statics[unit.def]?.owner === owner)
-            .sort((left, right) => right.hp - left.hp);
+        const units = frame.units.filter(unit => replay.statics[unit.def]?.owner === owner);
         return { owner, units };
     });
 
     return (
-        <div className="grid grid-cols-2 gap-2">
+        // 花名册整块高度固定、行高固定：增益/减益随帧增减会把行撑高，
+        // 逐帧翻动时下半栏就会上下抽动，连带左栏滚动位置一起晃
+        <div className="grid h-[178px] flex-shrink-0 grid-cols-2 gap-2">
             {byOwner.map(({ owner, units }) => (
-                <section key={owner} className="rounded-lg border border-ink/8 bg-rice-light/60 px-2.5 py-2">
-                    <h4 className="mb-1.5 font-title text-xs text-ink-faint">{owner === 'player1' ? '玩家一' : '玩家二'}</h4>
-                    <ul className="space-y-1">
+                <section key={owner} className="flex min-h-0 flex-col rounded-lg border border-ink/8 bg-rice-light/60 px-2.5 py-2">
+                    <h4 className="mb-1.5 flex-shrink-0 font-title text-xs text-ink-faint">{owner === 'player1' ? '玩家一' : '玩家二'}</h4>
+                    <ul className="replay-stable-scroll min-h-0 flex-1 space-y-1 overflow-y-auto">
                         {units.map(unit => {
                             const info = replay.statics[unit.def];
                             const ratio = info?.maxHp ? unit.hp / info.maxHp : 0;
+                            const status = [
+                                ...unit.effects.map(([name, stacks]) => (stacks > 1 ? `${name}${stacks}` : name)),
+                                ...unit.counters.map(([name, value]) => `${name}${value}`),
+                            ].join(' · ');
                             return (
                                 <li key={unit.def} className="text-[11px] text-ink-light">
                                     <div className="flex items-center justify-between gap-2">
@@ -269,14 +278,9 @@ function ReplayRoster({ replay, frameIndex }: { replay: BattleReplay; frameIndex
                                             style={{ width: `${Math.max(0, Math.min(1, ratio)) * 100}%` }}
                                         />
                                     </div>
-                                    {(unit.effects.length > 0 || unit.counters.length > 0) && (
-                                        <p className="mt-0.5 truncate text-[10px] text-ink-faint">
-                                            {[
-                                                ...unit.effects.map(([name, stacks]) => (stacks > 1 ? `${name}${stacks}` : name)),
-                                                ...unit.counters.map(([name, value]) => `${name}${value}`),
-                                            ].join(' · ')}
-                                        </p>
-                                    )}
+                                    <p className={`mt-0.5 truncate text-[10px] text-ink-faint ${status ? '' : 'invisible'}`}>
+                                        {status || '—'}
+                                    </p>
                                 </li>
                             );
                         })}

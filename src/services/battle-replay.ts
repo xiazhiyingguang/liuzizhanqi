@@ -4,8 +4,10 @@ import {
     isCoarseWorthy,
     buildFrame,
     stepSignature,
+    MAX_REPLAY_DECISIONS,
     MAX_REPLAY_FRAMES,
     MAX_REPLAY_NARRATION,
+    type AiDecision,
     type BattleReplay,
     type ReplayFrame,
     type ReplayInterner,
@@ -27,6 +29,7 @@ interface RecorderState {
     matchId: string | undefined;
     frames: ReplayFrame[];
     narration: BattleLogEntry[];
+    decisions: AiDecision[];
     interner: ReplayInterner;
     seenLogIds: Set<string>;
     coarsened: boolean;
@@ -43,12 +46,23 @@ function createEmptyRecorder(): RecorderState {
         matchId: undefined,
         frames: [],
         narration: [],
+        decisions: [],
         interner: createInterner(),
         seenLogIds: new Set(),
         coarsened: false,
         marksDirty: true,
         marks: [],
     };
+}
+
+/** AI 决策点上报：序号与对齐用的帧号由录制器补齐 */
+export function noteAiDecision(decision: Omit<AiDecision, 'seq' | 'frame'>): void {
+    if (recorder.decisions.length >= MAX_REPLAY_DECISIONS) return;
+    recorder.decisions.push({
+        ...decision,
+        seq: recorder.decisions.length,
+        frame: Math.max(0, recorder.frames.length - 1),
+    });
 }
 
 /** 清空当前录像（换局、单测、重新开局） */
@@ -127,6 +141,7 @@ export function getBattleReplay(): BattleReplay {
         narration: recorder.narration,
         frames: recorder.frames,
         marks: recorder.marks,
+        decisions: recorder.decisions,
         coarsened: recorder.coarsened,
     };
     return cachedView;

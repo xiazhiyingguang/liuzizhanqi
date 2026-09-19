@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import HeroAvatar from '../ui/HeroAvatar';
 import { HeroStatusFx } from './HeroStatusFx';
+import { WindBladeGlyph } from './WindBladeGlyph';
 import type { ReplayArea, ReplayFrame, ReplayStatic, ReplayUnit } from '../../core/battle-replay';
 import type { BoardEffect, Hero } from '../../types/game';
 
@@ -9,7 +10,7 @@ interface ReplayBoardProps {
     statics: ReplayStatic[];
     /** def → 本步生命变化（负数为受伤，正数为治疗）；v1 用它代替特效重放 */
     deltas?: Map<number, number>;
-    /** 单格边长（像素）。回放弹层里不依赖对局页的 --board-cell-size 断点 */
+    /** 单格边长（像素）。缺省时由 .replay-board 的 CSS 按弹层可用宽度推导 */
     cellSize?: number;
 }
 
@@ -20,7 +21,7 @@ interface ReplayBoardProps {
  * 而回放要画的是"过去的某一帧"，注入 store 会连带触发音效订阅、AI 定时器与联机广播。
  * 这里只吃 props，格子样式与棋子结构沿用 ink-wash.css 里已有的类名，保证观感一致。
  */
-export default function ReplayBoard({ frame, statics, deltas, cellSize = 62 }: ReplayBoardProps) {
+export default function ReplayBoard({ frame, statics, deltas, cellSize }: ReplayBoardProps) {
     const unitsAt = (row: number, col: number): ReplayUnit | undefined =>
         frame.units.find(unit => unit.r === row && unit.c === col);
     const areasAt = (row: number, col: number): ReplayArea[] =>
@@ -29,7 +30,7 @@ export default function ReplayBoard({ frame, statics, deltas, cellSize = 62 }: R
     return (
         <div
             className="battle-board-shell replay-board"
-            style={{ '--board-cell-size': `${cellSize}px` } as CSSProperties}
+            style={cellSize ? ({ '--board-cell-size': `${cellSize}px` } as CSSProperties) : undefined}
         >
             <div className="battle-field battle-board-frame">
                 <div className="battle-board-grid">
@@ -43,7 +44,7 @@ export default function ReplayBoard({ frame, statics, deltas, cellSize = 62 }: R
                                 <div
                                     key={`${row}-${col}`}
                                     data-testid={`replay-cell-${row}-${col}`}
-                                    className={`battle-cell replay-cell${isActor ? ' replay-cell-actor' : ''}`}
+                                    className={`battle-cell battle-board-cell replay-cell flex flex-col items-center justify-center${isActor ? ' replay-cell-actor' : ''}`}
                                 >
                                     {areas.map((area, index) => (
                                         <ReplayAreaOverlay key={`${area.type}-${index}`} area={area} />
@@ -152,12 +153,8 @@ function ReplayAreaOverlay({ area }: { area: ReplayArea }) {
             );
         case 'wind-blade':
             return (
-                <div title={AREA_TITLES['wind-blade']} className={`bf-wind-blade bf-wind-blade-${side} pointer-events-none`}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                        <path d="M4 12h11" />
-                        <path d="M12 5 19 12 12 19" />
-                        <path d="M4 7l3 2.5M4 17l3-2.5" />
-                    </svg>
+                <div title={AREA_TITLES['wind-blade']} className={`bf-wind-blade bf-wind-blade-${side} bf-wind-blade-${area.direction ?? 'up'} pointer-events-none`}>
+                    <WindBladeGlyph />
                 </div>
             );
         case 'ice-crystal':

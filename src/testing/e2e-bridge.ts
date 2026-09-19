@@ -37,7 +37,7 @@ declare global {
             snapshot: () => E2EGameSnapshot;
             prepareFinalStrike: () => boolean;
             /** 特效演示桥（视觉验收/特效开发用）：构建最小战斗舞台并触发指定特效 */
-            fxDemo: (scenario: 'stage' | 'chain' | 'splash' | 'aoe' | 'death' | 'status' | 'tick' | 'areagrid' | 'areafire' | 'areastorm' | 'areashock' | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade' | 'fxpearl' | 'fxwave' | 'fxfan') => boolean;
+            fxDemo: (scenario: 'stage' | 'chain' | 'splash' | 'aoe' | 'death' | 'status' | 'tick' | 'areagrid' | 'areafire' | 'areastorm' | 'areashock' | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade' | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce' | 'fxdash' | 'fxwheel' | 'daistasis') => boolean;
         };
     }
 }
@@ -174,6 +174,7 @@ function pushDemoSkillFx(
         chainLinks?: Position[];
         impactPositions?: Position[];
         softImpactPositions?: Position[];
+        coveredPositions?: Position[];
     }
 ): void {
     const state = useGameStore.getState();
@@ -194,7 +195,10 @@ function pushDemoSkillFx(
         angleDeg,
         direction: computeFxDirection(angleDeg),
         coveredPositions,
-        areaBounds: skill ? computeSkillAreaBounds(skill, coveredPositions) ?? undefined : undefined,
+        // 与线上派发同规则：档案声明 fxArea:'none' 的技能不铺整盘区域特效
+        areaBounds: skill && profile.fxArea !== 'none'
+            ? computeSkillAreaBounds(skill, coveredPositions) ?? undefined
+            : undefined,
         ...extras,
     });
 }
@@ -204,7 +208,8 @@ function runFxDemo(
         | 'stage' | 'chain' | 'splash' | 'aoe' | 'death' | 'status' | 'tick'
         | 'areagrid' | 'areafire' | 'areastorm' | 'areashock'
         | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade'
-        | 'fxpearl' | 'fxwave' | 'fxfan'
+        | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce'
+        | 'fxdash' | 'fxwheel' | 'daistasis'
 ): boolean {
     if (!ensureFxDemoStage()) return false;
     const state = useGameStore.getState();
@@ -289,7 +294,7 @@ function runFxDemo(
             }
             return true;
         case 'fxwave':
-            // 泠汐·海浪涟漪：三重浪环荡开 + 泡沫
+            // 泠汐·海浪涟漪：潮面漫染 + 四道浪环逐圈荡开 + 浪尖白沫
             pushDemoSkillFx('changli', 'lingxi_skill1', [1, 2], [2, 2]);
             return true;
         case 'fxfan':
@@ -299,6 +304,28 @@ function runFxDemo(
         case 'fxblade':
             // 镜·破镜飞刃：三枚镜刃合击（模拟破镜之刃触发的日志标记路径）
             pushDemoSkillFx('liuli', 'mirror_blade', [2, 1], [1, 4]);
+            return true;
+        case 'fxclaw':
+            // 风铃·爪牙撕裂：起手格残影拖尾 + 命中格三道爪痕扇形撕开
+            pushDemoSkillFx('fengling', 'fengling_skill1', [2, 1], [2, 3]);
+            return true;
+        case 'fxpounce':
+            // 风铃天威·掠沙闪袭：残影跨多格冲到远处敌人身边再咬一口
+            pushDemoSkillFx('fengling', 'fengling_pounce', [1, 1], [4, 4]);
+            return true;
+        case 'fxdash':
+            // 醉枕刀·醉掷寒锋：真实冲刺序列自报（这里演示一条绕路），
+            // 疾影逐格沿路径跟踪点亮，踩到的格补贯斩特写，末格拾刀压轴
+            pushDemoSkillFx('zhenxiao', 'zuizhendao_skill1', [2, 1], [2, 4], {
+                coveredPositions: [[2, 2], [3, 2], [3, 3], [2, 3], [2, 4]],
+                impactPositions: [[2, 2], [3, 3], [2, 3], [2, 4]],
+            });
+            return true;
+        case 'fxwheel':
+            // 醉枕刀·醉影换位：起手格涡环换位而出，落位格太刀绕身旋斩一周
+            pushDemoSkillFx('zhenxiao', 'zuizhendao_skill2', [4, 1], [1, 2], {
+                impactPositions: [[2, 3]],
+            });
             return true;
         case 'death':
             // 阵亡水墨消散 + 击杀震屏：由 kill 日志驱动
@@ -360,6 +387,42 @@ function runFxDemo(
                 details: { kind: 'damage', amount: 2, fxTag: 'bleed', position: [2, 4] },
             });
             return true;
+        case 'daistasis': {
+            // 戴尔「时空停滞」残影与两段式唤回的可点态（点残影→点空格）
+            if (!ensureFxDemoStage()) return false;
+            const stage = useGameStore.getState();
+            const board = stage.board.map(row => [...row]);
+            const fallen = stage.player1Heroes.find(hero => hero.id.startsWith('changli-'));
+            if (!fallen?.position) return false;
+
+            const [deathRow, deathCol] = fallen.position;
+            board[deathRow][deathCol] = null;
+            fallen.currentHp = 0;
+            fallen.state = HeroState.DEAD;
+            fallen.counters['__dai_stasis_until'] = stage.roundNumber + 1;
+            fallen.counters['__dai_hp_before_lethal'] = 10;
+
+            const existingDai = stage.player1Heroes.find(
+                hero => hero.passiveId === 'dai_passive' && hero.state === HeroState.ALIVE
+            );
+            const dai = existingDai ?? createHero('dai', 'player1', [3, 1]);
+            board[3][1] = dai;
+            dai.position = [3, 1];
+
+            useGameStore.setState({
+                board,
+                player1Heroes: existingDai ? [...stage.player1Heroes] : [...stage.player1Heroes, dai],
+                currentPlayer: 'player1',
+                selectedHero: dai,
+                activeHero: dai,
+                selectedSkill: getSkill('dai_skill1') ?? null,
+                daiReviveHeroId: undefined,
+                highlightedPositions: [],
+                moveRange: [],
+                skillRange: [],
+            });
+            return true;
+        }
         default:
             return false;
     }

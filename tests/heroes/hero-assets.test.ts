@@ -49,6 +49,14 @@ describe('hero image assets', () => {
         expect(resolveHeroTemplateId('dai')).toBe('daier');
         expect(resolveHeroTemplateId('dai-player1-1785423305834')).toBe('daier');
         expect(getHeroAvatarUrl('dai-player2-1785423305834')).toBe('/hero-images/avatars/daier.png');
+
+        // 叙白：模板 ID 与资产 ID 一致
+        expect(getHeroAvatarUrl('xubai')).toBe('/hero-images/avatars/xubai.png');
+        expect(getHeroFullBodyUrl('xubai-player1-1785423305834')).toBe('/hero-images/full-body/xubai.png');
+
+        // 泠汐：模板 ID 与资产 ID 一致
+        expect(getHeroAvatarUrl('lingxi')).toBe('/hero-images/avatars/lingxi.png');
+        expect(getHeroFullBodyUrl('lingxi-player2-1785423305834')).toBe('/hero-images/full-body/lingxi.png');
     });
 
     it('returns no image for heroes whose artwork has not been supplied', () => {

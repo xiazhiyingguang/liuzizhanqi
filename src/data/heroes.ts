@@ -986,7 +986,14 @@ export function createHero(
     return hero;
 }
 
-export const AVAILABLE_HERO_IDS = [
+/**
+ * 暂时下架的英雄：机制、图鉴、特效、音效与测试全部保留，只是不进选将池。
+ * AVAILABLE_HERO_IDS 是选将界面、英雄图鉴与 AI 选将的唯一入口，
+ * 因此恢复上线只需把 id 从这个名单里删掉。
+ */
+export const HIDDEN_HERO_IDS = ['schrodinger'];
+
+export const AVAILABLE_HERO_IDS = ([
     'moran',
     'zhenxiao',
     'huifeng',
@@ -1001,7 +1008,7 @@ export const AVAILABLE_HERO_IDS = [
     'guying',
     'hanjiangxue',
     ...EXTENDED_HERO_IDS,
-];
+] as string[]).filter(id => !HIDDEN_HERO_IDS.includes(id));
 
 // 获取英雄显示信息
 export function getHeroInfo(heroId: string) {

@@ -42,6 +42,7 @@ export type HeroStatusFxKind =
     | 'observe-hit'  // 观测坍缩受伤（薛定谔）
     | 'observe-miss' // 观测坍缩未受伤（薛定谔）
     | 'entangle'     // 量子纠缠（薛定谔）
+    | 'rage'         // 愤怒（血契强锁：只能攻击锁住它的对象）
     | 'fortune'      // 来财（旺财增益）
     | 'mirror-blade' // 破镜之刃层数（镜）
     | 'momentum'     // 增势层数（英雄X）
@@ -65,6 +66,7 @@ const STATUS_FX_PRIORITY: Array<{ kind: HeroStatusFxKind; effectNames?: string[]
     { kind: 'deathmark', effectNames: ['猎杀标记'] },
     { kind: 'chainmark', effectNames: ['链式闪电'] },
     { kind: 'fear', effectNames: ['恐惧'] },
+    { kind: 'rage', effectNames: ['愤怒'] },
     { kind: 'wither', effectNames: ['凋零'] },
     { kind: 'burn', effectNames: ['灼烧'] },
     { kind: 'bleed', effectNames: ['流血'] },

@@ -164,6 +164,13 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                     <i className="sfx-ring sfx-fear-ring" />
                 </>
             );
+        case 'rage':
+            return (
+                <>
+                    <i className="sfx-ring sfx-rage-ring" />
+                    <Rise count={2} />
+                </>
+            );
         case 'wither':
             return <Rise count={3} />;
         case 'burn':

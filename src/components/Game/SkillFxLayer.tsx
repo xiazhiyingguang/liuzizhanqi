@@ -14,6 +14,7 @@
  * --fx-c1 主色、--fx-c2 辅色、--fx-glow 光晕，动画细节见 ink-wash.css。
  */
 import { useEffect, type CSSProperties } from 'react';
+import { WindBladeGlyph } from './WindBladeGlyph';
 import type { Position, SkillAreaBounds, SkillFxEvent } from '../../core/skill-fx';
 import { computeFxAngleDeg, computeFxCellDelayMs, computeFxTailMs, isPerTargetFxKind, resolveAreaFxKind } from '../../core/skill-fx';
 import { useGameStore } from '../../store/game-store';
@@ -139,6 +140,23 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
                     <i className="fxp-trail" />
                 </span>
             );
+        case 'fengling-claw':
+        case 'fengling-pounce':
+            // 风铃起手：残影沿闪袭方向铺开（天威跨多格时拖尾更长）
+            return <FenglingPounceFx />;
+        case 'yunying-sweep':
+            // 云缨起手：长枪在周身凌乱横扫，弧刃以自身为圆心甩开
+            return <YunyingSweepFx />;
+        case 'yunying-thrust':
+            // 云缨起手：枪尖前送拉出一段速度光痕，突刺本体在命中格贯出
+            return (
+                <span className="fx-anchor" style={fxStyleVars(event)}>
+                    <i className="fxp-trail" />
+                </span>
+            );
+        case 'liehuo-blaze':
+            // 烈火燎原起手：火种在云缨脚下炸开，火线由她向外逐格烧出去
+            return <LiehuoIgniteHubFx />;
         case 'feixue-blade':
         case 'feixue-stomp':
         case 'feixue-shatter':
@@ -162,6 +180,32 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
             return (
                 <span className="fx-anchor" style={fxStyleVars(event)}>
                     <LingxiFanOpenFx />
+                </span>
+            );
+        case 'wind-blade-volley':
+            // 四向风刃是自身技，四弯风刃自施法者格射向周身四格
+            return (
+                <span className="fx-anchor" style={fxStyleVars(event)}>
+                    <WindBladeVolleyFx />
+                </span>
+            );
+        case 'xueqi-scythe':
+            // 血誓横扫（天威复用）：血镰绕自身旋满一圈，扫过周身一格
+            return (
+                <span className="fx-anchor" style={fxStyleVars(event)}>
+                    <XueqiScytheFx />
+                </span>
+            );
+        case 'zuizhen-throw':
+            // 醉掷寒锋：掷刀沿路径疾飞，光轨与逐段疾光把冲刺路线整条点亮
+            return <ZuizhenThrowDashFx event={event} />;
+        case 'zuizhen-wheel':
+            // 醉影换位（起手格）：本体在双涡环中淡去，斩击在落位格展开
+            return (
+                <span className="fx-anchor" style={fxStyleVars(event)}>
+                    <i className="fxp-implode" />
+                    <i className="fxp-implode fxp-implode-b" />
+                    <i className="fx-zw-vanish" />
                 </span>
             );
         default:
@@ -431,6 +475,68 @@ function MirrorBladesFx() {
     );
 }
 
+/** 风铃·掠沙闪袭（起手格）：跨格疾光拖尾 + 三段渐淡残影 + 起跳尘环 */
+function FenglingPounceFx() {
+    return (
+        <span className="fx-anchor fx-flp">
+            <i className="fx-flp-streak" />
+            <i className="fx-flp-echo fx-flp-echo-1" />
+            <i className="fx-flp-echo fx-flp-echo-2" />
+            <i className="fx-flp-echo fx-flp-echo-3" />
+            <i className="fx-flp-dust" />
+        </span>
+    );
+}
+
+/** 风铃·爪牙撕裂（命中格）：三道爪痕沿攻击方向扇形依次撕开，每道带白热爪尖 */
+function FenglingClawFx() {
+    return (
+        <span className="fx-anchor fx-flc">
+            <i className="fx-flc-slash fx-flc-slash-1"><b className="fx-flc-tip" /></i>
+            <i className="fx-flc-slash fx-flc-slash-2"><b className="fx-flc-tip" /></i>
+            <i className="fx-flc-slash fx-flc-slash-3"><b className="fx-flc-tip" /></i>
+            <i className="fx-flc-rip" />
+            <i className="fxp-hitflash" />
+            <i className="fxp-ring" />
+            <Shards count={5} />
+        </span>
+    );
+}
+
+/** 云缨·星火照野（起手格）：四道弧刃按先后顺序逐条甩开 + 收势时一记枪杆抽打 */
+function YunyingSweepFx() {
+    return (
+        <span className="fx-anchor fx-yys">
+            <i className="fx-yys-arc fx-yys-arc-1" />
+            <i className="fx-yys-arc fx-yys-arc-2" />
+            <i className="fx-yys-arc fx-yys-arc-3" />
+            <i className="fx-yys-arc fx-yys-arc-4" />
+            <i className="fx-yys-shaft" />
+            <i className="fxp-hitflash" />
+            <Shards count={5} />
+        </span>
+    );
+}
+
+/** 云缨·踏火长驱（命中格）：一杆长枪（枪杆+枪头+红缨）贯出一记，到位时炸震环 */
+function YunyingThrustFx() {
+    return (
+        <span className="fx-anchor fx-yyt">
+            <i className="fx-yyt-speed fx-yyt-speed-1" />
+            <i className="fx-yyt-speed fx-yyt-speed-2" />
+            <i className="fx-yyt-spear">
+                <b className="fx-yyt-bar" />
+                <b className="fx-yyt-head" />
+                <b className="fx-yyt-tassel" />
+            </i>
+            <i className="fx-yyt-wave" />
+            <i className="fxp-hitflash" />
+            <i className="fxp-ring" />
+            <Shards count={6} />
+        </span>
+    );
+}
+
 /** 叙白·黑白凝珠：三颗阴阳珠自四方汇入 + 环绕旋转成阵（施法瞬间） */
 function XubaiPearlsFx() {
     return (
@@ -448,17 +554,90 @@ function XubaiPearlsFx() {
     );
 }
 
-/** 泠汐·海浪涟漪：三重浪环由心荡开 + 浪峰泡沫 + 潮雾 */
+/** 一段圆弧坐标（viewBox 100×100，圆心 50,50；0°=右、顺时针，270°=正上方） */
+function arcPoint(r: number, deg: number): string {
+    const a = (deg * Math.PI) / 180;
+    return `${(50 + r * Math.cos(a)).toFixed(2)} ${(50 + r * Math.sin(a)).toFixed(2)}`;
+}
+
+/** 环形扇面：外弧顺行 → 落到内半径 → 内弧逆行 → 闭合。
+ *  中段厚实、两端收到刀锋，正是俯视下一道翻卷浪头的轮廓——
+ *  等宽描边只会画出一根彩虹拱。 */
+function crescentPath(rOuter: number, rInner: number, fromDeg: number, toDeg: number): string {
+    const large = Math.abs(toDeg - fromDeg) > 180 ? 1 : 0;
+    return `M${arcPoint(rOuter, fromDeg)} ` +
+        `A${rOuter} ${rOuter} 0 ${large} 1 ${arcPoint(rOuter, toDeg)} ` +
+        `L${arcPoint(rInner, toDeg)} ` +
+        `A${rInner} ${rInner} 0 ${large} 0 ${arcPoint(rInner, fromDeg)} Z`;
+}
+
+/** 一道浪分三层叠出体积：背光的水壁 → 受光的浪腹 → 翻卷出来的白沫浪尖。
+ *  俯视棋盘上没有透视，"立体"全靠这套明暗分层加一道投影交代离地高度。 */
+const LINGXI_WAVE_LAYERS = [
+    { cls: 'fx-wave-shade', d: crescentPath(46, 24, 200, 340) },
+    { cls: 'fx-wave-body', d: crescentPath(46, 33, 203, 337) },
+    { cls: 'fx-wave-face', d: crescentPath(46, 39, 207, 333) },
+    { cls: 'fx-wave-lip', d: crescentPath(46, 43, 213, 327) },
+];
+
+/** 翻卷的浪头：涌起→前倾翻卷→压扁拍碎，动画在 CSS 里按实例类分派 */
+function WaveCrestGlyph({ className, style }: { className: string; style?: CSSProperties }) {
+    return (
+        <i className={className} style={style} aria-hidden="true">
+            <svg viewBox="0 0 100 100">
+                {LINGXI_WAVE_LAYERS.map(layer => (
+                    <path key={layer.cls} className={layer.cls} d={layer.d} />
+                ))}
+            </svg>
+        </i>
+    );
+}
+
+/** 涟漪环轮廓：半径沿角度做低幅正弦起伏，让一圈浪略带自然的卵形，
+ *  而不是几何正圆——正圆描边在浅色盘面上读作瞄准环。 */
+function rippleRingPath(radius: number, crests: number, amp: number, phase: number): string {
+    const steps = 72;
+    const pts: string[] = [];
+    for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const r = radius * (1 + amp * Math.sin(a * crests + phase));
+        pts.push(`${i === 0 ? 'M' : 'L'}${(50 + r * Math.cos(a)).toFixed(2)} ${(50 + r * Math.sin(a)).toFixed(2)}`);
+    }
+    return `${pts.join(' ')} Z`;
+}
+
+/** 一道余波涟漪的两条描边：外圈迎光的浪峰，内圈偏暗一档即波谷阴影 */
+function rippleRing(crests: number, amp: number, phase: number) {
+    return {
+        crest: rippleRingPath(46, crests, amp, phase),
+        trough: rippleRingPath(41.5, crests, amp, phase),
+    };
+}
+
+/** 三道余波涟漪：浪拍碎之后一圈圈向外荡 */
+const LINGXI_RIPPLE_RINGS = [0, 1, 2].map(i => rippleRing(3, 0.016, i * 1.4));
+
+/** 区域级大浪环：自潮心荡向区缘的潮头 */
+const LINGXI_TIDE_RINGS = [0, 1, 2].map(i => rippleRingPath(46, 3, 0.02, i * 1.9));
+
+/** 泠汐·技能一「海螺回响」：潮面漫染 → 浪头涌起翻卷拍碎 → 余波涟漪逐圈荡开 */
 function LingxiWaveFx() {
     return (
         <span className="fx-anchor">
-            <i className="fx-wavering fx-wavering-1" />
-            <i className="fx-wavering fx-wavering-2" />
-            <i className="fx-wavering fx-wavering-3" />
-            <i className="fx-wavefoam fx-wavefoam-1" />
-            <i className="fx-wavefoam fx-wavefoam-2" />
-            <i className="fx-wavefoam fx-wavefoam-3" />
-            <i className="fxp-auraglow" />
+            <i className="fx-ripple-wash" />
+            <i className="fx-wave-cast" />
+            <WaveCrestGlyph className="fx-wave" />
+            {LINGXI_RIPPLE_RINGS.map((ring, i) => (
+                <i key={i} className={`fx-ripple fx-ripple-${i + 1}`} aria-hidden="true">
+                    <svg viewBox="0 0 100 100">
+                        <path className="fx-ripple-trough" d={ring.trough} vectorEffect="non-scaling-stroke" />
+                        <path className="fx-ripple-crest" d={ring.crest} vectorEffect="non-scaling-stroke" />
+                    </svg>
+                </i>
+            ))}
+            <i className="fx-wave-spray fx-wave-spray-1" />
+            <i className="fx-wave-spray fx-wave-spray-2" />
+            <i className="fx-wave-spray fx-wave-spray-3" />
         </span>
     );
 }
@@ -670,6 +849,32 @@ function CrystalShatterFx() {
     );
 }
 
+/** 云缨·烈火燎原（射线上的每一格）：火舌自地面窜起，灼环烙在格心，余烬上腾。
+ *  起燃时刻由 --fx-ray-delay 逐格推后，看上去是一道火线往前烧。 */
+function LiehuoBlazeCellFx({ tall = false }: { tall?: boolean }) {
+    return (
+        <span className={`fx-anchor fx-lhb${tall ? ' fx-lhb-tall' : ''}`}>
+            <i className="fx-lhb-heat" />
+            <i className="fx-lhb-base" />
+            <i className="fx-lhb-tongue fx-lhb-tongue-1" />
+            <i className="fx-lhb-tongue fx-lhb-tongue-2" />
+            <i className="fx-lhb-tongue fx-lhb-tongue-3" />
+            <Sparks count={4} className="fxp-spark-ember" />
+        </span>
+    );
+}
+
+/** 云缨·烈火燎原（云缨脚下）：火种炸开，火线由此向外铺开 */
+function LiehuoIgniteHubFx() {
+    return (
+        <span className="fx-anchor fx-lhb-hub">
+            <i className="fx-lhb-core" />
+            <i className="fx-lhb-ring" />
+            <Sparks count={6} className="fxp-spark-ember" />
+        </span>
+    );
+}
+
 /** 焰浪：火热闪焰 + 闪核 + 上升余烬 + 冲击环 */
 function EmberFlareFx() {
     return (
@@ -690,6 +895,149 @@ function StormBoltFx() {
             <i className="fxp-bolt fxp-bolt-b" />
             <i className="fxp-hitflash fxp-hitflash-big" />
             <i className="fxp-ring" />
+            <Sparks count={4} className="fxp-spark-fast" />
+        </span>
+    );
+}
+
+/** 四向风刃：中央气流绽开 + 四弯风刃分射上下左右（刃身与落地陷阱同一图形） */
+function WindBladeVolleyFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxp-ring" />
+            {(['0', '90', '180', '270'] as const).map(rot => (
+                <i key={rot} className="fx-wbv-dir" style={{ '--wb-rot': `${rot}deg` } as CSSProperties}>
+                    <i className="fx-wbv-blade">
+                        <i className="fx-wbv-trail" />
+                        <WindBladeGlyph className="fx-wbv-glyph" />
+                    </i>
+                </i>
+            ))}
+            <Sparks count={4} className="fxp-spark-wind" />
+        </span>
+    );
+}
+
+/** 血契镰刀：弯月刃 + 长柄 + 缠绳，刃尖朝 -x（绕身旋转时刃尖先行） */
+function ScytheGlyph({ className = '' }: { className?: string }) {
+    return (
+        <svg className={className} viewBox="-12 -12 24 24" aria-hidden="true">
+            <path className="xq-haft" d="M2.6 -6.2 L9.4 9.6" />
+            <path className="xq-wrap" d="M4.2 -2.6 l3.2 -1.2 M5.4 0.4 l3.2 -1.2" />
+            <path className="xq-blade" d="M-11.4 -5.6 C -9.2 -11.2 -1.6 -11.8 2.6 -6.2 C -1.8 -8 -6.6 -7.4 -9.4 -3.4 Z" />
+            <path className="xq-edge" d="M-11.4 -5.6 C -9.2 -11.2 -1.6 -11.8 2.6 -6.2" />
+        </svg>
+    );
+}
+
+/**
+ * 血镰旋环：一柄血镰绕施法者格心转满一圈，刀尖拖着血色扫弧划过周身。
+ * 只服务血誓横扫（天威复用同一档案），血契锁仍走笼环收拢的束缚原型。
+ */
+function XueqiScytheFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-xs-orbit">
+                <i className="fx-xs-trail" />
+                <i className="fx-xs-scythe"><ScytheGlyph className="fx-xs-glyph" /></i>
+            </i>
+            <i className="fx-xs-ring" />
+            <i className="fx-xs-hitflash" />
+            <Sparks count={5} />
+        </span>
+    );
+}
+
+/* ============================================================
+   醉枕刀专属：醉掷寒锋（疾影光轨）/ 醉影换位（太刀旋斩）
+   ============================================================ */
+
+/** 冲刺路径上的逐段疾光（三段先后掠过同一条光轨，营造高速残影感） */
+function ZuizhenThrowDashFx({ event }: { event: SkillFxEvent }) {
+    return (
+        <span className="fx-anchor" style={fxStyleVars(event)}>
+            <i className="fx-zt-rail" />
+            <i className="fx-zt-rail fx-zt-rail-b" />
+            <i className="fx-zt-streak fx-zt-streak-1" />
+            <i className="fx-zt-streak fx-zt-streak-2" />
+            <i className="fx-zt-streak fx-zt-streak-3" />
+            <i className="fx-zt-knife" />
+            <i className="fx-beam-muzzle fxp-muzzle" />
+            <i className="fx-zt-kick" />
+        </span>
+    );
+}
+
+/** 贯斩命中特写：爆闪核 + 双刀交叉斩痕 + 冲击双环 + 晶屑光尘。
+ *  各零件统一延后 --zt-hit-delay 起播——那是冲刺抵达本格的时刻 */
+function ZuizhenThrowHitFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-zt-burst" />
+            <i className="fx-zt-slash fx-zt-slash-a" />
+            <i className="fx-zt-slash fx-zt-slash-b" />
+            <i className="fx-zt-wave" />
+            <i className="fx-zt-wave fx-zt-wave-b" />
+            <Shards count={3} />
+            <Sparks count={3} className="fxp-spark-fast" />
+        </span>
+    );
+}
+
+/** 沿路跟踪格：一格一盏琥珀光痕 + 疾光与回声顺着本格的前进方向掠过，
+ *  起播时刻由 --fx-path-step（刀跑到第几格）驱动，整条路径亮起来即"光的足迹" */
+function ZuizhenThrowPathFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-zt-ptile" />
+            <i className="fx-zt-pass" />
+            <i className="fx-zt-pass fx-zt-pass-b" />
+        </span>
+    );
+}
+
+/** 太刀（刀柄钉在格心、刀身沿 +x 径向伸出，顺时针旋转时整刃绕中心扫圆） */
+function KatanaGlyph() {
+    return (
+        <svg className="fx-zw-glyph" viewBox="0 0 170 60" aria-hidden="true">
+            <path className="zw-blade" d="M22 34 Q90 24 158 12 Q161 13 160 17 Q92 31 26 42 Z" />
+            <path className="zw-edge" d="M22 34 Q90 24 158 12" />
+            <circle className="zw-tsuba" cx="18" cy="36" r="5.4" />
+            <path className="zw-hilt" d="M17 39 L3 47" />
+        </svg>
+    );
+}
+
+/** 旋刃斩痕圈：八道短斩痕按刀锋扫过的顺序依次点亮，标出"周围一圈"的界
+ *  （太刀起势刀尖朝东，顺时针一周：东→东南→南→西南→西→西北→北→东北） */
+const WHEEL_TICK_ANGLES = [90, 135, 180, 225, 270, 315, 0, 45];
+
+/** 醉影换位（落位格）：凝环收拢落位 → 一柄太刀绕格心旋满一周，
+ *  刃尖拖出主副两道旋扫弧 + 一道渐隐余痕，周身八道斩痕随扫过依次亮起 */
+function ZuizhenBladeWheelFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxp-implode" />
+            <i className="fxp-implode fxp-implode-b" />
+            <i className="fx-zw-orbit">
+                <i className="fx-zw-trail" />
+                <i className="fx-zw-trail fx-zw-trail-b" />
+                <i className="fx-zw-katana"><KatanaGlyph /></i>
+            </i>
+            <i className="fx-zw-hub" />
+            <i className="fx-zw-orbit fx-zw-orbit-echo">
+                <i className="fx-zw-trail fx-zw-trail-echo" />
+            </i>
+            {WHEEL_TICK_ANGLES.map((angle, index) => (
+                <i
+                    key={angle}
+                    className="fx-zw-tick"
+                    style={{ '--zw-a': `${angle}deg`, '--zw-i': index } as CSSProperties}
+                />
+            ))}
+            <i className="fxp-hitflash fxp-hitflash-big" />
+            <i className="fxp-ring" />
+            <i className="fxp-ring fxp-ring-b" />
             <Sparks count={4} className="fxp-spark-fast" />
         </span>
     );
@@ -918,14 +1266,43 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
             return <GroundZoneFx />;
         case 'cage-bind':
             return <CageBindFx />;
+        case 'xueqi-scythe':
+            // 血镰扫过的每一格：爆点由环形爆发零件承担，配色随血契档案
+            return <RadialBurstFx />;
+        case 'zuizhen-throw':
+            // 醉掷寒锋（落点格/沿途每格）：疾影贯斩——爆闪核 + 交刃斩光 + 双冲击环
+            return <ZuizhenThrowHitFx />;
+        case 'zuizhen-wheel':
+            // 醉影换位（落位格）：太刀绕格心旋满一周，刃尖拖出旋扫弧光，周身斩痕依次亮起
+            return <ZuizhenBladeWheelFx />;
+        case 'fengling-claw':
+        case 'fengling-pounce':
+            // 风铃落点：爪牙撕咬特写（天威由 pounce 档案加重拖尾与配色）
+            return <FenglingClawFx />;
+        case 'yunying-thrust':
+            // 云缨落点：整杆长枪贯出一记，刺到位时炸出震环并震格
+            return <YunyingThrustFx />;
+        case 'yunying-sweep':
+            // 3×3 的次要命中格只点一记爆点，弧刃主效由起手格那份承担
+            return <RadialBurstFx />;
         case 'crystal-shatter':
             return <CrystalShatterFx />;
         case 'ember-flare':
             return <EmberFlareFx />;
+        case 'liehuo-blaze':
+            // 烈火燎原首格：这道火线的第一格烧得最高
+            return <LiehuoBlazeCellFx tall />;
         case 'storm-bolt':
             return <StormBoltFx />;
         case 'gale-vortex':
             return <GaleVortexFx />;
+        case 'wind-blade-volley':
+            // 自身技：目标格与起手格重合，四弯风刃已由 caster 变体承载，这里只补气流绽放
+            return (
+                <span className="fx-anchor">
+                    <i className="fxp-auraglow" />
+                </span>
+            );
         case 'chord-notes':
             return <ChordNotesFx />;
         case 'time-rewind':
@@ -1031,6 +1408,40 @@ export function SkillFxVisual({
         } as CSSProperties;
     }
 
+    // 醉枕刀冲刺：主落点（target）、打到的格（impact）与路过的格（area）
+    // 全部按"刀跑到第几步"起播（--fx-path-step），末格特写压轴晚于一切沿途格；
+    // 疾光零件（area）再把 --fx-rot 改成本格前进方向，让光真正沿着绕路序列跟踪
+    if (atPos && event.profile.kind === 'zuizhen-throw') {
+        const covered = event.coveredPositions ?? [];
+        const pathIndex = covered.findIndex(([r, c]) => r === atPos[0] && c === atPos[1]);
+        const isLast = pathIndex === covered.length - 1;
+        const pathSteps = pathIndex >= 0
+            ? (isLast ? covered.length + 1 : pathIndex + 1)
+            : Math.max(
+                Math.abs(atPos[0] - event.fromPos[0]),
+                Math.abs(atPos[1] - event.fromPos[1])
+            );
+        style = { ...style, '--fx-path-step': String(pathSteps) } as CSSProperties;
+        if (variant === 'area' && pathIndex >= 0) {
+            const prev = pathIndex === 0 ? event.fromPos : covered[pathIndex - 1];
+            style = {
+                ...style,
+                '--fx-rot': `${computeFxAngleDeg(prev, atPos)}deg`,
+            } as CSSProperties;
+        }
+    }
+
+    // 烈火燎原：射线上的第 N 格晚 N 拍起燃（--fx-ray-delay），让火是一路烧过去的
+    // 而不是整条线同帧点亮；云缨脚下那一格始终是最先引爆的火种
+    if (atPos && event.profile.kind === 'liehuo-blaze') {
+        const rayIndex = (event.coveredPositions ?? [])
+            .findIndex(([r, c]) => r === atPos[0] && c === atPos[1]);
+        style = {
+            ...style,
+            '--fx-ray-delay': `${Math.max(0, rayIndex) * LIEHUO_STEP_MS}ms`,
+        } as CSSProperties;
+    }
+
     // 命中型原型本身就是"一次命中的特写"，每个命中格各来一份完整主效；
     // 法阵/领域/增益类只在主格出本体，其余格退回轻量印记
     const perTargetMain = variant === 'impact' && isPerTargetFxKind(event.profile.kind);
@@ -1053,7 +1464,11 @@ export function SkillFxVisual({
             {variant === 'caster' && <CasterFx event={event} />}
             {(variant === 'target' || perTargetMain) && <TargetFx event={event} />}
             {variant === 'impact' && !perTargetMain && <ImpactMarkFx soft={isSoftImpact} />}
-            {variant === 'area' && <AreaTileFx />}
+            {variant === 'area' && (event.profile.kind === 'zuizhen-throw'
+                ? <ZuizhenThrowPathFx />
+                : event.profile.kind === 'liehuo-blaze'
+                    ? <LiehuoBlazeCellFx />
+                    : <AreaTileFx />)}
             {variant === 'splash' && <SplashEmberFx />}
             {variant === 'chain' && <ChainBoltFx />}
         </span>
@@ -1105,6 +1520,31 @@ function AreaFirestormFx() {
             <i className="saf-ember saf-ember-3" />
             <i className="saf-ember saf-ember-4" />
             <i className="saf-ember saf-ember-5" />
+        </>
+    );
+}
+
+/** 燎原火墙沿射线逐格起燃的间隔（毫秒）——一格一拍，火才看得出是在往前烧 */
+const LIEHUO_STEP_MS = 150;
+
+/** 燎原火墙：火线自云缨那一端沿射线长到棋盘尽头 + 焦痕 + 沿轴向飘的余烬 */
+function AreaFirewallFx() {
+    // 余烬按 --fw-i 沿攻击轴分布（-1..1 对应射线两端），轴向由 --fx-travel-x/y 决定，
+    // 因此同一套零件在横烧与竖烧下都沿着这条线排布
+    const offsets = [-1, -0.5, 0, 0.5, 1];
+    return (
+        <>
+            <i className="saf-fw-scorch" />
+            <i className="saf-fw-wash" />
+            <i className="saf-fw-wash saf-fw-wash-b" />
+            <i className="saf-fw-edge" />
+            {offsets.map((ratio, index) => (
+                <i
+                    key={index}
+                    className="saf-fw-ember"
+                    style={{ '--fw-i': String(ratio), '--fw-d': `${120 + index * 130}ms` } as CSSProperties}
+                />
+            ))}
         </>
     );
 }
@@ -1181,6 +1621,26 @@ function AreaGroundwaveFx() {
     );
 }
 
+/** 潮纹涟漪（区域级）：潮水漫过作用区 + 三道大浪环自潮心荡向区缘 + 浪沫漂移。
+ *  立体浪头刻意不放这一层——区域特效在格底光之下，再厚的浪也会被盘面洗淡，
+ *  翻卷的浪头交给逐格主效去承担，打中谁就在谁脚下起浪。 */
+function AreaRippleTideFx() {
+    return (
+        <>
+            <i className="saf-tide-wash" />
+            {LINGXI_TIDE_RINGS.map((d, i) => (
+                <i key={i} className={`saf-tide-ring saf-tide-ring-${i + 1}`} aria-hidden="true">
+                    <svg viewBox="0 0 100 100">
+                        <path d={d} vectorEffect="non-scaling-stroke" />
+                    </svg>
+                </i>
+            ))}
+            <i className="saf-tide-foam saf-tide-foam-a" />
+            <i className="saf-tide-foam saf-tide-foam-b" />
+        </>
+    );
+}
+
 /** 巨刃横扫：循攻击方向掠过整片区域的双重大弧刃 + 扫过闪光 */
 function AreaSlashwaveFx() {
     return (
@@ -1252,9 +1712,11 @@ export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
         >
             {archetype === 'shockwave' && <AreaShockwaveFx />}
             {archetype === 'firestorm' && <AreaFirestormFx />}
+            {archetype === 'firewall' && <AreaFirewallFx />}
             {archetype === 'thunderstorm' && <AreaThunderstormFx />}
             {archetype === 'cage' && <AreaCageFx />}
             {archetype === 'runearray' && <AreaRuneArrayFx />}
+            {archetype === 'rippletide' && <AreaRippleTideFx />}
             {archetype === 'groundwave' && <AreaGroundwaveFx />}
             {archetype === 'slashwave' && <AreaSlashwaveFx />}
             {archetype === 'icespikes' && <AreaIceSpikesFx />}

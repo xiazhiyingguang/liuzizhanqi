@@ -320,6 +320,8 @@ export interface GameState {
 
     // 多阶段技能交互
     baizeReviveTargetHeroId?: string;
+    /** 戴尔「时空回溯」两段式复活：已选中的时空停滞单位，等待玩家点选复活落点 */
+    daiReviveHeroId?: string;
     changliSkill2Empowered?: boolean;
     jetzmiSkill1Enhanced?: boolean;
     pendingSkillTargetPositions?: Position[];
@@ -341,7 +343,7 @@ export interface GameState {
     // 时空旅者·戴尔：每回合开始时记录的全体存活单位快照（生命与效果），供「时空回溯」恢复
     heroSnapshots?: Record<string, HeroRoundSnapshot>;
     pendingBoardAction?: {
-        type: 'schrodinger-tianwei';
+        type: 'schrodinger-tianwei' | 'xueqi-tianwei' | 'yunying-liehuo';
         heroId: string;
     };
     // 李太白被动链：瞬移到历史位置继续攻击，全部用完自动归位

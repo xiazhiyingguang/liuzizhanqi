@@ -3,6 +3,7 @@ import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
 import { MovementSystem } from '../core/movement-system';
 import { WindLaneDirection, createWindLane, windLaneAxis, windLaneDirectionFromCode } from '../core/wind-lane';
+import { applyRage } from '../core/taunt';
 import { placeWindBlade, retractWindBladesOnCells, WIND_BLADE_DAMAGE, youjunDashMaxDistance } from '../core/wind-blade';
 import { BOARD_SIZE, BoardEffect, Effect, GameState, Hero, HeroState, Player, Position, Skill, SkillExecuteResult } from '../types/game';
 import {
@@ -17,10 +18,16 @@ import {
     getAllies,
     getEnemies,
     getDilanFeatherStacks,
+    getJinghongOuterRing,
     getLivingHeroes,
     getSummonOwnerId,
+    getXiangruiStacks,
+    isJinghongCharging,
+    isJinghongReleaseWindow,
     isLingxiEchoPending,
+    JINGHONG_MAX,
     resonanceCount,
+    YUNYING_VAMPIRE_EFFECT,
 } from './extended-heroes';
 
 function result(log: string[] = []): SkillExecuteResult {
@@ -1276,6 +1283,8 @@ export const zuizhendaoSkill1: Skill = {
         gameState.board[end[0]][end[1]] = caster;
         caster.position = end;
         const output = result();
+        // 自报真实冲刺序列（含绕路）：特效沿这条路径逐格铺光影，做到真正的"跟踪"
+        output.fxCoveredPositions = plan.path;
         DamageCalculator.applyDilanMovementDamage(caster, plan.path.length, gameState);
         if (caster.state !== HeroState.ALIVE) {
             output.log.push(`${caster.name}在拾刀移动中触发羽化伤害并阵亡`);
@@ -2468,14 +2477,16 @@ export const chenyuanSkill2: Skill = {
 
 /**
  * 时空旅者·戴尔技能1「时空回溯」：
- * 选择我方或敌方的一名角色，使其回到上一回合开始时的状态（生命与效果）。
- * 不可以对通灵角色使用；对处于「时空停滞」的阵亡友方使用则将其复活（每名英雄限一次）。
+ * 选择我方或敌方的一名角色，使其回到本回合开始时的状态（生命与效果）。
+ * 不可以对通灵角色使用。复活处于「时空停滞」的阵亡友方走两段式交互：
+ * 先锚定停滞单位（selectDaiReviveTarget），再点选任意空格作为复活落点，
+ * 落点结算在 game-store 的 executeSkillBase 分支里完成。
  */
 export const daiSkill1: Skill = {
     id: 'dai_skill1',
     name: '时空回溯',
     type: 'special',
-    description: '选择我方或敌方的一名角色回到上一回合的状态（生命与效果）；不可对通灵角色使用。也可对处于时空停滞的阵亡友方使用，将其复活（每名英雄限一次）',
+    description: '选择我方或敌方的一名角色回到本回合开始时的状态（生命与效果）；不可对通灵角色使用。也可唤回处于时空停滞的阵亡友方（先选单位再选落点，每名英雄限一次）',
     rangeType: '全场',
     range: 0,
     targetType: 'any',
@@ -2485,55 +2496,9 @@ export const daiSkill1: Skill = {
         const target = targets[0];
         if (!target) return fail('请选择场上的一名角色');
 
-        // 分支一：复活处于时空停滞的阵亡友方
         if (target.state === HeroState.DEAD) {
-            if (target.owner !== caster.owner) {
-                return fail('时空停滞只能凝固我方单位，无法复活敌方单位');
-            }
-            const until = target.counters['__dai_stasis_until'];
-            if (until === undefined) {
-                return fail(`${target.name}不处于时空停滞中`);
-            }
-            if (gameState.roundNumber > until) {
-                return fail(`${target.name}的时空停滞已经消散`);
-            }
-            if (!target.position) {
-                return fail(`${target.name}没有可用的死亡位置记录`);
-            }
-            // 替补制编制上限：场上真实存活已满4人时禁止唤回，防止第5人超员
-            if (GameEngine.countRealAliveOnBoard(gameState, caster.owner) >= 4) {
-                return fail('我方场上编制已满，无法从时空停滞中唤回单位');
-            }
-
-            // 复活位置：优先回到死亡原位，被占则就近部署
-            let revivePos: Position = [target.position[0], target.position[1]];
-            if (gameState.board[revivePos[0]][revivePos[1]] !== null) {
-                const nearest = MovementSystem.findNearestEmptyPosition(target.position, gameState);
-                if (!nearest) return fail('场上没有可以部署的位置');
-                revivePos = nearest;
-            }
-
-            // 恢复到上一回合开始时的快照；无快照时以满生命复活
-            const snap = gameState.heroSnapshots?.[target.id];
-            target.currentHp = Math.max(1, Math.min(target.maxHp, snap ? snap.hp : target.maxHp));
-            target.effects = snap ? snap.effects.map(effect => ({ ...effect })) : [];
-            target.state = HeroState.ALIVE;
-            target.position = revivePos;
-            gameState.board[revivePos[0]][revivePos[1]] = target;
-            target.hasActedThisTurn = false;
-            target.hasMovedThisTurn = false;
-            target.counters['__dai_revived_once'] = 1;
-            delete target.counters['__dai_stasis_until'];
-            delete target.counters['__dai_stasis_pos'];
-
-            const output = result();
-            output.log.push(
-                `${caster.name}发动时空回溯，将${target.name}从时空停滞中唤回（${target.currentHp}/${target.maxHp}），时间线重新接续`
-            );
-            return output;
+            return fail('请先选择要唤回的时空停滞单位，再点击复活落点');
         }
-
-        // 分支二：将存活角色回溯到上一回合开始时的状态
         if (target.state !== HeroState.ALIVE) {
             return fail('请选择场上存活的角色');
         }
@@ -2862,7 +2827,9 @@ function finishLingxiAttack(caster: Hero, gameState: GameState, output: SkillExe
 
 /**
  * 被动「潮声相和」：泠汐每次攻击动作后积攒一层助力，
- * 下一个开始出手的友方一次性领走全部层数，每层 +20% 攻击（同一效果叠加，跨回合保留）。
+ * 下一个开始出手的友方一次性领走全部层数，每层 +20% 增伤（同一效果叠加，跨回合保留）。
+ * 挂"增伤"而非"攻击"：attackBonus 通道只对带基础攻击力且按攻击力结算的技能生效，
+ * 队里绝大多数英雄的固定伤害技能完全吃不到。
  */
 export function grantLingxiAssist(hero: Hero, gameState: GameState): number {
     if (hero.state !== HeroState.ALIVE) return 0;
@@ -2872,7 +2839,7 @@ export function grantLingxiAssist(hero: Hero, gameState: GameState): number {
     if (!lingxi || pending <= 0) return 0;
 
     lingxi.counters['lingxi_assist_pending'] = 0;
-    const existing = hero.effects.find(effect => effect.name === '泠汐攻击提升');
+    const existing = hero.effects.find(effect => effect.name === '泠汐增伤提升');
     const layers = (existing?.stackCount ?? 0) + pending;
     if (existing) {
         existing.stackCount = layers;
@@ -2881,12 +2848,12 @@ export function grantLingxiAssist(hero: Hero, gameState: GameState): number {
     } else {
         EffectManager.addEffect(hero, {
             type: 'buff',
-            name: '泠汐攻击提升',
+            name: '泠汐增伤提升',
             duration: 2,
             value: 0.2 * layers,
             stackCount: layers,
             sourceHeroId: lingxi.id,
-            description: `泠汐的潮声相和：攻击提升${Math.round(20 * layers)}%`,
+            description: `泠汐的潮声相和：增伤提升${Math.round(20 * layers)}%`,
         });
     }
     return layers;
@@ -3004,6 +2971,439 @@ export const lingxiSkill2: Skill = {
     },
 };
 
+/**
+ * 血契：以血为誓的重装者。技能1 与天威共用同一段横扫结算，
+ * 保证伤害、回血与（天威独有的）愤怒施加在两条路径上完全一致。
+ */
+
+/** 血契束缚格的存活范围：到他下一次行动结束（与震霄同一套 serial 语义） */
+function xueqiBindingExpireSerial(caster: Hero): number {
+    return (caster.counters['__actionSerial'] ?? 0) + 2;
+}
+
+/**
+ * 一次血誓横扫：以 center 为中心的 3×3 内所有敌人各受 4 点伤害，
+ * 施法者回复「已损生命 × 20%」。withRage 时对被斩中的存活敌人施加愤怒。
+ */
+export function castBloodSweep(
+    caster: Hero,
+    center: Position,
+    gameState: GameState,
+    options: { withRage?: boolean } = {}
+): SkillExecuteResult {
+    const cells: Position[] = [];
+    for (let row = center[0] - 1; row <= center[0] + 1; row++) {
+        for (let col = center[1] - 1; col <= center[1] + 1; col++) {
+            if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) continue;
+            cells.push([row, col]);
+        }
+    }
+    const enemies = cells
+        .map(([row, col]) => gameState.board[row][col])
+        .filter((hero): hero is Hero =>
+            !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
+
+    const output = result();
+    const expireAtActionSerial = xueqiBindingExpireSerial(caster);
+    DamageCalculator.asOneAttack(() => {
+        for (const enemy of enemies) {
+            const damage = damageOne(caster, enemy, 4, gameState, true);
+            output.damageDealt?.push(damage.finalDamage);
+            if (options.withRage && enemy.state === HeroState.ALIVE) {
+                applyRage(enemy, caster, expireAtActionSerial);
+            }
+        }
+    });
+    output.fxCoveredPositions = cells;
+
+    const missing = Math.max(0, caster.maxHp - caster.currentHp);
+    const healed = caster.state === HeroState.ALIVE && missing > 0
+        ? DamageCalculator.applyHeal(caster, Math.floor(missing * 0.2), gameState, caster)
+        : 0;
+    if (healed > 0) output.healingDone?.push(healed);
+
+    output.log.push(enemies.length > 0
+        ? `${caster.name}血誓横扫，斩中${enemies.length}名敌人${options.withRage ? '，并激起他们的愤怒' : ''}`
+        : `${caster.name}血誓横扫，这一圈没有敌人`);
+    if (healed > 0) {
+        output.log.push(`${caster.name}以血还血，回复${healed}点生命（当前${caster.currentHp}/${caster.maxHp}）`);
+    }
+    return output;
+}
+
+export const xueqiSkill1: Skill = {
+    id: 'xueqi_skill1',
+    name: '血誓横扫',
+    type: 'damage',
+    description: '对周围一格（3×3）范围内的所有敌人造成4点伤害，并回复已损生命值20%的生命',
+    rangeType: 'area',
+    range: 1,
+    areaSize: 3,
+    targetType: 'enemy',
+    targetCount: 'all',
+    baseDamage: 4,
+    canCrit: false,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('血契尚未部署');
+        return castBloodSweep(caster, caster.position, gameState);
+    },
+};
+
+export const xueqiSkill2: Skill = {
+    id: 'xueqi_skill2',
+    name: '血契锁',
+    type: 'control',
+    description: '强锁周围一格（3×3）内的一名敌人：它攻击必须指向血契，且在血契下一回合行动前不得离开血契周围一格',
+    rangeType: 'area',
+    range: 1,
+    areaSize: 3,
+    targetType: 'enemy',
+    targetCount: 1,
+    execute: (caster, targets, gameState) => {
+        if (!caster.position) return fail('血契尚未部署');
+        const target = targets[0];
+        if (!target?.position) return fail('请选择周围一格内的敌人');
+        const chebyshev = Math.max(
+            Math.abs(target.position[0] - caster.position[0]),
+            Math.abs(target.position[1] - caster.position[1])
+        );
+        if (chebyshev > 1) return fail('只能强锁周围一格内的敌人');
+
+        const output = result();
+        const expireAtActionSerial = xueqiBindingExpireSerial(caster);
+        applyRage(target, caster, expireAtActionSerial);
+
+        // 以血契为中心的 3×3 束缚格：被锁者起点在圈内就出不去（友方不受自家区域限制）
+        const linkId = `xueqi-binding-${caster.id}-${(caster.counters['__actionSerial'] ?? 0) + 1}`;
+        const cells: Position[] = [[...caster.position] as Position];
+        for (let row = caster.position[0] - 1; row <= caster.position[0] + 1; row++) {
+            for (let col = caster.position[1] - 1; col <= caster.position[1] + 1; col++) {
+                if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) continue;
+                if (row === caster.position[0] && col === caster.position[1]) continue;
+                cells.push([row, col]);
+            }
+        }
+        gameState.boardEffects ??= [];
+        for (const [row, col] of cells) {
+            gameState.boardEffects.push({
+                id: `${linkId}-${row}-${col}`,
+                type: 'binding-zone',
+                position: [row, col],
+                owner: caster.owner,
+                sourceHeroId: caster.id,
+                duration: 2,
+                linkId,
+                expireAtActionSerial,
+            });
+        }
+        output.fxCoveredPositions = cells;
+        output.log.push(`${caster.name}与${target.name}立下血契：它下一回合行动前只能留在${caster.name}身边`);
+        return output;
+    },
+};
+
+/* ============================================================
+   云缨：祥瑞 · 星火照野 · 踏火长驱 · 烈火燎原
+   ============================================================ */
+
+const YUNYING_SPARK_DAMAGE = 3;           // 技能一：每名敌人 3 点
+const YUNYING_CHARGE_DAMAGE = 6;          // 技能二：前方每格 6 点
+const YUNYING_CHARGE_DEPTH = 3;           // 技能二：向前一格起算 3 格
+const YUNYING_VAMPIRE_PER_TARGET = 0.2;   // 每个命中敌人为下一次攻击提供 20% 吸血
+
+function yunyingDirectionStep(dirCode: number): [number, number] {
+    if (dirCode === 0) return [-1, 0];
+    if (dirCode === 1) return [1, 0];
+    if (dirCode === 2) return [0, -1];
+    return [0, 1];
+}
+
+/** 云缨技能二：所选方向上、从自己起向前 3 格 */
+export function getYunyingChargeCells(caster: Hero, dirCode: number): Position[] {
+    if (!caster.position) return [];
+    const [dr, dc] = yunyingDirectionStep(dirCode);
+    const cells: Position[] = [];
+    for (let step = 1; step <= YUNYING_CHARGE_DEPTH; step++) {
+        const next: Position = [caster.position[0] + dr * step, caster.position[1] + dc * step];
+        if (next[0] < 0 || next[0] >= 6 || next[1] < 0 || next[1] >= 6) break;
+        cells.push(next);
+    }
+    return cells;
+}
+
+function yunyingEnemiesOn(caster: Hero, cells: Position[], gameState: GameState): Hero[] {
+    return cells
+        .map(([row, col]) => gameState.board[row]?.[col])
+        .filter((hero): hero is Hero =>
+            !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE
+        );
+}
+
+/** 技能整批命中期间挂起标记，避免"下一次攻击"的吸血在半途被摘掉 */
+function beginYunyingAttack(caster: Hero): void {
+    caster.counters['__yunying_in_skill_cast'] = 1;
+}
+
+/** 本批命中结算完：摘掉已享用过的燎原吸血 */
+function finishYunyingAttack(caster: Hero): void {
+    caster.counters['__yunying_in_skill_cast'] = 0;
+    caster.effects = caster.effects.filter(effect => effect.name !== YUNYING_VAMPIRE_EFFECT);
+}
+
+/**
+ * 烈火燎原：沿所选方向、从云缨所在格一直到棋盘边缘的射线，
+ * 对路径上每名敌人造成「已损生命 30% + 4」伤害。
+ * 引燃不再叠加祥瑞（用 __liehuo_resolving 标记跳过被动）。
+ */
+export function castLiehuoBurn(caster: Hero, gameState: GameState, dirCode: number): SkillExecuteResult {
+    const cells = getDilanSkill1Cells(caster, dirCode);
+    const enemies = yunyingEnemiesOn(caster, cells, gameState);
+    const output = result();
+    output.fxCoveredPositions = cells;
+
+    caster.counters['__liehuo_resolving'] = 1;
+    beginYunyingAttack(caster);
+    DamageCalculator.asOneAttack(() => {
+        for (const enemy of enemies) {
+            const missingHp = Math.max(0, enemy.maxHp - enemy.currentHp);
+            const hit = damageOne(caster, enemy, Math.floor(missingHp * 0.3) + 4, gameState, true);
+            output.damageDealt?.push(hit.finalDamage);
+            output.log.push(
+                `${caster.name}的烈火燎原烧过${enemy.name}，造成${hit.finalDamage}点伤害`
+            );
+        }
+    });
+    finishYunyingAttack(caster);
+    delete caster.counters['__liehuo_resolving'];
+
+    if (enemies.length === 0) {
+        output.log.push(`${caster.name}的烈火燎原只烧过一片空处`);
+    }
+    return output;
+}
+
+export const yunyingSkill1: Skill = {
+    id: 'yunying_skill1',
+    name: '星火照野',
+    type: 'damage',
+    description: '对周围一格（含斜角）的所有敌人各造成3点伤害，并按这些敌人引火前已有的祥瑞层数之和为自己叠加护盾',
+    rangeType: 'area',
+    range: 1,
+    areaSize: 3,
+    targetType: 'enemy',
+    targetCount: 'all',
+    baseDamage: YUNYING_SPARK_DAMAGE,
+    canCrit: true,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('云缨尚未部署');
+        const cells: Position[] = [caster.position, ...MovementSystem.getAreaPositions(caster.position, 3)];
+        const enemies = yunyingEnemiesOn(caster, cells, gameState);
+        if (enemies.length === 0) return fail('周围没有可烧到的敌人');
+
+        // 护盾只看引火前已有的层数：本次刚叠上的那层不计入
+        const shieldGain = enemies.reduce((sum, enemy) => sum + getXiangruiStacks(enemy), 0);
+
+        const output = result();
+        output.fxCoveredPositions = MovementSystem.getAreaPositions(caster.position, 3);
+        beginYunyingAttack(caster);
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of enemies) {
+                const hit = damageOne(caster, enemy, YUNYING_SPARK_DAMAGE, gameState, true);
+                output.damageDealt?.push(hit.finalDamage);
+            }
+        });
+        finishYunyingAttack(caster);
+
+        if (shieldGain > 0) {
+            EffectManager.addShield(caster, shieldGain);
+            output.log.push(`${caster.name}借${shieldGain}层祥瑞护体，积攒${shieldGain}点护盾`);
+        }
+        output.log.push(`${caster.name}星火照野，烧过${enemies.length}名敌人`);
+        return output;
+    },
+};
+
+export const yunyingSkill2: Skill = {
+    id: 'yunying_skill2',
+    name: '踏火长驱',
+    type: 'damage',
+    description: '选择一个方向，对前方3格上的所有敌人造成6点伤害；按命中人数为下一次攻击附加吸血（每人20%，再次释放可刷新）',
+    rangeType: 'line',
+    range: 3,
+    targetType: 'enemy',
+    targetCount: 'all',
+    baseDamage: YUNYING_CHARGE_DAMAGE,
+    canCrit: true,
+    execute: (caster, _targets, gameState) => {
+        const dirCode = caster.counters['__yunying_skill2_dir'];
+        if (dirCode === undefined) return fail('请先选择长驱方向');
+        delete caster.counters['__yunying_skill2_dir'];
+        const cells = getYunyingChargeCells(caster, dirCode);
+        const enemies = yunyingEnemiesOn(caster, cells, gameState);
+        if (enemies.length === 0) return fail('该方向前方没有敌人');
+
+        const output = result();
+        output.fxCoveredPositions = cells;
+        beginYunyingAttack(caster);
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of enemies) {
+                const hit = damageOne(caster, enemy, YUNYING_CHARGE_DAMAGE, gameState, true);
+                output.damageDealt?.push(hit.finalDamage);
+            }
+        });
+        // 这批命中已经把上一次的吸血用掉，之后再挂新的（刷新数值，不叠加）
+        finishYunyingAttack(caster);
+
+        const rate = enemies.length * YUNYING_VAMPIRE_PER_TARGET;
+        EffectManager.addEffect(caster, {
+            type: 'buff',
+            name: YUNYING_VAMPIRE_EFFECT,
+            duration: -1,
+            value: rate,
+            sourceHeroId: caster.id,
+            description: `下一次攻击造成实际伤害时按${Math.round(rate * 100)}%吸血`,
+        });
+        output.log.push(
+            `${caster.name}踏火长驱命中${enemies.length}名敌人，下一次攻击获得${Math.round(rate * 100)}%吸血`
+        );
+        return output;
+    },
+};
+
+/**
+ * 技能1「掠水惊鸿」：身周 3×3 内单体 9 点，随后沿攻击方向落到目标身后一格。
+ * 落点越界或被占据时只打不移；绕后是穿过目标格的冲刺，因此与游隼疾掠同一口径
+ * 手动落位并补回羽化/流血/风刃等移动连带结算，同时占用本回合的移动额度。
+ */
+export const jinghongSkill1: Skill = {
+    id: 'jinghong_skill1',
+    name: '掠水惊鸿',
+    type: 'damage',
+    description: '攻击身周3×3内的一名敌人造成9点伤害，随后朝攻击方向落到该敌人身后一格；身后越界或被占据则只攻击不位移。命中后获得1层惊鸿（上限3层）',
+    rangeType: 'area',
+    range: 0,
+    areaSize: 3,
+    targetType: 'enemy',
+    targetCount: 1,
+    baseDamage: 9,
+    canCrit: true,
+    execute: (caster, targets, gameState) => {
+        const target = targets[0];
+        if (!target?.position || !caster.position) return fail('请选择身周的一名敌人');
+
+        const output = result();
+        output.fxCoveredPositions = [target.position];
+        const damage = damageOne(caster, target, 9, gameState, true);
+        output.damageDealt?.push(damage.finalDamage);
+
+        const [cr, cc] = caster.position;
+        const [tr, tc] = target.position;
+        const behind: Position = [tr + Math.sign(tr - cr), tc + Math.sign(tc - cc)];
+        if (!MovementSystem.inBounds(behind)) {
+            output.log.push(`${caster.name}的掠水惊鸿出界，身后已无落点`);
+        } else if (gameState.board[behind[0]][behind[1]] !== null) {
+            output.log.push(`${caster.name}的落点被占据，止步于${target.name}身前`);
+        } else if (caster.state !== HeroState.ALIVE) {
+            output.log.push(`${caster.name}在斩击中阵亡，未能位移`);
+        } else {
+            // 绕后要从被斩中的敌人身上"穿"过去，普通寻路会把这条路判死，
+            // 因此与游隼疾掠同一口径：手动落位后，逐格补回移动连带结算。
+            const start: Position = [...caster.position] as Position;
+            gameState.board[start[0]][start[1]] = null;
+            gameState.board[behind[0]][behind[1]] = caster;
+            caster.position = behind;
+            caster.hasMovedThisTurn = true;
+            const steps = Math.max(Math.abs(behind[0] - start[0]), Math.abs(behind[1] - start[1]));
+            DamageCalculator.applyDilanMovementDamage(caster, steps, gameState);
+            DamageCalculator.applyBleedMovementDamage(caster, steps, gameState);
+            retractWindBladesOnCells(caster, [target.position, behind], gameState);
+            output.log.push(`${caster.name}掠过${target.name}身侧，落向其后`);
+        }
+
+        const stacks = EffectManager.getCounter(caster, '惊鸿');
+        if (stacks < JINGHONG_MAX) {
+            EffectManager.setCounter(caster, '惊鸿', stacks + 1);
+            output.log.push(
+                `${caster.name}攒下惊鸿第${stacks + 1}层${stacks + 1 >= JINGHONG_MAX ? '（已满3层）' : ''}`
+            );
+        }
+        return output;
+    },
+};
+
+/**
+ * 技能2「止水决渊」两段式：
+ * 第一段（蓄力）消耗全部惊鸿，按消耗前的层数提升防御，整回合结束时按届时已损生命回复；
+ * 第二段只能在紧接的下一回合主动释放，放弃移动换取 5×5 外环 10 点群体伤害。
+ * 错过释放窗口即消散，惊鸿不返还。
+ */
+export const jinghongSkill2: Skill = {
+    id: 'jinghong_skill2',
+    name: '止水决渊',
+    type: 'damage',
+    description: '消耗全部惊鸿蓄力止水：本回合防御提升(10%+惊鸿×10%)，并在整回合结束时恢复已损生命的(20%+惊鸿×10%)。下一回合不能移动，可主动放出决渊，对身周5×5外环（不含3×3）的敌人造成10点伤害；错过则蓄力消散',
+    rangeType: 'area',
+    range: 0,
+    areaSize: 5,
+    // 两段都不靠引擎选敌：蓄力段点自己脚下，决渊段在 execute 里自己扫外环
+    targetType: 'self',
+    targetCount: 1,
+    baseDamage: 10,
+    canCrit: true,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('尚未就位');
+
+        // 第二段：只在蓄力的下一回合开放
+        if (isJinghongReleaseWindow(caster, gameState)) {
+            const ring = getJinghongOuterRing(caster.position);
+            const enemies = lingxiEnemiesInCells(ring, gameState, caster);
+            if (enemies.length === 0) return fail('决渊的外环上没有敌人');
+            const output = result();
+            output.fxCoveredPositions = ring;
+            DamageCalculator.asOneAttack(() => {
+                for (const enemy of enemies) {
+                    const hit = damageOne(caster, enemy, 10, gameState, true);
+                    output.damageDealt?.push(hit.finalDamage);
+                }
+            });
+            caster.counters['jinghong_charge_round'] = -1;
+            caster.counters['jinghong_charge_stacks'] = 0;
+            output.log.push(`${caster.name}决渊而出，外环${enemies.length}名敌人受创`);
+            return output;
+        }
+
+        if (isJinghongCharging(caster, gameState)) {
+            return fail('止水已在蓄力中，决渊要等下一回合');
+        }
+
+        // 第一段：消耗全部惊鸿，加成按消耗前的层数算
+        const stacks = EffectManager.getCounter(caster, '惊鸿');
+        if (stacks < 1) return fail('惊鸿不足，无法蓄力止水');
+        EffectManager.addCounter(caster, '惊鸿', -stacks);
+
+        const defenseRate = 0.1 + stacks * 0.1;
+        EffectManager.addEffect(caster, {
+            type: 'buff',
+            // 名字必须含"防御"，否则进不了 damage-calculator 的防御减免通道
+            name: '止水防御提升',
+            duration: 1,
+            value: defenseRate,
+            stackCount: 1,
+            sourceHeroId: caster.id,
+            description: `蓄力之刻防御提升${Math.round(defenseRate * 100)}%`,
+        });
+        caster.counters['jinghong_charge_round'] = gameState.roundNumber;
+        caster.counters['jinghong_charge_stacks'] = stacks;
+
+        const output = result();
+        output.fxCoveredPositions = [caster.position];
+        output.log.push(
+            `${caster.name}敛息止水，消耗${stacks}层惊鸿，防御提升${Math.round(defenseRate * 100)}%`
+        );
+        return output;
+    },
+};
+
 export const EXTENDED_SKILLS: Record<string, Skill> = {
     skeletonking_skill1: skeletonkingSkill1,
     skeletonking_skill2: skeletonkingSkill2,
@@ -3059,4 +3459,10 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     xubai_skill2: xubaiSkill2,
     lingxi_skill1: lingxiSkill1,
     lingxi_skill2: lingxiSkill2,
+    xueqi_skill1: xueqiSkill1,
+    xueqi_skill2: xueqiSkill2,
+    yunying_skill1: yunyingSkill1,
+    yunying_skill2: yunyingSkill2,
+    jinghong_skill1: jinghongSkill1,
+    jinghong_skill2: jinghongSkill2,
 };

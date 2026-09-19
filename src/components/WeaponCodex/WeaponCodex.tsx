@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGameStore } from '../../store/game-store';
 import { WEAPON_CODEX, WEAPON_SYSTEMS, WeaponCodexEntry, WeaponSystem } from '../../data/weapon-codex';
+import { HIDDEN_HERO_IDS } from '../../data/heroes';
 import HeroAvatar from '../ui/HeroAvatar';
 import './weapon-codex.css';
 
@@ -128,14 +129,17 @@ function WeaponDetail({ weapon }: { weapon: WeaponCodexEntry }) {
     );
 }
 
+// 与选将池共用同一份下架名单：下架英雄的武器不进图鉴，无主神兵照常展示
+const VISIBLE_WEAPONS = WEAPON_CODEX.filter(weapon => !weapon.heroId || !HIDDEN_HERO_IDS.includes(weapon.heroId));
+
 export default function WeaponCodex() {
     const [query, setQuery] = useState('');
     const [selectedSystem, setSelectedSystem] = useState<'全部' | WeaponSystem>('全部');
-    const [selectedWeaponId, setSelectedWeaponId] = useState(WEAPON_CODEX[0].id);
+    const [selectedWeaponId, setSelectedWeaponId] = useState(VISIBLE_WEAPONS[0].id);
 
     const filteredWeapons = useMemo(() => {
         const normalized = query.trim().toLowerCase();
-        return WEAPON_CODEX.filter(weapon => {
+        return VISIBLE_WEAPONS.filter(weapon => {
             const systemMatches = selectedSystem === '全部' || weapon.system === selectedSystem;
             const searchText = [weapon.name, weapon.heroName, weapon.system, ...weapon.effects].join(' ').toLowerCase();
             return systemMatches && (!normalized || searchText.includes(normalized));
@@ -144,12 +148,12 @@ export default function WeaponCodex() {
 
     const selectedWeapon = filteredWeapons.find(weapon => weapon.id === selectedWeaponId)
         ?? filteredWeapons[0]
-        ?? WEAPON_CODEX.find(weapon => weapon.id === selectedWeaponId)
-        ?? WEAPON_CODEX[0];
+        ?? VISIBLE_WEAPONS.find(weapon => weapon.id === selectedWeaponId)
+        ?? VISIBLE_WEAPONS[0];
 
     const chooseSystem = (system: '全部' | WeaponSystem) => {
         setSelectedSystem(system);
-        const firstMatch = WEAPON_CODEX.find(weapon => system === '全部' || weapon.system === system);
+        const firstMatch = VISIBLE_WEAPONS.find(weapon => system === '全部' || weapon.system === system);
         if (firstMatch) setSelectedWeaponId(firstMatch.id);
     };
 
@@ -175,7 +179,7 @@ export default function WeaponCodex() {
                         <p>专属武器策划档案</p>
                     </div>
                     <div className="weapon-codex-count">
-                        <strong>{WEAPON_CODEX.length}</strong>
+                        <strong>{VISIBLE_WEAPONS.length}</strong>
                         <span>件藏品</span>
                     </div>
                 </div>

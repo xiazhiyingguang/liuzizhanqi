@@ -28,6 +28,14 @@ export function findWindBladeAt(gameState: GameState, position: Position): Board
 /** 风刃 id 自增序号：同一毫秒内放出多道风刃时保证 id 唯一 */
 let windBladeSeq = 0;
 
+/** 风刃朝向：由游隼所在格指向刃所在格（四邻必有一轴相差 1），常驻图标据此让刃尖朝外 */
+function bladeFacing(from: Position | null, cell: Position): 'up' | 'down' | 'left' | 'right' {
+    if (!from) return 'up';
+    if (cell[0] < from[0]) return 'up';
+    if (cell[0] > from[0]) return 'down';
+    return cell[1] > from[1] ? 'right' : 'left';
+}
+
 /** 在指定格铺设一道游隼的风刃（允许与友军同格；同格已有的自己风刃会被替换） */
 export function placeWindBlade(gameState: GameState, caster: Hero, position: Position): void {
     gameState.boardEffects ??= [];
@@ -45,6 +53,7 @@ export function placeWindBlade(gameState: GameState, caster: Hero, position: Pos
         owner: caster.owner,
         sourceHeroId: caster.id,
         duration: WIND_BLADE_DURATION,
+        direction: bladeFacing(caster.position, position),
     });
 }
 

@@ -1,4 +1,5 @@
 import { useGameStore } from '../../store/game-store';
+import { GameEngine } from '../../core/game-engine';
 import { getSkill } from '../../data/skills';
 import HeroAvatar from '../ui/HeroAvatar';
 
@@ -11,7 +12,9 @@ export default function SkillPanel() {
         aiPlayer,
         player1Heroes,
         player2Heroes,
+        roundNumber,
         baizeReviveTargetHeroId,
+        daiReviveHeroId,
         changliSkill2Empowered,
         jetzmiSkill1Enhanced,
         heroXRedirectTargetIds,
@@ -21,6 +24,7 @@ export default function SkillPanel() {
         undoMove,
         selectSkill,
         selectBaizeReviveTarget,
+        selectDaiReviveTarget,
         toggleChangliSkill2Empowered,
         toggleJetzmiSkill1Enhanced,
         selectHeroXRedirectTarget,
@@ -118,6 +122,11 @@ export default function SkillPanel() {
         (selectedHero.counters['天禄'] ?? 0) >= 3 &&
         deadAllies.length > 0 &&
         !boardFullForRevive;
+    // 戴尔「时空回溯」两段式：先锚定时空停滞单位，再在棋盘空格上选复活落点
+    const stasisRevivable = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
+        .filter(hero => GameEngine.isInStasis(hero, roundNumber));
+    const choosingDaiReviveTarget =
+        selectedSkill?.id === 'dai_skill1' && stasisRevivable.length > 0;
     const livingAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
         .filter(hero => hero.state === 'alive' && hero.id !== selectedHero.id);
     const temporarilyDeadAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
@@ -259,6 +268,40 @@ export default function SkillPanel() {
                                 </button>
                             ))}
                         </div>
+                    </div>
+                )}
+
+                {choosingDaiReviveTarget && (
+                    <div className="ink-surface p-2 space-y-1.5" data-testid="dai-revive-panel">
+                        <p className="text-[11px] text-ink-light font-body">
+                            {daiReviveHeroId
+                                ? '已锚定时间线，请点击棋盘上的空格选择复活落点'
+                                : '点击残影或下列单位，锚定要唤回的时空停滞者'}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                            {stasisRevivable.map(hero => (
+                                <button
+                                    key={hero.id}
+                                    data-testid={`dai-revive-target-${hero.id}`}
+                                    onClick={() => selectDaiReviveTarget(hero.id)}
+                                    className={`px-2 py-1 text-xs rounded border font-body ${
+                                        daiReviveHeroId === hero.id
+                                            ? 'border-gold bg-gold/10 text-gold'
+                                            : 'border-ink/15 text-ink-light hover:bg-ink/5'
+                                    }`}
+                                >
+                                    {hero.name}
+                                    <span className="ml-1 text-[10px] text-ink-faint">
+                                        {hero.counters['__dai_hp_before_lethal'] ?? hero.maxHp}/{hero.maxHp}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                        {boardFullForRevive && (
+                            <p className="text-[10px] text-vermillion font-body">
+                                场上已有四名英雄，无法唤回
+                            </p>
+                        )}
                     </div>
                 )}
 

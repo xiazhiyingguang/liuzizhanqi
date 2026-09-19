@@ -13,6 +13,7 @@ import {
 } from '../../src/core/battle-replay';
 import { addHero, makeGameState } from '../helpers/game-state';
 import type { BattleLogEntry } from '../../src/types/game';
+import { HeroState } from '../../src/types/game';
 
 function logEntry(id: string, type: BattleLogEntry['type'], message = id): BattleLogEntry {
     return { id, timestamp: 0, type, player: 'player1', message };
@@ -87,6 +88,36 @@ describe('battle-replay 数据层', () => {
         const frame = buildFrame(state, 0, 'sig', 0, 0, createInterner());
         const offBoard = frame.units.filter(unit => unit.r === -1);
         expect(offBoard).toHaveLength(1);
+    });
+
+    it('尸体保留的死亡格不再被当成上场位置：一格只画真正占位的单位', () => {
+        const state = makeGameState();
+        state.phase = 'battle';
+        const fallen = addHero(state, 'moran', 'player2', [0, 0]);
+        const living = addHero(state, 'huifeng', 'player1', [3, 3]);
+        // 阵亡不清 position（时空停滞的尸体就是这样），随后有人站上了这格
+        fallen.state = HeroState.DEAD;
+        fallen.currentHp = 0;
+        state.board[3][3] = null;
+        state.board[0][0] = living;
+        living.position = [0, 0];
+
+        const frame = buildFrame(state, 0, 'sig', 0, 0, createInterner());
+        expect(frame.units.filter(unit => unit.r === 0 && unit.c === 0), '同一格不得叠两个单位')
+            .toHaveLength(1);
+        expect(frame.units.filter(unit => unit.r === -1), '离场单位不该画在板上')
+            .toHaveLength(1);
+    });
+
+    it('强制位移只改棋盘时，帧坐标跟着棋盘走而不是滞后的 position', () => {
+        const state = makeGameState();
+        state.phase = 'battle';
+        const hero = addHero(state, 'huifeng', 'player1', [1, 1]);
+        state.board[1][1] = null;
+        state.board[4][2] = hero;   // 忘了同步 hero.position 的那类位移
+
+        const frame = buildFrame(state, 0, 'sig', 0, 0, createInterner());
+        expect(frame.units[0]).toMatchObject({ r: 4, c: 2 });
     });
 
     it('模板 id 归一只剥掉部署后缀，召唤物 id 原样保留', () => {

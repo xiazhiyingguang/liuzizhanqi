@@ -76,6 +76,9 @@ export function computeFxCoveredPositions(
     let cells: Position[];
     if (shape === 'self') {
         cells = [fromPos, ...MovementSystem.getCrossPositions(fromPos)];
+    } else if (shape === 'self-box') {
+        // 周身全体技：真实作用区始终以施法者为中心，与玩家点了哪一格无关
+        cells = areaCells(fromPos, skill?.areaSize ?? 3);
     } else if (shape === 'cross') {
         cells = [targetPos, ...MovementSystem.getCrossPositions(targetPos)];
     } else if (shape === 'diamond') {

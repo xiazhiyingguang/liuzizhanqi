@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHero } from '../../src/data/heroes';
-import { resolveYinyangLinks } from '../../src/core/yinyang-link-view';
+import { resolveHeroLinks } from '../../src/core/hero-link-view';
 import { emptyBoard } from '../helpers/game-state';
 
 function place(heroId: string, owner: 'player1' | 'player2', position: [number, number]) {
@@ -8,11 +8,11 @@ function place(heroId: string, owner: 'player1' | 'player2', position: [number, 
     return hero;
 }
 
-describe('resolveYinyangLinks', () => {
+describe('resolveHeroLinks（阴阳线部分）', () => {
     it('无阴阳师时返回空列表', () => {
         const board = emptyBoard();
         board[2][2] = place('moran', 'player1', [2, 2]);
-        expect(resolveYinyangLinks(board)).toEqual([]);
+        expect(resolveHeroLinks(board)).toEqual([]);
     });
 
     it('阳线与阴线各自生成一条连接（金/紫）', () => {
@@ -32,7 +32,7 @@ describe('resolveYinyangLinks', () => {
         board[2][3] = ally;
         board[3][2] = enemy;
 
-        const links = resolveYinyangLinks(board);
+        const links = resolveHeroLinks(board);
         expect(links).toHaveLength(2);
         const yang = links.find(link => link.kind === 'yang');
         const yin = links.find(link => link.kind === 'yin');
@@ -54,7 +54,7 @@ describe('resolveYinyangLinks', () => {
         board[1][1] = yinyang;
         board[2][2] = enemy;
 
-        const links = resolveYinyangLinks(board);
+        const links = resolveHeroLinks(board);
         expect(links).toHaveLength(1);
         expect(links[0].kind).toBe('yin');
         expect(links[0].length).toBeCloseTo(Math.SQRT2, 5);
@@ -71,11 +71,30 @@ describe('resolveYinyangLinks', () => {
         });
         board[0][0] = yinyang;
         board[0][1] = ally;
-        expect(resolveYinyangLinks(board)).toEqual([]);
+        expect(resolveHeroLinks(board)).toEqual([]);
 
         // 阴阳师已离场（不在棋盘上）后连线消失：效果虽挂在 ally 身上，但找不到施法者
         const board2 = emptyBoard();
         board2[0][1] = ally;
-        expect(resolveYinyangLinks(board2)).toEqual([]);
+        expect(resolveHeroLinks(board2)).toEqual([]);
+    });
+
+    it('端点锚在棋子所在格：position 滞后于棋盘时，线依然跟着棋子走', () => {
+        const board = emptyBoard();
+        const yinyang = place('yinyang', 'player1', [2, 2]);
+        const ally = place('moran', 'player1', [2, 3]);
+        ally.effects.push({
+            id: 'e-yang', type: 'buff', name: '阳线攻击', duration: -1,
+            value: 0.2, sourceHeroId: yinyang.id, description: '',
+        });
+        // 强行移位后棋子落在 (0,5)，但英雄身上的 position 仍停在旧格
+        board[2][2] = yinyang;
+        board[0][5] = ally;
+        ally.position = [2, 3];
+
+        const links = resolveHeroLinks(board);
+        expect(links).toHaveLength(1);
+        expect(links[0].to, '线的另一端必须跟着棋子').toEqual([0, 5]);
+        expect(links[0].length).toBeCloseTo(Math.hypot(2, 3), 5);
     });
 });

@@ -351,17 +351,21 @@ describe('Xuanxiao', () => {
     beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
     afterEach(() => vi.restoreAllMocks());
 
-    it('buffs one ally attack, crit rate, and crit damage for two rounds', () => {
+    it('buffs one ally damage bonus, crit rate, and crit damage for two rounds', () => {
         const state = makeGameState();
         const hero = addHero(state, 'xuanxiao', 'player1', [2, 2]);
         const ally = addHero(state, 'mirror', 'player1', [2, 3]);
+        const enemy = addHero(state, 'moran', 'player2', [2, 5]);
 
+        const before = DamageCalculator.calculate(ally, enemy, 10, false).finalDamage;
         const result = xuanxiaoSkill1.execute!(hero, [ally], state);
 
         expect(result.success).toBe(true);
-        expect(EffectManager.getEffect(ally, '玄霄攻击提升')?.value).toBe(0.2);
+        expect(EffectManager.getEffect(ally, '玄霄增伤提升')?.value).toBe(0.2);
         expect(EffectManager.getEffect(ally, '玄霄暴击率提升')?.value).toBe(0.2);
         expect(EffectManager.getEffect(ally, '玄霄暴伤提升')?.value).toBe(0.2);
+        // 增伤通道对任何出手的英雄都生效（Math.random=0.99 保证不暴击，只看增伤）
+        expect(DamageCalculator.calculate(ally, enemy, 10, false).finalDamage).toBeGreaterThan(before);
     });
 
     it('queues the selected ally for an immediate extra action', () => {

@@ -8,6 +8,7 @@ import {
     bardSkill2,
     bountySkill1,
     bountySkill2,
+    daiSkill2,
     feynmanSkill1,
     feynmanSkill2,
     heroXSkill1,
@@ -33,7 +34,7 @@ import {
     yinyangSkill1,
     yinyangSkill2,
 } from '../../src/data/extended-skills';
-import { placeBounties, checkYinyangLinks, checkAllYinyangLinks } from '../../src/data/extended-heroes';
+import { placeBounties, checkYinyangLinks, checkAllYinyangLinks, syncPositionAnchoredEffects } from '../../src/data/extended-heroes';
 import { huifengSkill1 } from '../../src/data/skills';
 import { HeroState } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
@@ -325,6 +326,24 @@ describe('extended heroes', () => {
 
         expect(checkAllYinyangLinks(state)).toBe(true);
         expect(EffectManager.hasEffect(ally, '阳线攻击')).toBe(false);
+        expect(caster.counters['yinyang_yang_rate']).toBe(0.2);
+    });
+
+    it('目标被强行换位甩出两格外时，阴阳线当场断开', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'yinyang', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 3]);
+        const farEnemy = addHero(state, 'baize', 'player2', [0, 5]);
+        const dai = addHero(state, 'dai', 'player2', [5, 4]);
+        yinyangSkill1.execute!(caster, [ally], state);
+        expect(EffectManager.hasEffect(ally, '阳线攻击')).toBe(true);
+
+        // 戴尔「时空置换」把友方强行换到远端：本体没动，但目标被甩出两格
+        const swapped = SkillSystem.executeSkill(dai, daiSkill2, [ally.position!, farEnemy.position!], state);
+        expect(swapped.success).toBe(true);
+
+        expect(syncPositionAnchoredEffects(state)).toBe(true);
+        expect(EffectManager.hasEffect(ally, '阳线攻击'), '被甩出两格后线必须断掉').toBe(false);
         expect(caster.counters['yinyang_yang_rate']).toBe(0.2);
     });
 

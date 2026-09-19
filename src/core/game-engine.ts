@@ -2,7 +2,7 @@ import { GameState, Hero, HeroState, BattleLogEntry, Player, Position } from '..
 import { MovementSystem } from './movement-system';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
-import { findSoulLampBeneficiary, placeBounties } from '../data/extended-heroes';
+import { findSoulLampBeneficiary, isJinghongCharging, placeBounties, purgeYinyangLinksOf, syncPositionAnchoredEffects } from '../data/extended-heroes';
 import { resolveLingxiEcho1 } from '../data/extended-skills';
 import { recordBattleHealing } from './battle-statistics';
 import { lanesAtPosition, windLaneNextCell } from './wind-lane';
@@ -27,13 +27,28 @@ export class GameEngine {
     }
 
     /**
+     * 为戴尔「时空回溯」补录一份状态快照。
+     * 回合开始只覆盖当时存活的单位，中途进场（复活、补员、归位）的单位若不及时补录，
+     * 对它使用回溯就会报"没有可供回溯的状态记录"。
+     */
+    static recordRewindSnapshot(hero: Hero, gameState: GameState): void {
+        if (hero.state !== HeroState.ALIVE) return;
+        gameState.heroSnapshots ??= {};
+        gameState.heroSnapshots[hero.id] = {
+            hp: hero.currentHp,
+            effects: hero.effects.map(effect => ({ ...effect })),
+        };
+    }
+
+    /**
      * 在指定位置复活英雄
      */
     static reviveHeroAtPosition(
         hero: Hero,
         position: [number, number],
         hpPercent: number,
-        gameState: GameState
+        gameState: GameState,
+        options: { reviveHp?: number } = {}
     ): boolean {
         if (hero.state !== HeroState.DEAD) return false;
         
@@ -52,7 +67,9 @@ export class GameEngine {
             return false;
         }
 
-        const reviveHp = Math.max(1, Math.min(hero.maxHp, Math.floor(hero.maxHp * hpPercent)));
+        const reviveHp = options.reviveHp !== undefined
+            ? Math.max(1, Math.min(hero.maxHp, Math.floor(options.reviveHp)))
+            : Math.max(1, Math.min(hero.maxHp, Math.floor(hero.maxHp * hpPercent)));
         
         hero.currentHp = reviveHp;
         hero.state = HeroState.ALIVE;
@@ -62,6 +79,10 @@ export class GameEngine {
 
         gameState.board[row][col] = hero;
         this.recordResurrection(hero, gameState);
+        // 中途进场的单位也要有可回溯的状态，否则戴尔对它用「时空回溯」会报"没有记录"
+        this.recordRewindSnapshot(hero, gameState);
+        // 复活落位同样改变阵型：阴阳线按新位置判定超距，血契的禁足圈跟着重铺
+        syncPositionAnchoredEffects(gameState);
 
         this.addLog(gameState, {
             type: 'system',
@@ -70,6 +91,43 @@ export class GameEngine {
         });
 
         return true;
+    }
+
+    /**
+     * 戴尔「时空回溯」唤回：把处于时空停滞的本方阵亡单位复活到指定空格。
+     * 生命回到挨下致命一击之前（没有记录时退回满血），并消耗掉一次性唤回额度。
+     * 判定与技能1的口径一致，供 store 与 AI 模拟共用，避免两处各写一份规则。
+     */
+    static reviveFromStasis(
+        hero: Hero,
+        position: Position,
+        gameState: GameState
+    ): boolean {
+        if (!this.isInStasis(hero, gameState.roundNumber)) return false;
+        if (gameState.board[position[0]]?.[position[1]] !== null) return false;
+
+        const reviveHp = hero.counters['__dai_hp_before_lethal'] ?? hero.maxHp;
+        if (!this.reviveHeroAtPosition(hero, position, 1, gameState, { reviveHp })) return false;
+
+        hero.counters['__dai_revived_once'] = 1;
+        delete hero.counters['__dai_stasis_until'];
+        delete hero.counters['__dai_stasis_pos'];
+        delete hero.counters['__dai_hp_before_lethal'];
+        return true;
+    }
+
+    /**
+     * 时空停滞是否仍可被唤回：只有本方（非通灵、非召唤物、未用过额度）
+     * 且凝固尚未消散的阵亡单位算数。
+     */
+    static isInStasis(hero: Hero, roundNumber: number): boolean {
+        return hero.state === HeroState.DEAD &&
+            hero.class !== '通灵' &&
+            hero.counters['__isClone'] !== 1 &&
+            hero.counters['__isSummon'] !== 1 &&
+            !hero.counters['__dai_revived_once'] &&
+            hero.counters['__dai_stasis_until'] !== undefined &&
+            roundNumber <= (hero.counters['__dai_stasis_until'] ?? 0);
     }
 
     /**
@@ -107,6 +165,7 @@ export class GameEngine {
                 if (gameState.roundNumber > hero.counters['__dai_stasis_until']) {
                     delete hero.counters['__dai_stasis_until'];
                     delete hero.counters['__dai_stasis_pos'];
+                    delete hero.counters['__dai_hp_before_lethal'];
                     this.addLog(gameState, {
                         type: 'system',
                         player: hero.owner,
@@ -114,11 +173,20 @@ export class GameEngine {
                     });
                 }
             }
+            // 惊鸿·止水：蓄力只开放"下一回合"这一个释放窗口，错过即消散且惊鸿不返还
+            const jinghongCharged = hero.counters['jinghong_charge_round'] ?? -1;
+            if (hero.passiveId === 'jinghong_passive' && jinghongCharged >= 0
+                && gameState.roundNumber > jinghongCharged + 1) {
+                hero.counters['jinghong_charge_round'] = -1;
+                hero.counters['jinghong_charge_stacks'] = 0;
+                this.addLog(gameState, {
+                    type: 'system',
+                    player: hero.owner,
+                    message: `${hero.name}没能决出渊，蓄力随止水一同散去`,
+                });
+            }
             if (hero.state === HeroState.ALIVE) {
-                gameState.heroSnapshots[hero.id] = {
-                    hp: hero.currentHp,
-                    effects: hero.effects.map(effect => ({ ...effect })),
-                };
+                this.recordRewindSnapshot(hero, gameState);
             }
         }
 
@@ -869,6 +937,7 @@ export class GameEngine {
             effect.owner !== hero.owner && !!effect.direction
         );
         if (lanes.length === 0) return;
+        let pushed = false;
 
         for (const lane of lanes) {
             if (hero.state !== HeroState.ALIVE || !hero.position) return;
@@ -880,6 +949,7 @@ export class GameEngine {
             gameState.board[fromRow][fromCol] = null;
             gameState.board[destination[0]][destination[1]] = hero;
             hero.position = destination;
+            pushed = true;
             DamageCalculator.applyDilanMovementDamage(hero, 1, gameState);
             this.addLog(gameState, {
                 type: 'passive',
@@ -887,6 +957,9 @@ export class GameEngine {
                 message: `${hero.name}被风道顺风吹偏1格`,
             });
         }
+
+        // 风道推移是典型的"强行移位"：阴阳线与血契禁足圈都必须跟着新位置重算
+        if (pushed) syncPositionAnchoredEffects(gameState);
     }
 
     /**
@@ -975,6 +1048,25 @@ export class GameEngine {
 
         for (const hero of allHeroes) {
             if (hero.state !== HeroState.ALIVE) continue;
+
+            // 惊鸿·止水「止水」蓄力：整回合结束时按已损生命回复——不是她放完技能就回，
+            // 所以这一回合里她挨的打越多，回合末回得也越多。
+            // 回复比例在蓄力那一刻就按当时惊鸿层数锁定，之后不再变动。
+            if (hero.passiveId === 'jinghong_passive' && isJinghongCharging(hero, gameState)) {
+                const stacks = hero.counters['jinghong_charge_stacks'] ?? 0;
+                const healRate = 0.2 + stacks * 0.1;
+                const lostHp = Math.max(0, hero.maxHp - hero.currentHp);
+                const healed = Math.min(lostHp, Math.floor(lostHp * healRate));
+                if (healed > 0) {
+                    hero.currentHp += healed;
+                    recordBattleHealing(gameState, hero, healed);
+                    this.addLog(gameState, {
+                        type: 'heal',
+                        player: hero.owner,
+                        message: `${hero.name}止水映月，回合末回复${healed}点生命`,
+                    });
+                }
+            }
 
             if (hero.passiveId === 'skeletonking_passive') {
                 const dead = allHeroes.filter(item => item.state !== HeroState.ALIVE).length;
@@ -1128,6 +1220,7 @@ export class GameEngine {
         gameState.board[revivePosition[0]][revivePosition[1]] = hero;
         delete hero.counters['soul_lamp_revive_round'];
         this.recordResurrection(hero, gameState);
+        this.recordRewindSnapshot(hero, gameState);
 
         if (hero.passiveId === 'soul_lamp_passive') {
             // 魂灯复活后，移除其提供的临时吸血（真实死亡留下的永久吸血不受影响）
@@ -1206,6 +1299,12 @@ export class GameEngine {
 
         if (hero.passiveId === 'jetzmi_passive') {
             hero.counters['jetzmi_form'] = hero.counters['jetzmi_form'] === 1 ? 0 : 1;
+        }
+
+        // 阴阳师暂时阵亡：阳/阴线随本体当场消散（含回替补席的情况），
+        // 之后经魂灯/唤回等途径回归场地时不再原样接上，需重新施技连线
+        if (hero.passiveId === 'yinyang_passive') {
+            purgeYinyangLinksOf(hero, gameState, '暂时阵亡');
         }
 
         if (hero.passiveId === 'soul_lamp_passive') {

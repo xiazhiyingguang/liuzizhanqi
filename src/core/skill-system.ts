@@ -4,7 +4,8 @@ import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
 import { recordBattleSkillUse } from './battle-statistics';
 import { youjunDashMaxDistance } from './wind-blade';
-import { isLingxiEchoPending } from '../data/extended-heroes';
+import { filterPositionsByRage, getRageBinder, rageBlocksCast } from './taunt';
+import { getJinghongOuterRing, isJinghongCharging, isJinghongReleaseWindow, isLingxiEchoPending } from '../data/extended-heroes';
 
 /**
  * 技能系统
@@ -14,13 +15,35 @@ export class SkillSystem {
      * 获取技能有效目标位置
      * gameState 可选：游隼疾掠的落点范围取决于起点风道，需要读取棋盘效果；
      * 未传入时按无风道加成的常规距离计算。
+     *
+     * 愤怒（嘲讽）在这里统一收窄：界面高亮、AI 选目标与 canUseSkill 都走本函数，
+     * 不传 gameState 时无法读取愤怒状态，因此调用方应尽可能把 state 传进来。
      */
     static getValidTargetPositions(
         caster: Hero,
         skill: Skill,
         gameState?: GameState
     ): Position[] {
+        return filterPositionsByRage(
+            caster,
+            skill,
+            this.getTargetPositionsRaw(caster, skill, gameState),
+            gameState
+        );
+    }
+
+    private static getTargetPositionsRaw(
+        caster: Hero,
+        skill: Skill,
+        gameState?: GameState
+    ): Position[] {
         if (!caster.position) return [];
+
+        // 惊鸿·止水技能2：决渊段要放开 5×5 外环让玩家看清这一圈打到谁，
+        // 因此必须抢在 targetType==='self' 的统一收口之前——蓄力段仍走自指。
+        if (skill.id === 'jinghong_skill2' && gameState && isJinghongReleaseWindow(caster, gameState)) {
+            return [caster.position, ...getJinghongOuterRing(caster.position)];
+        }
 
         if (skill.targetType === 'self') {
             return caster.position ? [caster.position] : [];
@@ -189,6 +212,16 @@ export class SkillSystem {
             this.removeGuardEffectsFromLiuli(caster.id, gameState);
         }
 
+        // 愤怒（嘲讽）兜底：绕过界面高亮的直接调用同样不成立，
+        // 失败时不消耗行动，界面据此提示"只能攻击锁住你的对象"
+        const rageBinder = getRageBinder(caster, gameState);
+        if (rageBlocksCast(caster, skill, targetPositions, gameState)) {
+            return {
+                success: false,
+                log: [`${caster.name}被${rageBinder?.name ?? '血契'}锁住，这一击必须落在它身上`],
+            };
+        }
+
         // 如果技能有自定义执行函数，使用自定义函数
         if (skill.execute) {
             let finalTargetPositions = targetPositions;
@@ -310,7 +343,7 @@ export class SkillSystem {
             ) {
                 // 群体技能：目标覆盖技能全范围，而不是玩家点击的单格。
                 // line/全场类型已在上面特判或由 execute 自行结算。
-                const fullRange = this.getValidTargetPositions(caster, skill);
+                const fullRange = this.getValidTargetPositions(caster, skill, gameState);
                 if (fullRange.length > 0) {
                     finalTargetPositions = fullRange;
                     autoCoveredPositions = fullRange;
@@ -323,20 +356,6 @@ export class SkillSystem {
                 skill.targetType,
                 gameState
             );
-            // 时空旅者·戴尔「时空回溯」：处于时空停滞的阵亡单位已不在棋盘上，
-            // 点击其死亡位置时改为从英雄列表中收集该单位作为复活目标
-            if (skill.id === 'dai_skill1') {
-                const stalled = [...gameState.player1Heroes, ...gameState.player2Heroes].find(hero =>
-                    hero.owner === caster.owner &&
-                    hero.state === HeroState.DEAD &&
-                    hero.counters['__dai_stasis_until'] !== undefined &&
-                    hero.position !== null &&
-                    finalTargetPositions.some(([row, col]) =>
-                        hero.position![0] === row && hero.position![1] === col
-                    )
-                );
-                if (stalled) targets = [stalled];
-            }
             const result = skill.execute(caster, targets, gameState);
             // 特效作用区兜优先级：技能自报的真实格 > 引擎展开群体范围时用的那份格子。
             // 后者让"选点高亮范围＝目标选择范围＝特效范围"三者天然同源，不再各算一遍
@@ -516,6 +535,21 @@ export class SkillSystem {
             (skill.id !== 'youjun_skill1' || caster.counters['youjun_skill1_refreshed'] !== 1)
         ) {
             return false;
+        }
+
+        // 惊鸿·止水「止水决渊」：不在蓄力/释放窗口、手里又没有惊鸿时，这一手无事可做，
+        // 提前判不可用，界面按钮直接灰掉，免得玩家点下去只吃到一句失败提示。
+        // 释放回合还要求外环确有敌人——落空的施放会失败且不消耗行动，
+        // 电脑对手会因此原地反复重试而卡住，所以宁可不给它选。
+        if (skill.id === 'jinghong_skill2') {
+            const charged = caster.counters['jinghong_charge_round'] ?? -1;
+            if (charged < 0) return (caster.counters['惊鸿'] ?? 0) >= 1;
+            if (isJinghongCharging(caster, gameState)) return true;
+            if (!isJinghongReleaseWindow(caster, gameState)) return false;
+            return getJinghongOuterRing(caster.position as Position).some(cell => {
+                const occupant = gameState.board[cell[0]][cell[1]];
+                return !!occupant && occupant.owner !== caster.owner && occupant.state === HeroState.ALIVE;
+            });
         }
 
         // 检查是否有有效目标

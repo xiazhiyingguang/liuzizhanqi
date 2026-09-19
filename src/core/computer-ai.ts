@@ -9,6 +9,7 @@ import { SkillSystem } from './skill-system';
 import { DamageCalculator } from './damage-calculator';
 import { GameEngine } from './game-engine';
 import { windLaneAxis, windLaneCells, windLaneDirectionFromCode } from './wind-lane';
+import { isJinghongReleaseWindow } from '../data/extended-heroes';
 
 export interface ComputerDeployment {
     heroId: string;
@@ -40,6 +41,14 @@ const KILL_SCORE_BONUS = 205;
 const TEMP_DEAD_SCORE_BONUS = 45;
 /** 拥有"击杀后立即再动"天威的英雄，每次模拟击杀的额外收益。 */
 const TIANWEI_KILL_BONUS = 40;
+/**
+ * 让友方再动一次的底价：再动只改变出手次数，不产生伤害、效果或棋盘变化，
+ * evaluateComputerBoard 的分差看不见它，必须显式计分，否则 AI 永远只放伤害技。
+ * 再动者本回合还能打出的伤害另按 damageWeight 追加。
+ */
+const EXTRA_ACTION_BASE = 9;
+/** 友方本回合还没正常行动过时，再动的折扣（它反正还要行动一次，收益没那么高）。 */
+const EXTRA_ACTION_PRE_ACTED_FACTOR = 0.6;
 /** 多目标技能组合枚举时考虑的前 N 个高优先级目标。 */
 const MULTI_TARGET_COMBINATION_TOP = 6;
 /**
@@ -128,6 +137,8 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position): n
         }
         case 'youjun_skill2':
             return 4;
+        case 'jinghong_skill2':
+            return 10;
         default:
             return null;
     }
@@ -139,7 +150,7 @@ const DEFAULT_RATINGS: HeroAbilityRatings = {
     控制: 5,
     支援: 5,
     覆盖: 5,
-    节奏: 5,
+    成长: 5,
 };
 
 function ratingsForHeroId(heroId: string): HeroAbilityRatings {
@@ -285,7 +296,7 @@ function teamScore(
         sum('支援') * 0.9 +
         sum('覆盖') * 0.95 +
         sum('机动') * 0.65 +
-        sum('节奏') * 0.8;
+        sum('成长') * 0.8;
 
     // 宗师电脑不会只堆单一输出，完整阵容会获得明显奖励。
     score += max('输出') * 2.1 + max('生存') * 1.8 + max('支援') * 1.55 + max('控制') * 1.5;
@@ -664,7 +675,13 @@ function estimateThreatAtPosition(attacker: Hero, position: Position, defender: 
 function isSkillOnCooldown(hero: Hero, skill: Skill): boolean {
     if (skill.id === 'mowen_skill1' && (hero.counters['mowen_skill1_cd'] ?? 0) > 0) return true;
     // 时空旅者·戴尔技能2「时空置换」冷却
-    return skill.id === 'dai_skill2' && (hero.counters['dai_skill2_cd'] ?? 0) > 0;
+    if (skill.id === 'dai_skill2' && (hero.counters['dai_skill2_cd'] ?? 0) > 0) return true;
+    // 惊鸿·止水「止水决渊」：既没在蓄力也攒不出惊鸿时，这一手无事可做，别白占一次出手
+    if (skill.id === 'jinghong_skill2') {
+        return (hero.counters['jinghong_charge_round'] ?? -1) < 0
+            && (hero.counters['惊鸿'] ?? 0) < 1;
+    }
+    return false;
 }
 
 /** 估算 attacker 对 target 的最大单技能伤害（不含射程判定，供垫刀/斩杀规划用）。 */
@@ -693,6 +710,15 @@ function estimateDamageAgainst(attacker: Hero, target: Hero): number {
     return maxDamage;
 }
 
+/**
+ * 让 ally 本回合多出手一次的价值：再动者输出能力越强、且它本回合已经行动过（多出来的是纯赚的一次），
+ * 价值越高。用于给玄霄「惊鸿再舞」这类只加出手次数、不留任何棋盘痕迹的技能计分。
+ */
+function extraActionValue(ally: Hero): number {
+    const base = EXTRA_ACTION_BASE + ratingsForHero(ally).输出 * 1.5;
+    return ally.hasActedThisTurn ? base : base * EXTRA_ACTION_PRE_ACTED_FACTOR;
+}
+
 function targetPriority(state: GameState, caster: Hero, skill: Skill, position: Position): number {
     const target = state.board[position[0]][position[1]];
     if (!target) return skill.targetType === 'empty' ? 20 : 0;
@@ -712,7 +738,10 @@ function targetPriority(state: GameState, caster: Hero, skill: Skill, position: 
 function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position[][] {
     if (!caster.position) return [];
 
-    if (skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2' || skill.id === 'zuizhendao_skill1') {
+    if (
+        skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2'
+        || skill.id === 'zuizhendao_skill1' || skill.id === 'yunying_skill2'
+    ) {
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
     }
 
@@ -737,29 +766,24 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
         return sets;
     }
 
-    // 时空旅者·戴尔技能1：处于时空停滞的己方阵亡单位不在棋盘上，
-    // 把其死亡位置插到候选最前，确保「复活」方案能进入模拟评估。
+    // 时空旅者·戴尔技能1「时空回溯」唤回分支：两段式（先锚定时空停滞单位，再点复活落点），
+    // 因此这里枚举的是"落点"——全盘任意空格；锚定对象由 chooseComputerStasisReviveTarget 选定。
     // 替补制编制上限：场上真实存活已满4人时唤回必然被技能校验拒绝，
-    // 不生成该目标集（否则 AI 会反复执行必然失败的复活计划，形成决策死循环）。
+    // 不生成该分支（否则 AI 会反复执行必然失败的复活计划，形成决策死循环）。
     if (skill.id === 'dai_skill1') {
-        const canReviveStalled = GameEngine.countRealAliveOnBoard(state, caster.owner) < 4;
-        const stalled = canReviveStalled
-            ? heroesFor(state, caster.owner).filter(hero =>
-                hero.state === HeroState.DEAD &&
-                hero.position !== null &&
-                hero.counters['__dai_stasis_until'] !== undefined &&
-                state.roundNumber <= hero.counters['__dai_stasis_until']!
-            )
-            : [];
-        if (stalled.length > 0) {
-            const stallKeys = new Set(stalled.map(hero => `${hero.position![0]},${hero.position![1]}`));
-            const rest = SkillSystem.getValidTargetPositions(caster, skill)
+        const stalled = stasisRevivableHeroes(state, caster.owner);
+        if (stalled.length > 0 && GameEngine.countRealAliveOnBoard(state, caster.owner) < 4) {
+            const landings: Position[][] = [];
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    if (state.board[row][col] === null) landings.push([[row, col]]);
+                }
+            }
+            // 唤回与"回溯存活单位"是二选一，两类方案都进评分，谁收益高用谁
+            const rewind = SkillSystem.getValidTargetPositions(caster, skill, state)
                 .filter(isBoardPosition)
-                .filter(position => !stallKeys.has(`${position[0]},${position[1]}`));
-            return [
-                ...stalled.map(hero => [[hero.position![0], hero.position![1]] as Position]),
-                ...rest.map(position => [position]),
-            ];
+                .map(position => [position]);
+            return [...landings, ...rewind];
         }
     }
 
@@ -862,6 +886,12 @@ function configureSimulationChoices(
         caster.counters['__zuizhendao_skill1_dir'] =
             direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
     }
+    if (skill.id === 'yunying_skill2' && caster.position) {
+        // 点相邻方向格即释放：把方向换算成技能结算读取的 0-3 编码
+        const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
+        caster.counters['__yunying_skill2_dir'] =
+            direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
+    }
     if (skill.id === 'nanfeng_skill2' && caster.position && targetPositions.length >= 2) {
         // 两步点击：第一步的风向格换算成编码，供技能结算读取
         const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
@@ -873,6 +903,14 @@ function configureSimulationChoices(
             .filter(hero => hero.state === HeroState.DEAD)
             .sort((left, right) => heroBoardValue(right) - heroBoardValue(left));
         state.baizeReviveTargetHeroId = dead[0]?.id;
+    }
+    if (skill.id === 'dai_skill1') {
+        // 两段式唤回：落点是空格才说明这条方案评的是"唤回时空停滞单位"。
+        // 锚定对象与真执行共用 chooseComputerStasisReviveTarget，避免评分锚 A、点击锚 B。
+        const landing = targetPositions[0];
+        if (landing && isBoardPosition(landing) && state.board[landing[0]][landing[1]] === null) {
+            state.daiReviveHeroId = chooseComputerStasisReviveTarget(state, caster.owner)?.id;
+        }
     }
     if (skill.id === 'jetzmi_skill2') {
         const dead = heroesFor(state, caster.owner)
@@ -973,9 +1011,21 @@ function simulateSkillPlan(
             };
         }
 
+        // 戴尔「时空回溯」唤回：复活由 store 侧结算（落点是空格，棋盘上没有目标单位），
+        // 引擎技能执行无法模拟它，因此这里直接走同一条引擎函数，按棋盘分差计分。
+        if (skill.id === 'dai_skill1' && simulated.daiReviveHeroId) {
+            const stalled = findHero(simulated, simulated.daiReviveHeroId);
+            const landing = targetPositions[0];
+            if (!stalled || !landing || !GameEngine.reviveFromStasis(stalled, landing, simulated)) return null;
+            return {
+                skillId: skill.id,
+                targetPositions,
+                score: evaluateComputerBoard(simulated, caster.owner) - beforeScore,
+            };
+        }
+
         const result = SkillSystem.executeSkill(simulatedCaster, skill, targetPositions, simulated);
         if (!result.success) return null;
-
         const afterScore = evaluateComputerBoard(simulated, caster.owner);
         // 斩杀确认：对比模拟前后的敌方状态，被真实击杀或暂时阵亡的目标给予额外奖励。
         let kills = 0;
@@ -1018,6 +1068,22 @@ function simulateSkillPlan(
                 effect.type === 'wind-blade' && effect.sourceHeroId === caster.id
               ).length * 3
             : 0;
+        // 再动类技能（玄霄「惊鸿再舞」等）只往待行动队列里写一个 id：
+        // 没有伤害、没有效果、棋盘分差也是 0，只能对比模拟前后的队列来计分。
+        const pendingBefore = state.pendingExtraActionHeroIds;
+        const pendingAfter = simulated.pendingExtraActionHeroIds;
+        const queuedExtraIds = pendingAfter
+            ? [pendingAfter.player1, pendingAfter.player2].filter(
+                heroId => heroId && heroId !== pendingBefore?.player1 && heroId !== pendingBefore?.player2
+            )
+            : [];
+        const extraActionBonus = queuedExtraIds.reduce((sum, heroId) => {
+            const beneficiary = allHeroes(simulated).find(hero => hero.id === heroId);
+            // 队列里躺着个已经不在场的单位时不给分（正常流程不会发生，宁可保守）
+            return sum + (beneficiary && beneficiary.state === HeroState.ALIVE
+                ? extraActionValue(beneficiary)
+                : 0);
+        }, 0);
         const score = afterScore - beforeScore
             + damage * AGGRESSION.damageWeight
             + healing * AGGRESSION.healingWeight
@@ -1028,6 +1094,7 @@ function simulateSkillPlan(
             + cloneBonus
             + dashBonus
             + bladeBonus
+            + extraActionBonus
             + (meaningfulResult ? skillTypeBias(skill) : 0)
             // 技能轮换：最近一次用过的技能减分，促使 AI 换着放技能
             - (lastSkillIndex === skillIndex ? SKILL_REPEAT_PENALTY : 0);
@@ -1038,10 +1105,19 @@ function simulateSkillPlan(
     }
 }
 
+/** 一次 AI 技能决策的候选清单快照，供回放与离线复盘分析"当时还有哪些选择、为什么选它" */
+export interface AiDecisionAudit {
+    /** 枚举出的全部候选，按分数从高到低 */
+    candidates: Array<{ skillId: string; score: number; targets: Position[] }>;
+    /** 最终采纳的方案；null 表示没有可用方案 */
+    chosen: { skillId: string; score: number } | null;
+}
+
 export function chooseComputerSkillPlan(
     state: GameState,
     caster: Hero,
-    onlySkillId?: string
+    onlySkillId?: string,
+    audit?: AiDecisionAudit
 ): ComputerSkillPlan | null {
     if (caster.state !== HeroState.ALIVE || !caster.position || caster.hasActedThisTurn) return null;
     const skillIds = onlySkillId ? [onlySkillId] : [caster.skill1Id, caster.skill2Id];
@@ -1080,11 +1156,26 @@ export function chooseComputerSkillPlan(
         }
     }
 
-    if (candidates.length === 0) return null;
+    const rankedCandidates = [...candidates]
+        .sort((left, right) => right.score - left.score)
+        .map(plan => ({ skillId: plan.skillId, score: Math.round(plan.score * 10) / 10, targets: plan.targetPositions }));
+
+    if (candidates.length === 0) {
+        if (audit) {
+            audit.candidates = [];
+            audit.chosen = null;
+        }
+        return null;
+    }
 
     // 技能多样性：分数接近的候选（含不同技能/目标）之间随机挑选，避免每回合都放同一个技能；
     // 低难度还会以一定概率主动挑次优解。
-    return pickWithBlunder(candidates, difficultyProfile().skillTolerance) ?? null;
+    const picked = pickWithBlunder(candidates, difficultyProfile().skillTolerance) ?? null;
+    if (audit) {
+        audit.candidates = rankedCandidates;
+        audit.chosen = picked ? { skillId: picked.skillId, score: Math.round(picked.score * 10) / 10 } : null;
+    }
+    return picked;
 }
 
 function maximumSkillReach(hero: Hero): number {
@@ -1163,6 +1254,8 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
 
 export function chooseComputerMove(state: GameState, hero: Hero): Position | null {
     if (!hero.position || hero.hasMovedThisTurn) return null;
+    // 惊鸿·止水：决渊释放回合必须站定，store 会拦下移动，这里直接不把它列入计划
+    if (hero.passiveId === 'jinghong_passive' && isJinghongReleaseWindow(hero, state)) return null;
     const positions = MovementSystem.getMovablePositions(hero, state);
     const currentScore = scoreComputerPosition(state, hero, hero.position);
     const candidates = positions
@@ -1192,7 +1285,7 @@ export function chooseComputerHero(state: GameState, player: Player): Hero | nul
         }) ? 4 : 0;
         return {
             hero,
-            score: (skillPlan?.score ?? 0) * 1.4 + moveScore + hpRatio * 4 + ratingsForHero(hero).节奏 - cooldownPenalty,
+            score: (skillPlan?.score ?? 0) * 1.4 + moveScore + hpRatio * 4 + ratingsForHero(hero).成长 - cooldownPenalty,
         };
     });
     if (scored.length === 0) return null;
@@ -1201,6 +1294,15 @@ export function chooseComputerHero(state: GameState, player: Player): Hero | nul
 }
 
 export function chooseComputerPendingBoardPosition(state: GameState, hero: Hero): Position | null {
+    if (hero.tianweiId === 'xueqi_tianwei') {
+        const sweepCenter = chooseXueqiSweepCenter(state, hero);
+        if (sweepCenter) return sweepCenter;
+    }
+    if (hero.passiveId === 'yunying_passive') {
+        // 烈火燎原：点相邻方向格即沿那条线烧到棋盘边缘，优先烧最多、最残血的一边
+        const liehuoDirection = chooseYunyingLiehuoDirection(state, hero);
+        if (liehuoDirection) return liehuoDirection;
+    }
     const candidates: Position[] = [];
     for (let row = 0; row < BOARD_SIZE; row++) {
         for (let col = 0; col < BOARD_SIZE; col++) {
@@ -1211,6 +1313,87 @@ export function chooseComputerPendingBoardPosition(state: GameState, hero: Hero)
     return candidates.sort((left, right) =>
         scoreComputerPosition(state, hero, right) - scoreComputerPosition(state, hero, left)
     )[0] ?? null;
+}
+
+/**
+ * 云缨烈火燎原的方向格：比较四个方向上"自己到边缘"这条射线能烧到的敌人数与已损生命，
+ * 同分按行列顺序取先者，保证联机两端与回放结果一致。
+ * 四条线都烧不到人时返回 null，由调用方退回常规选位（不能让待选状态卡住决策）。
+ */
+function chooseYunyingLiehuoDirection(state: GameState, hero: Hero): Position | null {
+    if (!hero.position) return null;
+    const [row, col] = hero.position;
+    const directions: Array<{ cell: Position; delta: Position }> = [
+        { cell: [row - 1, col], delta: [-1, 0] },
+        { cell: [row + 1, col], delta: [1, 0] },
+        { cell: [row, col - 1], delta: [0, -1] },
+        { cell: [row, col + 1], delta: [0, 1] },
+    ];
+    let best: Position | null = null;
+    let bestHits = 0;
+    let bestPressure = 0;
+    for (const { cell, delta } of directions) {
+        const [targetRow, targetCol] = cell;
+        if (targetRow < 0 || targetRow >= BOARD_SIZE || targetCol < 0 || targetCol >= BOARD_SIZE) continue;
+        let hits = 0;
+        let pressure = 0;
+        for (let step = 1; step < BOARD_SIZE; step++) {
+            const r = row + delta[0] * step;
+            const c = col + delta[1] * step;
+            if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) break;
+            const target = state.board[r][c];
+            if (!target || target.owner === hero.owner || target.state !== HeroState.ALIVE) continue;
+            hits += 1;
+            pressure += (target.maxHp - target.currentHp) / Math.max(1, target.maxHp) + 0.2;
+        }
+        if (hits === 0) continue;
+        if (hits > bestHits || (hits === bestHits && pressure > bestPressure)) {
+            bestHits = hits;
+            bestPressure = pressure;
+            best = cell;
+        }
+    }
+    return best;
+}
+
+/**
+ * 血契天威的落点：血契要先跃到这一格再就地横扫，所以落点必须是空格
+ * （点自己脚下等于不移动只扫一次）。优先罩住最多、最脆的敌人。
+ * 一个敌人都扫不到时返回 null，交由调用方退回常规选位。
+ * 同分按行列顺序取先者，保证联机两端与回放结果一致。
+ */
+function chooseXueqiSweepCenter(state: GameState, hero: Hero): Position | null {
+    let best: Position | null = null;
+    let bestHits = 0;
+    let bestPressure = Number.POSITIVE_INFINITY;
+
+    for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+            const landing = state.board[row][col];
+            if (landing && landing.id !== hero.id) continue;   // 只能跃向空格
+            let hits = 0;
+            let pressure = 0;
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    const r = row + dr;
+                    const c = col + dc;
+                    if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) continue;
+                    const target = state.board[r][c];
+                    if (!target || target.owner === hero.owner || target.state !== HeroState.ALIVE) continue;
+                    if (target.id.includes('|')) continue;   // 召唤物/分身不作为落点评价依据
+                    hits++;
+                    pressure += target.currentHp + target.shield;
+                }
+            }
+            if (hits === 0) continue;
+            if (hits > bestHits || (hits === bestHits && pressure < bestPressure)) {
+                best = [row, col];
+                bestHits = hits;
+                bestPressure = pressure;
+            }
+        }
+    }
+    return best;
 }
 
 export function chooseComputerReviveTarget(state: GameState, player: Player): Hero | null {
@@ -1225,6 +1408,31 @@ export function chooseComputerReviveTarget(state: GameState, player: Player): He
             const rightRatings = ratingsForHero(right);
             const score = (ratings: HeroAbilityRatings) => ratings.输出 * 1.2 + ratings.生存 + ratings.支援 + ratings.控制;
             return score(rightRatings) - score(leftRatings);
+        })[0] ?? null;
+}
+
+/** 仍处于时空停滞、可被戴尔「时空回溯」唤回的本方单位 */
+function stasisRevivableHeroes(state: GameState, player: Player): Hero[] {
+    return heroesFor(state, player).filter(hero => GameEngine.isInStasis(hero, state.roundNumber));
+}
+
+/**
+ * 戴尔「时空回溯」唤回对象：真执行时的锚定与模拟评分共用同一份排序，
+ * 否则 AI 评的是 A、点的是 B。按"复活后能贡献多少"排序，
+ * 挨下致命一击时的血量越低，唤回回来的战力越打折。
+ */
+export function chooseComputerStasisReviveTarget(state: GameState, player: Player): Hero | null {
+    if (GameEngine.countRealAliveOnBoard(state, player) >= 4) return null;
+
+    return [...stasisRevivableHeroes(state, player)]
+        .sort((left, right) => {
+            const value = (hero: Hero) => {
+                const ratings = ratingsForHero(hero);
+                const reviveHp = hero.counters['__dai_hp_before_lethal'] ?? hero.maxHp;
+                const hpRatio = hero.maxHp > 0 ? Math.min(1, reviveHp / hero.maxHp) : 0;
+                return (ratings.输出 * 1.2 + ratings.生存 + ratings.支援 + ratings.控制) * (0.5 + hpRatio * 0.5);
+            };
+            return value(right) - value(left);
         })[0] ?? null;
 }
 
@@ -1355,7 +1563,7 @@ export function chooseComputerWukongStrikeTarget(
     if (!attacker.position || attacker.state !== HeroState.ALIVE) return null;
     let best: Position | null = null;
     let bestScore = 0;
-    for (const position of SkillSystem.getValidTargetPositions(attacker, skill).filter(isBoardPosition)) {
+    for (const position of SkillSystem.getValidTargetPositions(attacker, skill, state).filter(isBoardPosition)) {
         const target = state.board[position[0]][position[1]];
         if (!target || target.owner === attacker.owner || target.state !== HeroState.ALIVE) continue;
         const plan = simulateSkillPlan(state, attacker, skill, [position]);

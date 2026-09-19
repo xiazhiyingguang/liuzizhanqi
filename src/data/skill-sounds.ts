@@ -131,9 +131,11 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     feixue_skill2: 'snow',
     feixue_shatter: 'ice', // 破冰爆震（技能1击碎冰冻形态）
 
-    // ===== 风铃：强制锁敌与沙丘猎杀 =====
-    fengling_skill1: 'curse',
+    // ===== 风铃：流沙追猎爪牙与天威闪袭 =====
+    fengling_skill1: 'slash',
     fengling_skill2: 'slash',
+    // 天威「猎砂追击」的闪现扑咬（辅助特效，与流沙追猎同一路爪牙、更重一档）
+    fengling_pounce: 'heavy_slash',
 
     // ===== 帝兰：顺逆风操纵与羽化 =====
     dilan_skill1: 'snow',
@@ -147,9 +149,22 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     nanfeng_skill1: 'snow',
     nanfeng_skill2: 'dash',
 
+    // ===== 云缨：星火、长驱与烈火燎原 =====
+    yunying_skill1: 'fire',           // 星火照野
+    yunying_skill2: 'dash',           // 踏火长驱
+    yunying_liehuo: 'explosion',      // 烈火燎原射线（被动引燃，辅助特效）
+
+    // ===== 惊鸿·止水：掠水突进与止水决渊 =====
+    jinghong_skill1: 'dash',          // 掠水惊鸿：贴敌斩过并绕后
+    jinghong_skill2: 'impact',        // 止水决渊：蓄力与外环爆发共用
+
     // ===== 沉渊·镇岳：极寒领域与拖拽援护 =====
     chenyuan_skill1: 'snow',
     chenyuan_skill2: 'impact',
+
+    // ===== 血契：血誓横扫与强锁 =====
+    xueqi_skill1: 'heavy_slash',   // 血誓横扫
+    xueqi_skill2: 'curse',         // 血契锁
 
     // ===== 戴尔：时空回溯与时空置换 =====
     dai_skill1: 'revive',

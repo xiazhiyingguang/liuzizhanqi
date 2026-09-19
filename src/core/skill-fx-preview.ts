@@ -51,6 +51,8 @@ export const DIRECTIONAL_FX_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKin
     'feynman-beam',
     'shadow-dash',
     'phase-swap',
+    'zuizhen-throw',
+    'zuizhen-wheel',
 ]);
 
 export function isDirectionalFxKind(kind: SkillFxKind): boolean {

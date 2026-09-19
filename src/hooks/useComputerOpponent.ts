@@ -10,6 +10,7 @@ import {
     chooseComputerReviveTarget,
     chooseComputerSkillPlan,
     chooseComputerSupportTarget,
+    chooseComputerStasisReviveTarget,
     chooseComputerTeam,
     chooseComputerTemporaryDeadTarget,
     chooseComputerWukongStepPosition,
@@ -19,13 +20,14 @@ import {
     resetCachedComputerTeam,
     scoreComputerPosition,
     setComputerAiDifficulty,
+    type AiDecisionAudit,
 } from '../core/computer-ai';
+import { noteAiDecision } from '../services/battle-replay';
 import { useGameStore } from '../store/game-store';
+import { getSkill } from '../data/skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
-import { HeroState } from '../types/game';
 import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
-import { GameEngine } from '../core/game-engine';
 import { MovementSystem } from '../core/movement-system';
 
 const AI_PLAYER = 'player2' as const;
@@ -126,22 +128,6 @@ function nextPlannedTarget(
         return null;
     }
 
-    // 时空旅者·戴尔技能1：优先点击己方时空停滞单位的死亡位置进行复活。
-    // 替补制编制上限：满编时唤回必然失败，跳过该分支（双保险，与 buildTargetSets 过滤一致）。
-    if (skill.id === 'dai_skill1' && pending.length === 0 &&
-        GameEngine.countRealAliveOnBoard(state, caster.owner) < 4) {
-        const stalled = [...state.player1Heroes, ...state.player2Heroes].find(hero =>
-            hero.owner === caster.owner &&
-            hero.state === HeroState.DEAD &&
-            hero.position !== null &&
-            hero.counters['__dai_stasis_until'] !== undefined &&
-            state.roundNumber <= hero.counters['__dai_stasis_until']!
-        );
-        if (stalled?.position && isAllowed(stalled.position)) {
-            return stalled.position;
-        }
-    }
-
     // 南风引风成道：两步点击，风向计数器是否已写入决定这一步点方向格还是点行列格
     if (skill.id === 'nanfeng_skill2' && plan && plan.targetPositions.length >= 2) {
         const step = caster.counters['__nanfeng_skill2_dir'] === undefined ? 0 : 1;
@@ -196,6 +182,21 @@ function executeSelectedSkillStep(
         if (dead && state.baizeReviveTargetHeroId !== dead.id) {
             store.selectBaizeReviveTarget(dead.id);
             return;
+        }
+    }
+
+    // 戴尔「时空回溯」唤回第一段：先锚定时空停滞单位（等价于人类点击残影），
+    // 下一段再由方案落点完成复活。只在方案首点确实是空格（即唤回分支）时锚定，
+    // 否则会把"回溯存活单位"的方案劫持成唤回。
+    if (skill.id === 'dai_skill1' && !state.daiReviveHeroId) {
+        const plan = chooseComputerSkillPlan(state, caster, skill.id);
+        const landing = plan?.targetPositions[0];
+        if (landing && state.board[landing[0]][landing[1]] === null) {
+            const stalled = chooseComputerStasisReviveTarget(state, caster.owner);
+            if (stalled) {
+                store.selectDaiReviveTarget(stalled.id);
+                return;
+            }
         }
     }
 
@@ -594,7 +595,10 @@ function executeWukongStep(
 
 /* --------------------------- 移动+技能联合规划 --------------------------- */
 
+/** 伤害型方案：够强就直接原地释放，不必先走位 */
 const JOINT_PLAN_SCORE_THRESHOLD = 26;
+/** 布置型（非伤害）方案：门槛更高，否则 AI 会站在原地反复放辅助技而永不接近敌人 */
+const JOINT_PLAN_UTILITY_SCORE_THRESHOLD = 55;
 
 interface CachedJointMove {
     casterId: string;
@@ -698,11 +702,30 @@ function executeBattleStep(
 
     if (configurePassiveChoice(state, caster)) return;
 
-    const skillPlan = chooseComputerSkillPlan(state, caster);
+    const skillAudit: AiDecisionAudit = { candidates: [], chosen: null };
+    const skillPlan = chooseComputerSkillPlan(state, caster, undefined, skillAudit);
+    noteAiDecision({
+        round: state.roundNumber,
+        player: caster.owner,
+        heroId: caster.id,
+        heroName: caster.name,
+        hadMoved: caster.hasMovedThisTurn,
+        candidates: skillAudit.candidates.slice(0, 8).map(candidate => ({ skillId: candidate.skillId, score: candidate.score })),
+        chosenSkillId: skillAudit.chosen?.skillId ?? null,
+        chosenScore: skillAudit.chosen?.score ?? null,
+        bestScore: skillAudit.candidates[0]?.score ?? null,
+        regret: skillAudit.chosen && skillAudit.candidates.length > 0
+            ? Math.round((skillAudit.candidates[0].score - skillAudit.chosen.score) * 10) / 10
+            : null,
+    });
     // 自带位移的技能（游隼疾掠）释放本身就完成了接敌：先走一步会把冲刺距离提前花光，
     // 导致贴脸后冲刺变成负收益、AI 从此不用冲刺，因此这类技能直接原地释放。
+    // 其余按方案类型分档：伤害技够强就原地放；布置技门槛更高，
+    // 否则 AI 会站在原地反复放辅助技、永远不接近敌人（复盘实测会打成 50 回合 0 击杀）。
+    const planIsDamage = getSkill(skillPlan?.skillId ?? '')?.type === 'damage';
+    const planScoreBar = planIsDamage ? JOINT_PLAN_SCORE_THRESHOLD : JOINT_PLAN_UTILITY_SCORE_THRESHOLD;
     const castInPlace = !!skillPlan && (
-        skillPlan.score >= JOINT_PLAN_SCORE_THRESHOLD || isSelfPropellingSkill(skillPlan.skillId)
+        skillPlan.score >= planScoreBar || isSelfPropellingSkill(skillPlan.skillId)
     );
     const wantsReposition = !caster.hasMovedThisTurn && !castInPlace;
 

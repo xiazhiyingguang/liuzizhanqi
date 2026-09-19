@@ -33,7 +33,8 @@ const POPOVER_WIDTH = 320;
 const POPOVER_HEIGHT_BUDGET = 420;
 const EDGE_GAP = 12;
 const CLOSE_GRACE_MS = 260;
-const LONG_PRESS_MS = 560;
+/** 长按唤出状态卡片的判定时长：碰得比这更短只当作普通点选，避免走位误触弹出卡片 */
+const LONG_PRESS_MS = 760;
 
 const EFFECT_BADGE_CLASS: Record<Effect['type'], string> = {
     buff: 'border-emerald-200 bg-emerald-100 text-emerald-700',

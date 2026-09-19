@@ -17,7 +17,8 @@
         "test:coverage": "vitest run --coverage",
         "test:watch": "vitest",
         "balance:test": "vite-node scripts/balance/run-balance-simulation.ts",
-        "balance:test:deep": "vite-node scripts/balance/run-balance-simulation.ts --deep"
+        "balance:test:deep": "vite-node scripts/balance/run-balance-simulation.ts --deep",
+        "ai:review": "vite-node scripts/ai-review.ts"
     },
     "dependencies": {
         "react": "^18.2.0",

@@ -1,5 +1,5 @@
 ﻿import { create } from 'zustand';
-import { GameState, Hero, Position, BattleLogEntry, HeroState, Player } from '../types/game';
+import { BOARD_SIZE, GameState, Hero, Position, BattleLogEntry, HeroState, Player } from '../types/game';
 import { AVAILABLE_HERO_IDS, createHero, createWukongClone, getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { getSkill } from '../data/skills';
 import { MovementSystem } from '../core/movement-system';
@@ -9,13 +9,14 @@ import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { sendPlayerAction, syncGameState } from '../services/socket-service';
 import { noteReplayStep } from '../services/battle-replay';
-import { checkAllYinyangLinks, checkYinyangLinks } from '../data/extended-heroes';
-import { drainPendingSkillFxRequests, getDilanFrontRect, getDilanSkill1Cells, getLibaiFrontRect, grantLingxiAssist, hasShangguanDashOption, performShangguanDashSegment, settleXubaiOrbs, triggerXubaiEntrance, ZUIYI_MAX } from '../data/extended-skills';
+import { checkYinyangLinks, isJinghongReleaseWindow, syncPositionAnchoredEffects } from '../data/extended-heroes';
+import { castBloodSweep, castLiehuoBurn, drainPendingSkillFxRequests, getDilanFrontRect, getDilanSkill1Cells, getYunyingChargeCells, getLibaiFrontRect, grantLingxiAssist, hasShangguanDashOption, performShangguanDashSegment, settleXubaiOrbs, triggerXubaiEntrance, ZUIYI_MAX } from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
 import { soundManager } from '../core/sound-manager';
 import { audioManager } from '../audio/audio-manager';
 import { getSkillSound } from '../data/skill-sounds';
 import {
+    boundsFromCells,
     collectImpactPositions,
     computeFxAngleDeg,
     computeFxDirection,
@@ -312,6 +313,49 @@ function syncEngineFlowFields(state: GameState): Partial<GameStore> {
     };
 }
 
+/**
+ * 回合流程收尾时的战报合并片段。
+ *
+ * 背景：GameEngine.addLog 是往 action 开头捕获的那个 state 对象的 battleLog 数组里 push，
+ * 而 store 侧的 addLog 会用新数组替换 battleLog（例如技能自报"XX令队友立即再动"）。
+ * 收尾若直接展开 get().battleLog，引擎随后 push 进旧数组的条目（"XX触发再次行动！"、
+ * 风铃锁定、补员上场等系统播报）就永远不会出现在界面上。
+ *
+ * 因此：凡调用 GameEngine.endHeroAction / startNewTurn / advancePastBlockedPlayer 的路径，
+ * 收尾 set 必须用本片段而不是手写 battleLog 展开。
+ */
+function mergeEngineLogs(captured: GameState): Partial<GameStore> {
+    const current = useGameStore.getState().battleLog;
+    const seen = new Set(current.map(entry => entry.id));
+    const fromEngine = captured.battleLog.filter(entry => !seen.has(entry.id));
+    if (fromEngine.length === 0) return { battleLog: [...current] };
+    return { battleLog: [...current, ...fromEngine].slice(-200) };
+}
+
+/**
+ * 待选棋盘动作允许点击的格子：
+ * 烈火燎原只认云缨相邻的四个方向格（点哪格就往那条线烧），其余动作沿用全盘高亮。
+ * 导出给 Board 直接推导高亮，避免某个 set() 忘了同步 highlightedPositions 时玩家看不见可点格。
+ */
+export function getPendingActionCells(
+    state: Pick<GameState, 'pendingBoardAction' | 'player1Heroes' | 'player2Heroes'>
+): Position[] {
+    const pending = state.pendingBoardAction;
+    if (pending?.type === 'yunying-liehuo') {
+        const hero = [...state.player1Heroes, ...state.player2Heroes]
+            .find(item => item.id === pending.heroId);
+        if (hero?.position) {
+            const [row, col] = hero.position;
+            return ([[row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]] as Position[])
+                .filter(([r, c]) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE);
+        }
+    }
+    return Array.from(
+        { length: BOARD_SIZE * BOARD_SIZE },
+        (_, index) => [Math.floor(index / BOARD_SIZE), index % BOARD_SIZE] as Position
+    );
+}
+
 interface GameStore extends GameState {
     // 新增状态
     moveRange: Position[];
@@ -356,6 +400,8 @@ interface GameStore extends GameState {
     undoMove: () => void;
     selectSkill: (skillId: string) => void;
     selectBaizeReviveTarget: (heroId: string) => void;
+    /** 戴尔「时空回溯」第一段：点选处于时空停滞的阵亡友方，随后在棋盘空位选择复活落点 */
+    selectDaiReviveTarget: (heroId: string) => void;
     toggleChangliSkill2Empowered: () => void;
     toggleJetzmiSkill1Enhanced: () => void;
     selectHeroXRedirectTarget: (heroId: string) => void;
@@ -428,6 +474,8 @@ export function createOnlineStateSnapshot(state: GameStore) {
         pendingSkillTargetPositions: state.pendingSkillTargetPositions,
         skillOptionFlags: state.skillOptionFlags,
         heroXRedirectTargetIds: state.heroXRedirectTargetIds,
+        // 戴尔「时空回溯」的状态快照：不同步会让非本地推进回合的一端拿到空记录
+        heroSnapshots: state.heroSnapshots,
         soulLampBeneficiaryIds: state.soulLampBeneficiaryIds,
         skillSelectedHeroIds: state.skillSelectedHeroIds,
         pendingBoardAction: state.pendingBoardAction,
@@ -435,6 +483,7 @@ export function createOnlineStateSnapshot(state: GameStore) {
         skillRange: state.skillRange,
         wukongSkill2State: state.wukongSkill2State,
         baizeReviveTargetHeroId: state.baizeReviveTargetHeroId,
+        daiReviveHeroId: state.daiReviveHeroId,
         changliSkill2Empowered: state.changliSkill2Empowered,
         jetzmiSkill1Enhanced: state.jetzmiSkill1Enhanced,
         libaiChainState: state.libaiChainState,
@@ -524,6 +573,7 @@ const createInitialState = (): GameState => ({
     performingForcedAction: false,
     forcedActionResumePlayer: undefined,
     baizeReviveTargetHeroId: undefined,
+    daiReviveHeroId: undefined,
     changliSkill2Empowered: false,
     jetzmiSkill1Enhanced: false,
     pendingSkillTargetPositions: [],
@@ -763,7 +813,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 board: live.board.map(row => [...row]),
                 player1Heroes: [...live.player1Heroes],
                 player2Heroes: [...live.player2Heroes],
-                battleLog: [...get().battleLog],
+                ...mergeEngineLogs(live),
             });
         }
 
@@ -881,6 +931,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const hero = createHero(heroId, player, position);
         hero.hasActedThisTurn = false;  // 当轮即可行动
         hero.hasMovedThisTurn = false;
+        // 补员是在回合开始之后进场，回合初的快照里没有它；不补录就无法被「时空回溯」
+        GameEngine.recordRewindSnapshot(hero, state);
 
         const newBoard = state.board.map(r => [...r]);
         newBoard[row][col] = hero;
@@ -1021,6 +1073,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     GameEngine.endHeroAction(hero, state);
                     set({
                         ...syncEngineFlowFields(state),
+                        ...mergeEngineLogs(state),
                         board: state.board.map(row => [...row]),
                         player1Heroes: [...state.player1Heroes],
                         player2Heroes: [...state.player2Heroes],
@@ -1055,7 +1108,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             get().addLog({
                 type: 'passive',
                 player: hero.owner,
-                message: `${hero.name}领到泠汐的潮声相和，攻击提升${20 * assistLayers}%`
+                message: `${hero.name}领到泠汐的潮声相和，增伤提升${20 * assistLayers}%`
             });
         }
         if (orbMessage || assistLayers > 0) {
@@ -1129,6 +1182,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 惊鸿·止水：放出「止水」后的下一回合要站定决渊，这一回合不允许移动
+        if (hero.passiveId === 'jinghong_passive' && isJinghongReleaseWindow(hero, state)) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}止水站定，这一回合只能放出决渊，无法移动`
+            });
+            return;
+        }
+
         const movablePositions = MovementSystem.getMovablePositions(hero, state);
         set({
             highlightedPositions: movablePositions,
@@ -1156,6 +1219,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 type: 'system',
                 player: hero.owner,
                 message: `${hero.name}本回合已经移动过了！`
+            });
+            return;
+        }
+
+        // 惊鸿·止水：决渊释放回合站定，直接移动同样拦下（高亮之外还要兜住联机/脚本路径）
+        if (hero.passiveId === 'jinghong_passive' && isJinghongReleaseWindow(hero, state)) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}止水站定，这一回合只能放出决渊，无法移动`
             });
             return;
         }
@@ -1217,11 +1290,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 message: `${hero.name}移动到(${toRow + 1},${toCol + 1})`
             });
 
-            // 阴阳线：任何单位移动后立即检查距离，超出两格的线当场断开
-            if (checkAllYinyangLinks(state)) {
+            // 位置一变即重算"以单位为中心/为半径"的持续效果：
+            // 阴阳线超出两格当场断开，血契的禁足圈跟着本体重铺
+            if (syncPositionAnchoredEffects(state)) {
                 set({
                     player1Heroes: [...state.player1Heroes],
-                    player2Heroes: [...state.player2Heroes]
+                    player2Heroes: [...state.player2Heroes],
+                    boardEffects: state.boardEffects ? [...state.boardEffects] : undefined
                 });
             }
 
@@ -1229,6 +1304,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 GameEngine.endHeroAction(hero, state);
                 set({
                     ...syncEngineFlowFields(state),
+                    ...mergeEngineLogs(state),
                     board: state.board.map(row => [...row]),
                     player1Heroes: [...state.player1Heroes],
                     player2Heroes: [...state.player2Heroes],
@@ -1574,7 +1650,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
 
         if (
-            skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2' || skill.id === 'nanfeng_skill2'
+            skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2'
+            || skill.id === 'nanfeng_skill2' || skill.id === 'yunying_skill2'
         ) {
             if (!hero.position) return;
             const [cr, cc] = hero.position;
@@ -1587,6 +1664,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             if (skill.id === 'nanfeng_skill2') {
                 // 上次中断的选择可能留下风向计数器，重新进入技能时必须从选风向开始
                 delete hero.counters['__nanfeng_skill2_dir'];
+            }
+            if (skill.id === 'yunying_skill2') {
+                delete hero.counters['__yunying_skill2_dir'];
             }
             set({
                 selectedSkill: skill,
@@ -1602,7 +1682,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     ? '请选择顺逆长风吹向（上下左右，只作用该方向到边缘的一列/一行）'
                     : skill.id === 'nanfeng_skill2'
                         ? '请选择风道吹向（上下左右）'
-                        : '请选择风压横扫的方向（上下左右）',
+                        : skill.id === 'yunying_skill2'
+                            ? '请选择踏火长驱的方向（上下左右）'
+                            : '请选择风压横扫的方向（上下左右）',
             });
             return;
         }
@@ -1696,6 +1778,59 @@ export const useGameStore = create<GameStore>((set, get) => ({
             type: 'system',
             player: caster.owner,
             message: `已选择复活${target.name}，请选择复活位置`
+        });
+    },
+
+    /**
+     * 戴尔「时空回溯」第一段：锚定一名处于时空停滞的本方阵亡单位，
+     * 随后由玩家在棋盘任意空格上选复活落点（见 executeSkillBase 的 dai_skill1 分支）。
+     */
+    selectDaiReviveTarget: (heroId: string) => {
+        const state = get();
+        const caster = state.selectedHero;
+        if (!caster || caster.passiveId !== 'dai_passive' || caster.hasActedThisTurn) return;
+        if (state.selectedSkill?.id !== 'dai_skill1') return;
+
+        const target = [...state.player1Heroes, ...state.player2Heroes].find(hero =>
+            hero.id === heroId &&
+            hero.owner === caster.owner &&
+            GameEngine.isInStasis(hero, state.roundNumber)
+        );
+        if (!target) {
+            get().addLog({
+                type: 'system',
+                player: caster.owner,
+                message: '该单位不在时空停滞之中，无法唤回'
+            });
+            return;
+        }
+        if (GameEngine.countRealAliveOnBoard(state, caster.owner) >= 4) {
+            get().addLog({
+                type: 'system',
+                player: caster.owner,
+                message: '场上已有四名英雄，无法从时空停滞中唤回'
+            });
+            return;
+        }
+
+        const emptyPositions: Position[] = [];
+        for (let row = 0; row < 6; row++) {
+            for (let col = 0; col < 6; col++) {
+                if (state.board[row][col] === null) emptyPositions.push([row, col]);
+            }
+        }
+
+        set({
+            daiReviveHeroId: target.id,
+            highlightedPositions: emptyPositions,
+            skillRange: emptyPositions,
+            moveRange: [],
+            pendingSkillTargetPositions: [],
+        });
+        get().addLog({
+            type: 'system',
+            player: caster.owner,
+            message: `已锚定${target.name}的时间线，请选择复活落点`
         });
     },
 
@@ -1840,7 +1975,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 board: state.board.map(row => [...row]),
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
-                battleLog: [...get().battleLog],
+                ...mergeEngineLogs(state),
                 highlightedPositions: [],
                 selectedSkill: null,
                 skillRange: [],
@@ -1852,6 +1987,79 @@ export const useGameStore = create<GameStore>((set, get) => ({
             sendOnlineActionIfNeeded(after, {
                 type: 'skill',
                 data: { heroId: hero.id, skillId: skill.id, targetPos },
+                meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
+            });
+            return;
+        }
+
+        // 戴尔技能1「时空回溯」第二段：已锚定时空停滞单位，所点空格即复活落点
+        if (skill.id === 'dai_skill1' && state.daiReviveHeroId) {
+            const reviveTarget = [...state.player1Heroes, ...state.player2Heroes]
+                .find(candidate => candidate.id === state.daiReviveHeroId);
+            const [r, c] = targetPos;
+
+            if (!reviveTarget || reviveTarget.state !== HeroState.DEAD) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '复活目标已不在时空停滞之中'
+                });
+                set({ daiReviveHeroId: undefined, highlightedPositions: [], skillRange: [] });
+                return;
+            }
+            if (state.board[r][c] !== null) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '复活落点必须是空格'
+                });
+                return;
+            }
+
+            // 复活到挨下致命一击之前的生命；没有记录时退回满血
+            const revived = GameEngine.reviveFromStasis(reviveTarget, targetPos, state);
+            if (!revived) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '无法在该位置唤回单位'
+                });
+                return;
+            }
+            recordBattleSkillUse(state, hero, skill.id);
+            get().addLog({
+                type: 'skill',
+                player: hero.owner,
+                message: `${hero.name}接续时间线，在(${r + 1},${c + 1})唤回${reviveTarget.name}` +
+                    `（${reviveTarget.currentHp}/${reviveTarget.maxHp}）`
+            });
+
+            hero.hasActedThisTurn = true;
+            GameEngine.endHeroAction(hero, state);
+
+            set({
+                ...syncEngineFlowFields(state),
+                board: state.board.map(row => [...row]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                ...mergeEngineLogs(state),
+                highlightedPositions: [],
+                selectedSkill: null,
+                daiReviveHeroId: undefined,
+                skillRange: [],
+                moveRange: [],
+                selectedHero: state.activeHero,
+                activeHero: state.activeHero
+            });
+            const after = get();
+            sendOnlineActionIfNeeded(after, {
+                type: 'skill',
+                data: {
+                    heroId: hero.id,
+                    skillId: skill.id,
+                    targetPos,
+                    daiReviveTargetHeroId: reviveTarget.id
+                },
                 meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
             });
             return;
@@ -1907,7 +2115,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                             board: state.board.map(row => [...row]),
                             player1Heroes: [...state.player1Heroes],
                             player2Heroes: [...state.player2Heroes],
-                            battleLog: [...get().battleLog],
+                            ...mergeEngineLogs(state),
                             highlightedPositions: [],
                             selectedSkill: null,
                             baizeReviveTargetHeroId: undefined,
@@ -2032,7 +2240,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                         board: state.board.map(row => [...row]),
                         player1Heroes: [...state.player1Heroes],
                         player2Heroes: [...state.player2Heroes],
-                        battleLog: [...get().battleLog],
+                        ...mergeEngineLogs(state),
                         highlightedPositions: [],
                         selectedSkill: null,
                         skillRange: [],
@@ -2160,7 +2368,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                         board: state.board.map(row => [...row]),
                         player1Heroes: [...state.player1Heroes],
                         player2Heroes: [...state.player2Heroes],
-                        battleLog: [...get().battleLog],
+                        ...mergeEngineLogs(state),
                         highlightedPositions: [],
                         selectedSkill: null,
                         skillRange: [],
@@ -2410,7 +2618,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 boardEffects: [...(state.boardEffects ?? [])],
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
-                battleLog: [...get().battleLog],
+                ...mergeEngineLogs(state),
                 highlightedPositions: [],
                 selectedSkill: null,
                 shangguanDashState: undefined,
@@ -2494,6 +2702,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 const rect = getDilanFrontRect(hero);
                 set({ highlightedPositions: rect, skillRange: rect, moveRange: [] });
             }
+        }
+
+        // 云缨技能2：点相邻方向格定住长驱方向后，直接结算前方3格
+        if (skill.id === 'yunying_skill2' && hero.counters['__yunying_skill2_dir'] === undefined) {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击方向格确定长驱方向' });
+                return;
+            }
+            hero.counters['__yunying_skill2_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+            const ray = getYunyingChargeCells(hero, hero.counters['__yunying_skill2_dir']);
+            set({ highlightedPositions: ray, skillRange: ray, moveRange: [] });
         }
 
         // 南风技能2：第一步定风向，第二步点任意格子决定风道所在行/列
@@ -2665,6 +2890,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (hero.passiveId === 'nanfeng_passive') {
             delete hero.counters['__nanfeng_skill2_dir'];
         }
+        if (hero.passiveId === 'yunying_passive') {
+            delete hero.counters['__yunying_skill2_dir'];
+        }
 
         // 李太白被动链：技能成功后瞬移到历史位置继续攻击，全部用完自动归位
         if (hero.passiveId === 'libai_passive') {
@@ -2701,7 +2929,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     board: state.board.map(row => [...row]),
                     player1Heroes: [...state.player1Heroes],
                     player2Heroes: [...state.player2Heroes],
-                    battleLog: [...get().battleLog],
+                    ...mergeEngineLogs(state),
                     libaiChainState: undefined,
                     selectedSkill: null,
                     highlightedPositions: [],
@@ -2761,18 +2989,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
             board: state.board.map(row => [...row]),  // 浅拷贝，保持英雄对象引用
             player1Heroes: [...state.player1Heroes],  // 浅拷贝，保持英雄对象引用
             player2Heroes: [...state.player2Heroes],  // 浅拷贝，保持英雄对象引用
-            battleLog: [...get().battleLog],
-            highlightedPositions: state.pendingBoardAction
-                ? Array.from({ length: 36 }, (_, index) => [Math.floor(index / 6), index % 6] as Position)
-                : [],
+            ...mergeEngineLogs(state),
+            highlightedPositions: state.pendingBoardAction ? getPendingActionCells(state) : [],
             selectedSkill: null,
             baizeReviveTargetHeroId: undefined,
+            daiReviveHeroId: undefined,
             changliSkill2Empowered: false,
             jetzmiSkill1Enhanced: false,
             pendingSkillTargetPositions: [],
-            skillRange: state.pendingBoardAction
-                ? Array.from({ length: 36 }, (_, index) => [Math.floor(index / 6), index % 6] as Position)
-                : [],
+            skillRange: state.pendingBoardAction ? getPendingActionCells(state) : [],
             moveRange: [],
             // 如果GameEngine设置了activeHero（额外行动），则选中并锁定
             selectedHero: state.activeHero,
@@ -2798,6 +3023,142 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!pending || !isValidBoardPosition(targetPos)) return;
         const hero = [...state.player1Heroes, ...state.player2Heroes].find(item => item.id === pending.heroId);
         if (!hero || hero.state !== HeroState.ALIVE || !hero.position) return;
+        // 联机归属守卫：挂起选格的高亮会随权威快照同步到对端，
+        // 只有该英雄所属方能点，否则对手点击同步高亮会在本地操纵别人的天威、两端分叉卡死
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localPlayerKey = getLocalPlayerKey(state);
+            if (!localPlayerKey || hero.owner !== localPlayerKey) {
+                get().addLog({ type: 'system', player: localPlayerKey ?? hero.owner, message: '当前无法操作' });
+                return;
+            }
+        }
+
+        if (pending.type === 'yunying-liehuo') {
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '请点击云缨相邻的方向格，决定烈火燎原烧向哪条线',
+                });
+                return;
+            }
+
+            const dirCode = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+            const ray = getDilanSkill1Cells(hero, dirCode);
+            const burn = castLiehuoBurn(hero, state, dirCode);
+            state.pendingBoardAction = undefined;
+            set({
+                ...syncEngineFlowFields(state),   // 燎原可能击杀：补员挂起/额外行动必须同步
+                pendingBoardAction: undefined,
+                board: state.board.map(row => [...row]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                ...mergeEngineLogs(state),
+                highlightedPositions: [],
+                skillRange: [],
+                moveRange: [],
+            });
+            for (const line of burn.log) {
+                get().addLog({ type: 'skill', player: hero.owner, message: line });
+            }
+            const angleDeg = computeFxAngleDeg(hero.position, targetPos);
+            get().pushSkillFx({
+                profile: resolveSkillFx('yunying_liehuo'),
+                owner: hero.owner,
+                fromPos: [...hero.position] as Position,
+                targetPos,
+                angleDeg,
+                direction: computeFxDirection(angleDeg),
+                coveredPositions: ray,
+                // 火墙要铺满整条射线，因此给区域层一份射线包围盒（1×N 长条）
+                areaBounds: boundsFromCells(ray) ?? undefined,
+            });
+            sendOnlineStateIfNeeded(get());
+            return;
+        }
+
+        if (pending.type === 'xueqi-tianwei') {
+            const landingRow = targetPos[0];
+            const landingCol = targetPos[1];
+            const occupant = state.board[landingRow][landingCol];
+            if (occupant && occupant !== hero) {
+                get().addLog({ type: 'system', player: hero.owner, message: '血契只能跃向空格' });
+                return;
+            }
+
+            const casterFromPos: Position = [...hero.position] as Position;
+            const moved = casterFromPos[0] !== landingRow || casterFromPos[1] !== landingCol;
+            get().addLog({
+                type: 'skill',
+                player: hero.owner,
+                message: `${hero.name}循血而起，跃至(${landingRow + 1},${landingCol + 1})挥出血誓横扫`
+            });
+            // 引擎结算日志会 push 进传入的 state.battleLog，上面 addLog 已换新数组，
+            // 不重新绑定这次移动与横扫的日志就会整批丢失
+            state.battleLog = get().battleLog;
+
+            if (moved) {
+                state.board[casterFromPos[0]][casterFromPos[1]] = null;
+                hero.position = [landingRow, landingCol];
+                state.board[landingRow][landingCol] = hero;
+                DamageCalculator.applyDilanMovementDamage(
+                    hero,
+                    MovementSystem.getManhattanDistance(casterFromPos, targetPos),
+                    state
+                );
+            }
+
+            if (hero.state !== HeroState.ALIVE) {
+                // 落点途中被羽化等移动伤害打死：只结算位移，横扫不再发生
+                state.pendingBoardAction = undefined;
+                set({
+                    ...syncEngineFlowFields(state),
+                    pendingBoardAction: undefined,
+                    board: state.board.map(boardRow => [...boardRow]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                    highlightedPositions: [],
+                    skillRange: [],
+                    battleLog: [...state.battleLog]
+                });
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
+
+            // 横扫以落点为中心：血契人在哪里，血誓就扫哪里
+            const sweep = castBloodSweep(hero, hero.position!, state, { withRage: true });
+            // 位移改变了阵型：阴阳线距离与血契禁足圈当场重算（原地改写，下面换数组引用即可上屏）
+            syncPositionAnchoredEffects(state);
+            state.pendingBoardAction = undefined;
+            set({
+                ...syncEngineFlowFields(state),  // 横扫可能击杀，补员挂起/额外行动必须同步
+                pendingBoardAction: undefined,
+                board: state.board.map(boardRow => [...boardRow]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                highlightedPositions: [],
+                skillRange: [],
+                battleLog: [...state.battleLog]
+            });
+            const angleDeg = computeFxAngleDeg(casterFromPos, targetPos);
+            get().pushSkillFx({
+                profile: resolveSkillFx('xueqi_skill1'),
+                owner: hero.owner,
+                fromPos: targetPos,
+                targetPos,
+                angleDeg,
+                direction: computeFxDirection(angleDeg),
+                coveredPositions: sweep.fxCoveredPositions,
+            });
+            sendOnlineStateIfNeeded(get());
+            return;
+        }
+
         const [row, col] = targetPos;
         const occupant = state.board[row][col];
         if (occupant && occupant !== hero) {
@@ -2809,6 +3170,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
         hero.position = targetPos;
         state.board[row][col] = hero;
+        syncPositionAnchoredEffects(state);
         DamageCalculator.applyDilanMovementDamage(
             hero,
             MovementSystem.getManhattanDistance(oldPosition, targetPos),
@@ -2897,6 +3259,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
         hero.position = [position[0], position[1]];
         state.board[position[0]][position[1]] = hero;
+        syncPositionAnchoredEffects(state);
         DamageCalculator.applyDilanMovementDamage(
             hero,
             MovementSystem.getManhattanDistance(oldPosition, position),
@@ -2984,7 +3347,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             board: state.board.map(row => [...row]),
             player1Heroes: [...state.player1Heroes],
             player2Heroes: [...state.player2Heroes],
-            battleLog: [...get().battleLog],
+            ...mergeEngineLogs(state),
             libaiChainState: undefined,
             selectedSkill: null,
             highlightedPositions: [],
@@ -3109,6 +3472,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 GameEngine.advancePastBlockedPlayer(state);
                 set({
                     ...syncEngineFlowFields(state),
+                    ...mergeEngineLogs(state),
                     board: state.board.map(row => [...row]),
                     player1Heroes: [...state.player1Heroes],
                     player2Heroes: [...state.player2Heroes],
@@ -3142,7 +3506,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 board: state.board.map(row => [...row]),
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
-                battleLog: [...get().battleLog],
+                ...mergeEngineLogs(state),
                 libaiChainState: undefined,
                 highlightedPositions: [],
                 selectedSkill: null,
@@ -3217,6 +3581,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
             set({
                 ...syncEngineFlowFields(state),
+                ...mergeEngineLogs(state),
                 board: [...state.board],
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
@@ -3247,6 +3612,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 重要：需要显式设置 GameEngine 更新的字段（回合流程权威字段统一由 syncEngineFlowFields 提供）
         set({
             ...syncEngineFlowFields(state),
+            ...mergeEngineLogs(state),
             board: [...state.board],
             player1Heroes: [...state.player1Heroes],
             player2Heroes: [...state.player2Heroes],
@@ -3300,12 +3666,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
-        // 位移类技能（瞬移/换位/击退等）会改变阵型：结算后立即检查阴阳线距离
+        // 位移类技能（瞬移/换位/击退等）会改变阵型：结算后立即重算阴阳线与血契禁足圈
         const afterCast = get();
-        if (checkAllYinyangLinks(afterCast)) {
+        if (syncPositionAnchoredEffects(afterCast)) {
             set({
                 player1Heroes: [...afterCast.player1Heroes],
-                player2Heroes: [...afterCast.player2Heroes]
+                player2Heroes: [...afterCast.player2Heroes],
+                boardEffects: afterCast.boardEffects ? [...afterCast.boardEffects] : undefined
             });
         }
 
@@ -3334,8 +3701,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const coveredPositions = skillFxExtras?.coveredPositions?.length
             ? skillFxExtras.coveredPositions
             : computeFxCoveredPositions(skill, casterFromPos, targetPos, profile);
+        const effectiveProfile = fxVariantProfile ?? profile;
         get().pushSkillFx({
-            profile: fxVariantProfile ?? profile,
+            profile: effectiveProfile,
             owner: hero.owner,
             fromPos: casterFromPos,
             targetPos,
@@ -3346,8 +3714,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             impactPositions: impacts.impactPositions,
             softImpactPositions: impacts.softImpactPositions,
             coveredPositions,
-            // AOE 整体特效的覆盖范围：区域格包围盒；全场伤害技（暗夜燎原等）回退整盘
-            areaBounds: computeSkillAreaBounds(skill, coveredPositions) ?? undefined,
+            // AOE 整体特效的覆盖范围：区域格包围盒；全场伤害技（暗夜燎原等）回退整盘。
+            // 档案声明 fxArea:'none' 的技能（如醉影换位这类"全场选点、局部结算"的位移技）
+            // 刻意不铺整盘底效，只留命中格反馈
+            areaBounds: effectiveProfile.fxArea === 'none'
+                ? undefined
+                : computeSkillAreaBounds(skill, coveredPositions) ?? undefined,
         });
     },
 

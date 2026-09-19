@@ -156,34 +156,44 @@ export default function BattleScene() {
                             outcome.result === 'victory' ? 'is-victory' : 'is-defeat'
                         }`}
                     >
-                        {/* 落印：胜=金印 败=朱印 */}
-                        <span className="battle-result-seal" aria-hidden="true">{outcome.mark}</span>
-
-                        <h2 className="battle-result-title">{outcome.title}</h2>
+                        <div className="battle-result-head">
+                            {/* 落印：胜=金印 败=朱印 */}
+                            <span className="battle-result-seal" aria-hidden="true">{outcome.mark}</span>
+                            <h2 className="battle-result-title">{outcome.title}</h2>
+                        </div>
                         <p className="battle-result-desc">{outcome.description}</p>
 
+                        <div className="battle-result-divider" aria-hidden="true" />
+
                         <div className="battle-result-actions">
+                            <InkButton
+                                variant="primary"
+                                size="lg"
+                                className="battle-result-primary"
+                                onClick={leaveBattle}
+                            >
+                                返回主界面
+                            </InkButton>
                             <div className="battle-result-secondary">
                                 <InkButton
-                                    variant="secondary"
+                                    variant="ghost"
                                     className="battle-result-sub-btn"
+                                    sfx="cancel"
                                     onClick={() => setShowBattleStatistics(true)}
                                 >
                                     伤害统计
                                 </InkButton>
                                 {hasBattleReplay() && (
                                     <InkButton
-                                        variant="secondary"
+                                        variant="ghost"
                                         className="battle-result-sub-btn"
+                                        sfx="cancel"
                                         onClick={() => setShowBattleReplay(true)}
                                     >
                                         查看回放
                                     </InkButton>
                                 )}
                             </div>
-                            <InkButton variant="primary" size="md" onClick={leaveBattle}>
-                                返回主界面
-                            </InkButton>
                         </div>
                     </div>
                 </div>

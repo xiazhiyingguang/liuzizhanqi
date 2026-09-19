@@ -45,7 +45,7 @@ describe('泠汐', () => {
     it('模板字段与天威注册', () => {
         const hero = createHero('lingxi', 'player1', [0, 0]);
         expect(hero.name).toBe('泠汐');
-        expect(hero.maxHp).toBe(50);
+        expect(hero.maxHp).toBe(46);
         expect(hero.moveRange).toBe(2);
         expect(hero.skill1Id).toBe('lingxi_skill1');
         expect(hero.skill2Id).toBe('lingxi_skill2');
@@ -144,14 +144,17 @@ describe('泠汐', () => {
         expect(lingxi.currentHp, '回潮至少带来3层×3的自疗').toBeGreaterThanOrEqual(19);
     });
 
-    it('被动助力：下一个出手的友方一次领走全部层数，每层+20%攻击', () => {
+    it('被动助力：下一个出手的友方一次领走全部层数，每层+20%增伤', () => {
         const { state, lingxi, ally } = setup();
         cast1(lingxi, state);            // 第1段
         state.roundNumber = 2;
         cast1(lingxi, state);            // 第2段（合并）
 
         expect(lingxi.counters['lingxi_assist_pending'], '两段攻击积攒2层').toBe(2);
-        expect(ally.effects.some(effect => effect.name === '泠汐攻击提升'), '未经行动入口不发放').toBe(false);
+        expect(ally.effects.some(effect => effect.name === '泠汐增伤提升'), '未经行动入口不发放').toBe(false);
+
+        // 琉璃基础攻击力为0：助力只有走"增伤"通道才真的加伤害
+        const damageBefore = DamageCalculator.calculate(ally, state.board[2][3], 10, false).finalDamage;
 
         // 走真实行动入口：琉璃开始行动时一次领走全部层数
         useGameStore.setState({
@@ -164,13 +167,15 @@ describe('泠汐', () => {
         });
         useGameStore.getState().selectHeroForAction(ally);
 
-        const buff = ally.effects.find(effect => effect.name === '泠汐攻击提升');
+        const buff = ally.effects.find(effect => effect.name === '泠汐增伤提升');
         expect(buff?.stackCount, '两层助力一次领走').toBe(2);
         expect(buff?.value).toBeCloseTo(0.4);
         expect(lingxi.counters['lingxi_assist_pending']).toBe(0);
         expect(
-            useGameStore.getState().battleLog.some(entry => entry.message.includes('攻击提升40%'))
+            useGameStore.getState().battleLog.some(entry => entry.message.includes('增伤提升40%'))
         ).toBe(true);
+        expect(DamageCalculator.calculate(ally, state.board[2][3], 10, false).finalDamage)
+            .toBeGreaterThan(damageBefore);
         useGameStore.getState().resetGame();
     });
 

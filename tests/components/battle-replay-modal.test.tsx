@@ -16,7 +16,7 @@ const STATICS: ReplayStatic[] = [
 function frame(units: ReplayUnit[], extra: Partial<ReplayFrame>, index: number): ReplayFrame {
     return {
         index, round: 1, player: 'player1', actions: index, required: 8, actor: 0,
-        areas: [{ type: 'wind-blade', r: 3, c: 3, owner: 'player1', duration: 3 }],
+        areas: [{ type: 'wind-blade', r: 3, c: 3, owner: 'player1', duration: 3, direction: 'right' }],
         logFrom: 0, logTo: 1, sig: `s${index}`, ended: false, ...extra, units,
     };
 }
@@ -52,6 +52,10 @@ describe('对局回放面板', () => {
         expect(html).toContain('replay-cell-5-5');
         // 场地效果与棋子都按帧数据渲染
         expect(html).toContain('bf-wind-blade');
+        // 常驻风刃用弯月图形，刃尖朝向取自帧数据
+        expect(html).toContain('bf-wind-blade-right');
+        expect(html).toContain('wb-body');
+        expect(html).toContain('wb-edge');
         expect(html).toContain('piece-p1');
         // 关键节点：击杀 chip + 时间轴刻度
         expect(html).toContain('击杀');

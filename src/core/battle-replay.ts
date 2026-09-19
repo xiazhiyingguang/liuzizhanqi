@@ -1,4 +1,4 @@
-import type { BattleLogEntry, BoardEffect, GameState, Hero, Player } from '../types/game';
+import type { BattleLogEntry, BoardEffect, GameState, Hero, Player, Position } from '../types/game';
 import { HeroState } from '../types/game';
 
 /**
@@ -87,12 +87,43 @@ export interface ReplayMark {
     label: string;
 }
 
+/** AI 在一次决策里看到的单个候选方案 */
+export interface AiDecisionCandidate {
+    skillId: string;
+    score: number;
+}
+
+/**
+ * AI 的一次技能决策留档：复盘时用来回答"它当时为什么这么选、放弃了什么"。
+ * regret > 0 说明 AI 主动放弃了分数最高的候选（低难度的失误抖动或技能多样性采样）。
+ */
+export interface AiDecision {
+    seq: number;
+    round: number;
+    player: Player;
+    heroId: string;
+    heroName: string;
+    /** 决策时该英雄本回合是否已经移动过 */
+    hadMoved: boolean;
+    /** 决策发生时已录到第几帧，便于和回放时间轴对齐 */
+    frame: number;
+    candidates: AiDecisionCandidate[];
+    chosenSkillId: string | null;
+    chosenScore: number | null;
+    bestScore: number | null;
+    regret: number | null;
+}
+
+/** 决策记录上限：一场对局约 8 人 × 50 回合，留足余量即可 */
+export const MAX_REPLAY_DECISIONS = 3000;
+
 export interface BattleReplay {
     matchId?: string;
     statics: ReplayStatic[];
     narration: BattleLogEntry[];
     frames: ReplayFrame[];
     marks: ReplayMark[];
+    decisions: AiDecision[];
     /** 是否因超过帧上限而按回合抽样；界面据此提示 */
     coarsened: boolean;
 }
@@ -185,6 +216,23 @@ function collectUnits(state: GameState): Hero[] {
     return [...seen.values()];
 }
 
+/**
+ * 单位当前真正占据的棋盘格。
+ * 只认棋盘，不认 hero.position：位移类结算若漏改 position，回放就会把棋子画到旧格；
+ * 离场单位（阵亡/暂时阵亡/替补）也保留着死亡时的 position，
+ * 照那个值画就会和后来站上这格的单位叠在一起，回放棋盘于是"少了几格、位置乱跳"。
+ */
+function boardCellsByHero(state: GameState): Map<string, Position> {
+    const cells = new Map<string, Position>();
+    for (let row = 0; row < state.board.length; row++) {
+        for (let col = 0; col < (state.board[row]?.length ?? 0); col++) {
+            const hero = state.board[row][col];
+            if (hero) cells.set(hero.id, [row, col]);
+        }
+    }
+    return cells;
+}
+
 /** 只保留玩家可读的中文计数器，隐藏 `__` 开头的内部标记 */
 function readableCounters(hero: Hero): Array<[string, number]> {
     const entries: Array<[string, number]> = [];
@@ -217,16 +265,20 @@ export function buildFrame(
     interner: ReplayInterner
 ): ReplayFrame {
     const actorHero = state.activeHero ?? state.selectedHero;
-    const units: ReplayUnit[] = collectUnits(state).map(hero => ({
-        def: interner.indexOf(hero),
-        r: hero.position ? hero.position[0] : -1,
-        c: hero.position ? hero.position[1] : -1,
-        hp: hero.currentHp,
-        shield: hero.shield,
-        state: heroStateCode(hero),
-        effects: readableEffects(hero),
-        counters: readableCounters(hero),
-    }));
+    const cells = boardCellsByHero(state);
+    const units: ReplayUnit[] = collectUnits(state).map(hero => {
+        const cell = cells.get(hero.id);
+        return {
+            def: interner.indexOf(hero),
+            r: cell ? cell[0] : -1,
+            c: cell ? cell[1] : -1,
+            hp: hero.currentHp,
+            shield: hero.shield,
+            state: heroStateCode(hero),
+            effects: readableEffects(hero),
+            counters: readableCounters(hero),
+        };
+    });
     // 按登记顺序排序，保证同一帧序列里 units 的次序稳定，便于跨帧比对
     units.sort((left, right) => left.def - right.def);
 

@@ -538,12 +538,51 @@ function LingxiIcon() {
     );
 }
 
+function XueqiIcon() {
+    // 血契 — 血滴、誓约横痕与缠链
+    return (
+        <Stroke>
+            <path d="M16 5 Q22 13 22 18 A6 6 0 0 1 10 18 Q10 13 16 5 Z" />
+            <path d="M11.5 18.5 Q16 21 20.5 18.5" strokeWidth={1} opacity={0.5} />
+            <path d="M4 25.5 Q9 22.5 14 25.5 T24 25.5 T29.5 24" strokeWidth={1.4} opacity={0.6} />
+            <circle cx="16" cy="17" r="1.6" strokeWidth={1} opacity={0.7} />
+        </Stroke>
+    );
+}
+
+function JinghongIcon() {
+    // 惊鸿·止水 — 一撇雁影掠过静水，落点荡开一圈涟漪
+    return (
+        <Stroke>
+            <path d="M5 12 Q12 4 19 9 Q23.5 11.5 27 8" />
+            <path d="M19 9 Q21 14 18.5 18" strokeWidth={1.4} opacity={0.6} />
+            <path d="M4 24 Q10 21 16 24 Q22 27 28.5 24" strokeWidth={1.5} opacity={0.55} />
+            <path d="M12.5 28.5 Q16 26.5 19.5 28.5" strokeWidth={1} opacity={0.4} />
+        </Stroke>
+    );
+}
+
 /* 通用/默认图标 */
 function DefaultIcon() {
     return (
         <g>
             <circle cx="16" cy="12" r="5" stroke="currentColor" strokeWidth="1.5" fill="none" />
             <path d="M8 28 Q8 20 16 18 Q24 20 24 28" stroke="currentColor" strokeWidth="1.5" fill="none" />
+        </g>
+    );
+}
+
+function YunyingIcon() {
+    // 云缨 — 燃火长缨：斜枪杆 + 菱形枪头 + 飘穗红缨 + 飞火
+    return (
+        <g>
+            <line x1="6" y1="27" x2="20" y2="10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M20 10 L24 3 L27 11 Z" fill="currentColor" opacity="0.9" />
+            <path d="M19 12 Q14 13 12 17" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.7" />
+            <path d="M20 14 Q16 17 15 21" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.5" />
+            <path d="M26 14 q3 3 0 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" opacity="0.8" />
+            <circle cx="29" cy="13" r="1.3" fill="currentColor" opacity="0.55" />
+            <circle cx="24" cy="24" r="1" fill="currentColor" opacity="0.4" />
         </g>
     );
 }
@@ -589,6 +628,9 @@ const iconMap: Record<string, () => JSX.Element> = {
     yousun: () => <YoujunIcon />,
     xubai: () => <XubaiIcon />,
     lingxi: () => <LingxiIcon />,
+    xueqi: () => <XueqiIcon />,
+    yunying: () => <YunyingIcon />,
+    jinghong: () => <JinghongIcon />,
 };
 
 /** 已拥有专属线性图标的英雄模板 id；新增英雄必须补一个，否则测试会拦住通用兜底图标 */

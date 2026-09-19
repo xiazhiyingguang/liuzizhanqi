@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
     computeFxAngleDeg,
     computeFxDirection,
+    isImpactFxKind,
+    isPerTargetFxKind,
     resolveSkillFx,
     SKILL_FX_PROFILES,
 } from '../../src/core/skill-fx';
@@ -21,6 +23,27 @@ describe('resolveSkillFx', () => {
         expect(resolveSkillFx('feynman_skill2').kind).toBe('feynman-burst');
         expect(resolveSkillFx('moran_skill1').kind).toBe('magic-array');
         expect(resolveSkillFx('dai_skill2').kind).toBe('phase-swap');
+        expect(resolveSkillFx('fengling_skill1').kind).toBe('fengling-claw');
+        // 天威「猎砂追击」的闪袭档案（由战报标记派发，不是技能）
+        expect(resolveSkillFx('fengling_pounce').kind).toBe('fengling-pounce');
+    });
+
+    it('醉枕刀专属原型：冲刺光轨与太刀旋斩', () => {
+        const dash = resolveSkillFx('zuizhendao_skill1');
+        expect(dash.kind).toBe('zuizhen-throw');
+        // 沿途每格都是"刀到才爆"的贯斩特写，且各格都要震屏
+        expect(isPerTargetFxKind(dash.kind)).toBe(true);
+        expect(isImpactFxKind(dash.kind)).toBe(true);
+        // 真实冲刺序列由引擎自报（fxCoveredPositions），但整格只走逐格跟踪，
+        // 不允许包围盒扩成区域整体特效
+        expect(dash.fxArea).toBe('none');
+
+        const wheel = resolveSkillFx('zuizhendao_skill2');
+        expect(wheel.kind).toBe('zuizhen-wheel');
+        expect(isImpactFxKind(wheel.kind)).toBe(true);
+        // 全场选点、局部结算：不铺整盘区域特效，旋刃只在落位格出一次
+        expect(wheel.fxArea).toBe('none');
+        expect(isPerTargetFxKind(wheel.kind)).toBe(false);
     });
 
     it('所有档案均带正数存活时长', () => {

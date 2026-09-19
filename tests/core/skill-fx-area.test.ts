@@ -45,6 +45,7 @@ describe('AOE 整体特效：区域包围盒', () => {
 describe('AOE 整体特效：逐格原型 → 区域原型映射', () => {
     it('伤害型原型映射到对应的区域动效', () => {
         expect(resolveAreaFxKind('ember-flare')).toBe('firestorm');
+        expect(resolveAreaFxKind('liehuo-blaze')).toBe('firewall');
         expect(resolveAreaFxKind('storm-bolt')).toBe('thunderstorm');
         expect(resolveAreaFxKind('cage-bind')).toBe('cage');
         expect(resolveAreaFxKind('ground-zone')).toBe('groundwave');

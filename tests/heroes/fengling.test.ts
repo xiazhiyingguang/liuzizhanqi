@@ -161,5 +161,15 @@ describe('风铃完整机制', () => {
         expect(EffectManager.getCounter(fengling, '猎砂')).toBe(2);
         expect(nearest.currentHp).toBe(nearest.maxHp - 11);
         expect(state.battleLog.some(log => log.type === 'tianwei' && log.message.includes(nearest.name))).toBe(true);
+
+        // 闪现扑咬只是特效：派发标记从风铃脚下指向最近敌人，且风铃本人一步没动
+        const pounce = state.battleLog.find(log => log.details?.fxSkillId === 'fengling_pounce');
+        expect(pounce?.details).toMatchObject({
+            fxSkillId: 'fengling_pounce',
+            fxFrom: [2, 2],
+            fxTarget: [2, 4],
+        });
+        expect(fengling.position).toEqual([2, 2]);
+        expect(state.board[2][2]).toBe(fengling);
     });
 });

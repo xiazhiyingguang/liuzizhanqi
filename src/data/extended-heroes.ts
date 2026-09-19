@@ -1,6 +1,7 @@
 import { EffectManager } from '../core/effect-manager';
 import { MovementSystem } from '../core/movement-system';
 import {
+    BoardEffect,
     GameState,
     Hero,
     HeroClass,
@@ -49,6 +50,9 @@ export const EXTENDED_HERO_IDS = [
     'youjun',
     'xubai',
     'lingxi',
+    'xueqi',
+    'yunying',
+    'jinghong',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -327,13 +331,45 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
     lingxi: {
         name: '泠汐',
         class: '天师',
-        maxHp: 50,
+        maxHp: 46,
         moveRange: 2,
         baseAttack: 0,
         skill1Id: 'lingxi_skill1',
         skill2Id: 'lingxi_skill2',
         passiveId: 'lingxi_passive',
         tianweiId: 'lingxi_tianwei',
+    },
+    xueqi: {
+        name: '血契',
+        class: '霸魁',
+        maxHp: 58,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'xueqi_skill1',
+        skill2Id: 'xueqi_skill2',
+        passiveId: 'xueqi_passive',
+        tianweiId: 'xueqi_tianwei',
+    },
+    yunying: {
+        name: '云缨',
+        class: '武曲',
+        maxHp: 45,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'yunying_skill1',
+        skill2Id: 'yunying_skill2',
+        passiveId: 'yunying_passive',
+    },
+    jinghong: {
+        name: '惊鸿·止水',
+        class: '武曲',
+        maxHp: 48,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'jinghong_skill1',
+        skill2Id: 'jinghong_skill2',
+        passiveId: 'jinghong_passive',
+        // 天威暂未设计，留空
     },
 };
 
@@ -363,7 +399,10 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力1' },
     dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯复活与状态还原、时空置换换位换血。生命45，移动力3' },
     xubai: { name: '叙白', class: '素问', description: '单体净化治疗，黑白球在队友残血时自动回血，首次登场抚育周围友军。生命55，移动力2' },
-    lingxi: { name: '泠汐', class: '天师', description: '多段潮汐攻击：本回合命中留下延迟段，下一回合自动补击并叠加潮汐，攻防兼备。生命50，移动力2' },
+    lingxi: { name: '泠汐', class: '天师', description: '多段潮汐攻击：本回合命中留下延迟段，下一回合自动补击并叠加潮汐，攻防兼备。生命46，移动力2' },
+    xueqi: { name: '血契', class: '霸魁', description: '周身血誓横扫、以血还血，强锁敌人钉在身边替全队挨打。生命58，移动力2' },
+    yunying: { name: '云缨', class: '武曲', description: '攻击为敌人叠祥瑞，满3层引燃烈火燎原；范围星火按祥瑞积攒护盾，长驱一枪为下一次攻击附加吸血。生命45，移动力2' },
+    jinghong: { name: '惊鸿·止水', class: '武曲', description: '掠水一击后落到敌人身后并攒惊鸿；消耗全部惊鸿蓄力止水，下一回合放弃移动换来决渊外环爆发。满血时更锋利，残血时更硬。生命48，移动力2' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {
@@ -433,7 +472,46 @@ export function initializeExtendedHero(hero: Hero): void {
             hero.counters['lingxi_echo2_dir'] = -1;
             hero.counters['lingxi_assist_pending'] = 0; // 被动：待发放的助力层数
             break;
+        case 'yunying_passive':
+            // 烈火燎原的引燃额度按轮记账（等于 roundNumber 即本回合已用过）
+            hero.counters['liehuo_round'] = -1;
+            break;
+        case 'jinghong_passive':
+            hero.counters['惊鸿'] = 0;              // 资源层数，上限 JINGHONG_MAX
+            hero.counters['jinghong_charge_round'] = -1; // 蓄力起始回合，-1 表示未在蓄力
+            hero.counters['jinghong_charge_stacks'] = 0; // 蓄力时锁定的惊鸿层数（加成与回血都读它）
+            break;
     }
+}
+
+/** 「惊鸿」层数上限：技能1 的所有获取途径都受此约束 */
+export const JINGHONG_MAX = 3;
+
+/** 本回合是否正处于「止水」蓄力回合（第一段刚放出去，整回合结束时结算回血） */
+export function isJinghongCharging(hero: Hero, gameState: GameState): boolean {
+    const charged = hero.counters['jinghong_charge_round'] ?? -1;
+    return charged >= 0 && charged === gameState.roundNumber;
+}
+
+/**
+ * 本回合是否是「决渊」第二段的释放窗口（蓄力的下一回合）。
+ * 窗口内禁止移动，只能主动放出第二段；错过即消散，惊鸿不返还。
+ */
+export function isJinghongReleaseWindow(hero: Hero, gameState: GameState): boolean {
+    const charged = hero.counters['jinghong_charge_round'] ?? -1;
+    return charged >= 0 && gameState.roundNumber === charged + 1;
+}
+
+/**
+ * 「决渊」的落点环：以自身为中心的 5×5 去掉身周 3×3，即最外一圈 16 格。
+ * 贴身敌人刻意不吃这一段——那是技能1 的猎物，两段技能各管一圈。
+ */
+export function getJinghongOuterRing(center: Position): Position[] {
+    const inner = new Set(
+        MovementSystem.getBoxPositions(center, 3).map(([row, col]) => `${row},${col}`)
+    );
+    return MovementSystem.getBoxPositions(center, 5)
+        .filter(([row, col]) => !inner.has(`${row},${col}`));
 }
 
 /**
@@ -470,6 +548,52 @@ export function consumeDilanFeather(target: Hero): number {
     target.effects = target.effects.filter(effect => effect.name !== '羽化');
     return stacks;
 }
+
+/* ---------------- 云缨：祥瑞与烈火燎原 ---------------- */
+
+/** 祥瑞累计到该层数即引燃烈火燎原，随后清空该目标身上的祥瑞 */
+export const XIANGRUI_TRIGGER_STACKS = 3;
+/** 祥瑞层数上限：与引燃阈值一致，不会无限堆叠 */
+export const XIANGRUI_MAX_STACKS = XIANGRUI_TRIGGER_STACKS;
+
+/** 读取目标身上的祥瑞层数 */
+export function getXiangruiStacks(target: Hero): number {
+    return Math.min(XIANGRUI_MAX_STACKS, target.effects.find(effect =>
+        effect.name === '祥瑞'
+    )?.stackCount ?? 0);
+}
+
+/** 叠加祥瑞，返回叠中之后的层数（sourceHeroId 只用于归属显示） */
+export function addXiangrui(target: Hero, source: Hero, amount = 1): number {
+    const existing = target.effects.find(effect => effect.name === '祥瑞');
+    if (existing) {
+        existing.stackCount = Math.min(XIANGRUI_MAX_STACKS, (existing.stackCount ?? 1) + amount);
+        existing.duration = -1;
+        return existing.stackCount;
+    }
+    EffectManager.addEffect(target, {
+        type: 'debuff',
+        name: '祥瑞',
+        duration: -1,
+        stackCount: Math.min(XIANGRUI_MAX_STACKS, amount),
+        sourceHeroId: source.id,
+        description: `云缨命火的印记：被云缨攻击一次叠1层，累计${XIANGRUI_TRIGGER_STACKS}层会引燃烈火燎原并清空`,
+    });
+    return Math.min(XIANGRUI_MAX_STACKS, amount);
+}
+
+/** 引燃后摘除目标身上的祥瑞，返回被清掉的层数 */
+export function consumeXiangrui(target: Hero): number {
+    const stacks = getXiangruiStacks(target);
+    target.effects = target.effects.filter(effect => effect.name !== '祥瑞');
+    return stacks;
+}
+
+/**
+ * 云缨技能二为"下一次攻击"挂上的吸血 buff 名。
+ * 名称必须含"吸血"：伤害结算按效果名归集 vampire 修正（见 DamageCalculator.getModifiers）。
+ */
+export const YUNYING_VAMPIRE_EFFECT = '燎原吸血';
 
 /**
  * 潮汐：泠汐攻击命中的敌人身上的层数资源（上限3层）。
@@ -638,9 +762,49 @@ export function checkYinyangLinks(hero: Hero, gameState: GameState): boolean {
 }
 
 /**
+ * 阴阳线随本体消散：把挂在其他英雄身上的、由该阴阳师施加的阳线/阴线全部移除，
+ * 并重置其倍率计数。真阵亡（含死后回替补席、日后被唤回）与暂时阵亡都必须
+ * 在死亡结算当场调用——只靠"移动后重算"会漏掉不伴随位移的死亡，
+ * 让死者持续给全场挂攻防加成、复活回归时线还会原样接上。
+ * 返回是否真的移除过效果（调用方可据此决定是否播日志/触发重渲染）。
+ */
+export function purgeYinyangLinksOf(
+    hero: Hero,
+    gameState: GameState,
+    verb = '已离场'
+): boolean {
+    const all = [...gameState.player1Heroes, ...gameState.player2Heroes];
+    let removed = false;
+    for (const target of all) {
+        if (target.id === hero.id) continue;
+        const before = target.effects.length;
+        target.effects = target.effects.filter(effect =>
+            !(effect.sourceHeroId === hero.id &&
+                (effect.name.startsWith('阳线') || effect.name.startsWith('阴线')))
+        );
+        if (target.effects.length !== before) removed = true;
+    }
+    if (removed) {
+        hero.counters['yinyang_yang_rate'] = 0.2;
+        hero.counters['yinyang_yang_repeat'] = 0.2;
+        hero.counters['yinyang_yin_rate'] = 0.2;
+        hero.counters['yinyang_yin_repeat'] = 0.2;
+        gameState.battleLog.push({
+            id: `log-${Date.now()}-${Math.random()}`,
+            timestamp: Date.now(),
+            type: 'system',
+            player: hero.owner,
+            message: `${hero.name}${verb}，其阳线/阴线全部消散`
+        });
+    }
+    return removed;
+}
+
+/**
  * 场上所有阴阳师的线统一检查：位置发生变化后立即调用。
  * - 存活的阴阳师：目标超出两格立即断线并重置倍率
  * - 死亡（含暂时死亡）的阴阳师：其全部阳线/阴线随本体消散并重置倍率
+ *   （死亡当场也会直接 purgeYinyangLinksOf，这里只是兜底）
  */
 export function checkAllYinyangLinks(gameState: GameState): boolean {
     const all = [...gameState.player1Heroes, ...gameState.player2Heroes];
@@ -651,32 +815,63 @@ export function checkAllYinyangLinks(gameState: GameState): boolean {
             changed = checkYinyangLinks(hero, gameState) || changed;
             continue;
         }
-        let removed = false;
-        for (const target of all) {
-            if (target.id === hero.id) continue;
-            const before = target.effects.length;
-            target.effects = target.effects.filter(effect =>
-                !(effect.sourceHeroId === hero.id &&
-                    (effect.name.startsWith('阳线') || effect.name.startsWith('阴线')))
-            );
-            if (target.effects.length !== before) removed = true;
-        }
-        if (removed) {
-            hero.counters['yinyang_yang_rate'] = 0.2;
-            hero.counters['yinyang_yang_repeat'] = 0.2;
-            hero.counters['yinyang_yin_rate'] = 0.2;
-            hero.counters['yinyang_yin_repeat'] = 0.2;
-            gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
-                timestamp: Date.now(),
-                type: 'system',
-                player: hero.owner,
-                message: `${hero.name}已离场，其阳线/阴线全部消散`
-            });
-        }
-        changed = removed || changed;
+        changed = purgeYinyangLinksOf(hero, gameState) || changed;
     }
     return changed;
+}
+
+/**
+ * 血契的禁足圈是"以血契为中心"的活区域（文案口径：只能留在血契身边）。
+ * 本体被击退/拖拽/瞬移/天威跃迁改格后，整片 3×3 跟着重铺，
+ * 否则圈会白白留在旧位置，被锁的敌人反而自由了。
+ */
+export function recenterXueqiBindingZones(gameState: GameState): boolean {
+    const effects = gameState.boardEffects;
+    if (!effects || effects.length === 0) return false;
+
+    const groups = new Map<string, BoardEffect[]>();
+    for (const effect of effects) {
+        if (effect.type !== 'binding-zone' || !effect.linkId?.startsWith('xueqi-binding-')) continue;
+        groups.set(effect.linkId, [...(groups.get(effect.linkId) ?? []), effect]);
+    }
+    if (groups.size === 0) return false;
+
+    const all = getAllHeroes(gameState);
+    let changed = false;
+    for (const [linkId, group] of groups) {
+        const binder = all.find(hero => hero.id === group[0].sourceHeroId);
+        if (!binder?.position || binder.state !== HeroState.ALIVE) continue;
+
+        const cells = MovementSystem.getBoxPositions(binder.position, 3);
+        const unchanged = cells.length === group.length && cells.every(([row, col]) =>
+            group.some(effect => effect.position[0] === row && effect.position[1] === col));
+        if (unchanged) continue;
+
+        const [template] = group;
+        gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => effect.linkId !== linkId);
+        for (const [row, col] of cells) {
+            gameState.boardEffects!.push({
+                ...template,
+                id: `${linkId}-${row}-${col}`,
+                position: [row, col],
+                owner: binder.owner,
+                sourceHeroId: binder.id,
+            });
+        }
+        changed = true;
+    }
+    return changed;
+}
+
+/**
+ * 位置发生变化后统一重算"以某单位为中心/为半径"的持续效果：
+ * 血契的禁足圈跟着本体重铺，阴阳线按新距离判定是否超距断开。
+ * 任何移动、位移技能、传送、风道推移与复活落位之后都要走一次。
+ */
+export function syncPositionAnchoredEffects(gameState: GameState): boolean {
+    const rebound = recenterXueqiBindingZones(gameState);
+    const broken = checkAllYinyangLinks(gameState);
+    return rebound || broken;
 }
 
 export function currentTotalDead(gameState: GameState): number {

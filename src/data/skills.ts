@@ -283,7 +283,7 @@ export const xuanxiaoSkill1: Skill = {
     id: 'xuanxiao_skill1',
     name: '玄光加持',
     type: 'buff',
-    description: '使两格内一名友方攻击、暴击率和暴伤各提升20%，持续2回合',
+    description: '使两格内一名友方增伤、暴击率和暴伤各提升20%，持续2回合',
     rangeType: 'single',
     range: 2,
     targetType: 'ally',
@@ -292,7 +292,7 @@ export const xuanxiaoSkill1: Skill = {
         const target = targets[0];
         if (!target) return { success: false, log: [`${caster.name}没有找到友方目标`] };
         for (const [name, value] of [
-            ['玄霄攻击提升', 0.2],
+            ['玄霄增伤提升', 0.2],
             ['玄霄暴击率提升', 0.2],
             ['玄霄暴伤提升', 0.2]
         ] as const) {

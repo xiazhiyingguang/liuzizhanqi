@@ -22,13 +22,18 @@ import {
 } from '../data/heroes';
 import {
     addDilanFeather,
+    addXiangrui,
     applyDilanWind,
     consumeDilanFeather,
+    consumeXiangrui,
     findSoulLampBeneficiary,
     getDilanFeatherStacks,
     getSummonOwnerId,
     getTideStacks,
     totalTideOnEnemiesOf,
+    XIANGRUI_TRIGGER_STACKS,
+    YUNYING_VAMPIRE_EFFECT,
+    purgeYinyangLinksOf,
 } from '../data/extended-heroes';
 import { recordBattleDamage, recordBattleHealing, recordBattleKill } from './battle-statistics';
 import {
@@ -230,6 +235,16 @@ export class DamageCalculator {
         for (const bonus of damageBonuses) {
             finalDamage *= (1 + bonus);
         }
+        // 惊鸿·止水被动「渊渟岳峙」：生命高于50%为攻击形态，增伤50%。
+        // 走增伤而非"攻击提升"通道——后者要 attacker.baseAttack 才生效，她并没有基础攻击力。
+        if (
+            attacker.passiveId === 'jinghong_passive' &&
+            attacker.owner !== target.owner &&
+            attacker.maxHp > 0 &&
+            attacker.currentHp * 2 > attacker.maxHp
+        ) {
+            finalDamage *= 1.5;
+        }
         finalDamage *= options.damageMultiplier ?? 1;
         for (const effect of attacker.effects) {
             if (effect.type === 'debuff' && effect.value !== undefined &&
@@ -305,6 +320,22 @@ export class DamageCalculator {
                 defense += target.counters['talent_3'] ? 0.6 : 0.3;
             }
 
+            // 血契被动：每损失 2% 生命提升 1% 防御，残血时最硬（上限约 50%）
+            if (target.passiveId === 'xueqi_passive' && target.maxHp > 0) {
+                const missingRatio = Math.max(0, (target.maxHp - target.currentHp) / target.maxHp);
+                defense += Math.floor(missingRatio * 50) * 0.01;
+            }
+
+            // 惊鸿·止水被动「渊渟岳峙」：生命≤50%转入防御形态，防御提升50%。
+            // 阈值归给防御侧，免得恰好一半血时既吃增伤又吃免伤。
+            if (
+                target.passiveId === 'jinghong_passive' &&
+                target.maxHp > 0 &&
+                target.currentHp * 2 <= target.maxHp
+            ) {
+                defense += 0.5;
+            }
+
             // 夜枭天威：下次攻击无视目标50%防御
             if (attacker.name === '暗影猎手·夜枭' && attacker.counters['ignore_defense_next']) {
                 defense *= 0.5;
@@ -340,6 +371,31 @@ export class DamageCalculator {
             killed: false,
             logTag: options.logTag
         };
+    }
+
+    /**
+     * 云缨「祥瑞」叠层与「烈火燎原」引燃。
+     * - 烈火燎原自身的命中不再叠祥瑞（__liehuo_resolving 标记），避免自燃循环；
+     * - 叠满 3 层即清空该目标身上的祥瑞，并挂起玩家的方向选择（射线由 game-store 结算）；
+     * - 每轮至多引燃一次；额度已用完时保留 3 层，等下一轮再引燃。
+     */
+    private static applyYunyingXiangrui(attacker: Hero, target: Hero, gameState: GameState): void {
+        if (attacker.counters['__liehuo_resolving'] === 1) return;
+
+        const stacks = addXiangrui(target, attacker);
+        if (stacks < XIANGRUI_TRIGGER_STACKS) return;
+        if ((attacker.counters['liehuo_round'] ?? -1) === gameState.roundNumber) return;
+        // 已有别的待选棋盘动作时不抢占，目标身上的 3 层留着等下一次机会
+        if (gameState.pendingBoardAction) return;
+
+        consumeXiangrui(target);
+        attacker.counters['liehuo_round'] = gameState.roundNumber;
+        gameState.pendingBoardAction = { type: 'yunying-liehuo', heroId: attacker.id };
+        this.addBattleLog(gameState, {
+            type: 'passive',
+            player: attacker.owner,
+            message: `${target.name}的祥瑞积满${XIANGRUI_TRIGGER_STACKS}层，${attacker.name}的烈火燎原被引燃：请选择燃烧方向`,
+        });
     }
 
     /** 结算羽化的逐格固定伤害；返回本次移动造成的总伤害。 */
@@ -934,6 +990,8 @@ export class DamageCalculator {
 
         // 5. 检查是否击杀（在被动技能触发之后）
         if (actualTarget.currentHp <= 0 && actualTarget.state === HeroState.ALIVE) {
+            // 戴尔「时空停滞」的复活口径：回到挨这致命一击之前的生命
+            actualTarget.counters['__dai_hp_before_lethal'] = hpBeforeDamage;
             if (attacker.tianweiId === 'mowen_tianwei') {
                 attacker.counters['__last_kill_damage'] = Math.min(maxEffectiveDamageForKill, damageResult.finalDamage);
             }
@@ -956,6 +1014,19 @@ export class DamageCalculator {
             if (harmony && attacker.counters['__harmony_attack_group'] !== this.currentAttackGroup) {
                 attacker.counters['__harmony_attack_group'] = this.currentAttackGroup ?? 0;
                 this.applyHeal(attacker, harmony.value ?? 5, gameState);
+            }
+
+            // 云缨「祥瑞」：她打到的敌人叠1层；顺序是先结算伤害、再叠层、最后判满层引燃
+            if (attacker.passiveId === 'yunying_passive' && actualTarget.state === HeroState.ALIVE) {
+                this.applyYunyingXiangrui(attacker, actualTarget, gameState);
+            }
+            // 云缨的下一次攻击吸血：普攻等单次命中在这里摘掉（技能整批命中由技能自己收尾）
+            if (attacker.passiveId === 'yunying_passive'
+                && attacker.counters['__yunying_in_skill_cast'] !== 1
+                && attacker.effects.some(effect => effect.name === YUNYING_VAMPIRE_EFFECT)) {
+                attacker.effects = attacker.effects.filter(
+                    effect => effect.name !== YUNYING_VAMPIRE_EFFECT
+                );
             }
 
         }
@@ -1331,10 +1402,12 @@ export class DamageCalculator {
             }
         }
 
-        // 时空旅者·戴尔被动「时空停滞」：我方单位阵亡时（分身/召唤物/戴尔自身除外，
-        // 且每名英雄限一次）时间被凝固一回合，期间可被其技能1「时空回溯」复活
+        // 时空旅者·戴尔被动「时空停滞」：我方单位阵亡时（分身/召唤物/戴尔自身/通灵角色除外，
+        // 且每名英雄限一次）时间被凝固一回合，期间可被其技能1「时空回溯」复活。
+        // 通灵角色一并排除：否则"复活→再触发通灵"会反复循环，与技能1不得回溯通灵的口径冲突。
         if (
             target.passiveId !== 'dai_passive' &&
+            target.class !== '通灵' &&
             target.counters['__isClone'] !== 1 &&
             target.counters['__isSummon'] !== 1 &&
             !target.counters['__dai_revived_once']
@@ -1381,6 +1454,13 @@ export class DamageCalculator {
                     message: `${target.name}阵亡，风止道散（移除${removed}格风道）`
                 });
             }
+        }
+
+        // 阴阳师阵亡：挂在他人身上的阳/阴线随本体当场消散并重置倍率。
+        // 不等"下一次移动后重算"兜底——否则死者持续供攻防加成，
+        // 死后回替补席、再被唤回场地时线还会原样接上
+        if (target.passiveId === 'yinyang_passive') {
+            purgeYinyangLinksOf(target, gameState, '阵亡');
         }
 
         let removedCloneCount = 0;
@@ -1692,6 +1772,16 @@ export class DamageCalculator {
                 message: target
                     ? `${hero.name}触发天威，获得2层猎砂并追击最近的${target.name}`
                     : `${hero.name}触发天威，获得2层猎砂`,
+                // 特效标记：Board 读到后派发"掠沙闪袭"（风铃残影闪到目标身边 + 爪痕撕咬，
+                // 纯视觉表现，不产生任何真实位移）
+                details: target
+                    ? {
+                        kind: 'fengling-pounce',
+                        fxSkillId: 'fengling_pounce',
+                        fxFrom: hero.position ? [...hero.position] : undefined,
+                        fxTarget: target.position ? [...target.position] : undefined,
+                    }
+                    : undefined,
             });
             if (target) {
                 const inSandDune = this.isInOwnSandDune(hero, gameState);
@@ -1874,6 +1964,18 @@ export class DamageCalculator {
             }
         } else if (hero.tianweiId === 'hanjiangxue_tianwei') {
             hanjiangxueTianwei.execute(hero, gameState);
+        } else if (hero.tianweiId === 'xueqi_tianwei') {
+            // 天威·血誓不熄：每轮限一次，把决定权交回玩家选横扫中心格；
+            // 实际结算在 game-store 的 resolvePendingBoardAction，避免击杀链里递归触发
+            if ((hero.counters['tianwei_uses'] ?? 0) < 1) {
+                hero.counters['tianwei_uses'] = (hero.counters['tianwei_uses'] ?? 0) + 1;
+                gameState.pendingBoardAction = { type: 'xueqi-tianwei', heroId: hero.id };
+                this.addBattleLog(gameState, {
+                    type: 'tianwei',
+                    player: hero.owner,
+                    message: `${hero.name}触发天威·血誓不熄，请选择一处空格跃过去再掀起血誓横扫（被斩中者陷入愤怒）`
+                });
+            }
         }
         this.triggerMirrorBrokenBlade(hero, gameState);
     }

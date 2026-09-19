@@ -127,6 +127,7 @@ const CLEAR_WHEN_MISSING_KEYS = [
     'wukongSkill2State',
     'pendingBoardAction',
     'baizeReviveTargetHeroId',
+    'daiReviveHeroId',
     'reinforceResumeContext',
     'resumePlayer',
     'pendingForcedActionHeroId',
