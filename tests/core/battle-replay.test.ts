@@ -155,18 +155,28 @@ describe('battle-replay 数据层', () => {
         }, 1);
 
         const marks = detectKeyMoments([first, second], STATICS, narration);
-        const kindsAtSecond = marks.filter(mark => mark.frame === 1).map(mark => mark.kind).sort();
+        const secondFrameMarks = marks.filter(mark => mark.frame === 1);
 
-        expect(kindsAtSecond).toEqual(['critical', 'end', 'kill', 'reinforce', 'round', 'tianwei']);
+        // 击杀与它触发的天威落在同一帧：合成一枚标签，不再成对刷屏
+        expect(secondFrameMarks.map(mark => mark.kind).sort())
+            .toEqual(['critical', 'end', 'kill', 'reinforce', 'round']);
+        const killMark = secondFrameMarks.find(mark => mark.kind === 'kill');
+        expect(killMark?.label).toContain('回锋击杀了墨阑');
+        expect(killMark?.label).toContain('回锋触发天威');
     });
 
-    it('濒危节点在同一回合内只打一次点，避免残血单位刷屏', () => {
+    it('濒危节点每名单位整局只打一次点，避免残血单位反复刷屏', () => {
         const narration = [logEntry('a', 'damage')];
         const healthy = makeFrame({ units: [makeUnit(0, 2, 2, 38)] });
         const critical = makeFrame({ units: [makeUnit(0, 2, 2, 6)] }, 1);
         const stillCritical = makeFrame({ units: [makeUnit(0, 2, 2, 4)] }, 2);
+        // 被抬回安全区后又跌破：仍然不再重复打点
+        const healed = makeFrame({ units: [makeUnit(0, 2, 2, 38)] }, 3);
+        const criticalAgain = makeFrame({ units: [makeUnit(0, 2, 2, 5)] }, 4);
 
-        const marks = detectKeyMoments([healthy, critical, stillCritical], STATICS, narration);
+        const marks = detectKeyMoments(
+            [healthy, critical, stillCritical, healed, criticalAgain], STATICS, narration
+        );
         expect(marks.filter(mark => mark.kind === 'critical')).toHaveLength(1);
     });
 

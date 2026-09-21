@@ -3,7 +3,7 @@ import { MovementSystem } from './movement-system';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
 import { findSoulLampBeneficiary, isJinghongCharging, placeBounties, purgeYinyangLinksOf, syncPositionAnchoredEffects } from '../data/extended-heroes';
-import { resolveLingxiEcho1 } from '../data/extended-skills';
+import { resolveLingxiEcho1, tickJinghuaMoonSeats } from '../data/extended-skills';
 import { recordBattleHealing } from './battle-statistics';
 import { lanesAtPosition, windLaneNextCell } from './wind-lane';
 
@@ -257,6 +257,8 @@ export class GameEngine {
 
         // 更新效果持续时间
         EffectManager.updateEffectDurations(gameState);
+        // 镜花·水月的月座三回合将满仍无人踏响：在通用衰减抹掉它之前自动归位登场
+        tickJinghuaMoonSeats(gameState);
         gameState.boardEffects = (gameState.boardEffects ?? [])
             .map(effect => effect.type === 'brush' || effect.type === 'wind-lane'
                 ? effect

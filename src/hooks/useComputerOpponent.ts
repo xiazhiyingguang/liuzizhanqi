@@ -31,7 +31,23 @@ import { AVAILABLE_HERO_IDS } from '../data/heroes';
 import { MovementSystem } from '../core/movement-system';
 
 const AI_PLAYER = 'player2' as const;
+/** 玩家那一侧：只有开了「AI 接管」才交给电脑代打 */
+const HUMAN_PLAYER: Player = 'player1';
 const THINK_DELAY_MS = 430;
+
+/**
+ * 战斗阶段此刻该由 AI 出手的一方：电脑方恒成立，玩家方仅在接管开启时成立。
+ * 补员挂起算在"轮到它"之内（补员也是一次决策），选将与布阵阶段不接管。
+ */
+function pilotedBattleSide(
+    state: Pick<GameState, 'phase' | 'isAiMode' | 'isOnlineMode' | 'autoBattle'
+        | 'currentPlayer' | 'reinforcingPlayer'>
+): Player | null {
+    if (state.phase !== 'battle' || !state.isAiMode || state.isOnlineMode) return null;
+    const waiting = state.reinforcingPlayer ?? state.currentPlayer;
+    if (waiting === AI_PLAYER) return AI_PLAYER;
+    return state.autoBattle && waiting === HUMAN_PLAYER ? HUMAN_PLAYER : null;
+}
 
 function samePosition(left: Position, right: Position): boolean {
     return left[0] === right[0] && left[1] === right[1];
@@ -227,6 +243,80 @@ function executeSelectedSkillStep(
         !state.changliSkill2Empowered
     ) {
         store.toggleChangliSkill2Empowered();
+        return;
+    }
+
+    if (skill.id === 'jinghua_skill1' && caster.passiveId === 'jinghua_passive') {
+        // 水月换身：把最深入的友方换出来——仅当镜花自己站在安全位时才值得换
+        if (!caster.position) { store.endHeroAction(); return; }
+        const foesAround = (pos: Position) => {
+            let count = 0;
+            for (let r = 0; r < 6; r++) {
+                for (let c = 0; c < 6; c++) {
+                    const unit = state.board[r][c];
+                    if (unit && unit.owner !== caster.owner && unit.state === 'alive' &&
+                        Math.abs(r - pos[0]) + Math.abs(c - pos[1]) <= 1) count++;
+                }
+            }
+            return count;
+        };
+        if (foesAround([...caster.position] as Position) === 0) {
+            let bestAlly: Position | null = null;
+            let bestDanger = 1; // 至少贴着1名敌人才值得换
+            const allies = caster.owner === 'player1' ? state.player1Heroes : state.player2Heroes;
+            for (const ally of allies) {
+                if (ally.id === caster.id || ally.state !== 'alive' || !ally.position) continue;
+                const danger = foesAround(ally.position as Position);
+                if (danger > bestDanger) {
+                    bestDanger = danger;
+                    bestAlly = [...ally.position] as Position;
+                }
+            }
+            if (bestAlly) {
+                store.executeSkill(bestAlly);
+                return;
+            }
+        }
+        store.endHeroAction();
+        return;
+    }
+
+    if (skill.id === 'jinghua_skill2' && caster.passiveId === 'jinghua_passive') {
+        // 印月替身：镜影攒够或自己残血时才下场；登场落点挑离敌人最远的3×3空格
+        const bench = (caster.owner === 'player1' ? state.player1BenchHeroIds : state.player2BenchHeroIds) ?? [];
+        const stacks = Math.min(5, caster.counters['镜影'] ?? 0);
+        const wounded = caster.currentHp <= caster.maxHp * 0.55;
+        if (!caster.position || bench.length === 0 || (stacks < 2 && !wounded)) {
+            store.endHeroAction();
+            return;
+        }
+        let bestLanding: Position | null = null;
+        let bestSafety = -1;
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+                const pos: Position = [caster.position[0] + dr, caster.position[1] + dc];
+                if (pos[0] < 0 || pos[0] >= 6 || pos[1] < 0 || pos[1] >= 6) continue;
+                if (state.board[pos[0]][pos[1]] !== null) continue;
+                let near = 0;
+                for (let r = 0; r < 6; r++) {
+                    for (let c = 0; c < 6; c++) {
+                        const unit = state.board[r][c];
+                        if (unit && unit.owner !== caster.owner && unit.state === 'alive' &&
+                            Math.abs(r - pos[0]) + Math.abs(c - pos[1]) <= 2) near++;
+                    }
+                }
+                const safety = 10 - near;
+                if (safety > bestSafety) {
+                    bestSafety = safety;
+                    bestLanding = pos;
+                }
+            }
+        }
+        if (!bestLanding) { store.endHeroAction(); return; }
+        // 等价于人类点选候补：直接写选择计数器，走同一条 execute 校验
+        caster.counters['__jinghua_summon_pick'] = 0;
+        store.executeSkill(bestLanding);
         return;
     }
 
@@ -796,20 +886,10 @@ export function runComputerOpponentStep(repeatCount = 0): void {
     }
 
     if (state.phase !== 'battle') return;
-    // 替补制补员：挂起期间由补员方决策上场；非 AI 方补员时等待玩家操作
-    if (state.reinforcingPlayer) {
-        if (state.reinforcingPlayer !== AI_PLAYER) return;
-        deployComputerReinforcement(AI_PLAYER);
-        return;
-    }
-    if (state.currentPlayer !== AI_PLAYER) return;
-    if (repeatCount >= 2) {
-        // 任何未覆盖到的复杂技能都必须安全收束，不能让对局卡死。
-        // selectedHero 为空（AI 全员眩晕/无可行动英雄）时同样收束，由 store 自动跳过。
-        useGameStore.getState().endHeroAction();
-        return;
-    }
-    executeBattleStep(state, AI_PLAYER);
+    // 战斗阶段：电脑方照常代打；玩家一方在「AI 接管」开启时交给同一套决策
+    const side = pilotedBattleSide(state);
+    if (!side) return;
+    runComputerBattleStep(side, repeatCount);
 }
 
 /**
@@ -855,11 +935,9 @@ export function useComputerOpponent(): void {
         const shouldAct =
             (state.phase === 'hero-select' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyHeroSelect) ||
             (state.phase === 'deploy' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyDeploy) ||
-            (state.phase === 'battle' && (
-                // 正常回合由当前行动方驱动；补员挂起期间由补员方驱动
-                (state.currentPlayer === AI_PLAYER && !state.reinforcingPlayer) ||
-                state.reinforcingPlayer === AI_PLAYER
-            ));
+            // 正常回合由当前行动方驱动；补员挂起期间由补员方驱动。
+            // 接管开启时玩家那一侧也算"该出手的一方"。
+            pilotedBattleSide(state) !== null;
         if (!shouldAct) return;
 
         const timer = window.setTimeout(() => {

@@ -43,46 +43,72 @@ describe('云缨完整机制', () => {
         expect(yunying.tianweiId ?? '').toBe('');
     });
 
-    it('星火照野：3×3每名敌人3点伤害，护盾只按引火前已有的祥瑞层数', () => {
+    it('星火照野：3×3每名敌人3点，并按其引火前已有的祥瑞层数每层+2点（不再给护盾）', () => {
         const state = makeGameState();
         const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
         const marked = addHero(state, 'moran', 'player2', [2, 3]);
-        const alsoMarked = addHero(state, 'baize', 'player2', [3, 3]);
+        const fresh = addHero(state, 'baize', 'player2', [3, 3]);
         const untouched = addHero(state, 'zhenxiao', 'player2', [0, 0]);
         addXiangrui(marked, yunying, 1);
-        addXiangrui(alsoMarked, yunying, 1);
 
         const output = SkillSystem.executeSkill(yunying, yunyingSkill1, [[2, 3]], state);
 
         expect(output.success).toBe(true);
-        expect(marked.currentHp).toBe(marked.maxHp - 3);
-        expect(alsoMarked.currentHp).toBe(alsoMarked.maxHp - 3);
+        // 1 层 → 3+2=5；0 层 → 3；本次新叠的那层不计入增伤
+        expect(output.damageDealt).toEqual([5, 3]);
+        expect(marked.currentHp).toBe(marked.maxHp - 5);
+        expect(fresh.currentHp).toBe(fresh.maxHp - 3);
         expect(untouched.currentHp).toBe(untouched.maxHp);
-        // 引火前 1+1 层 → 2 点护盾；本次新叠的那层不计入，两人都还没到引燃线
-        expect(yunying.shield).toBe(2);
+        expect(yunying.shield).toBe(0);
         expect(getXiangruiStacks(marked)).toBe(2);
-        expect(getXiangruiStacks(alsoMarked)).toBe(2);
+        expect(getXiangruiStacks(fresh)).toBe(1);
         expect(state.pendingBoardAction).toBeUndefined();
     });
 
-    it('踏火长驱：所选方向前方3格各6点，并按命中人数挂下一次攻击的吸血', () => {
+    it('星火照野：两层目标吃到3+4=7点，打到第三层照常引燃烈火燎原', () => {
         const state = makeGameState();
         const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
-        const near = addHero(state, 'moran', 'player2', [2, 3]);
-        const mid = addHero(state, 'baize', 'player2', [2, 4]);
-        const far = addHero(state, 'zhenxiao', 'player2', [2, 5]);
+        const victim = addHero(state, 'moran', 'player2', [2, 3]);
+        victim.currentHp = victim.maxHp;
+        addXiangrui(victim, yunying, 2);
+
+        const output = SkillSystem.executeSkill(yunying, yunyingSkill1, [[2, 3]], state);
+
+        expect(output.damageDealt).toEqual([7]);
+        expect(state.pendingBoardAction).toEqual({ type: 'yunying-liehuo', heroId: yunying.id });
+    });
+
+    it('踏火长驱：正前方一排3格（宽3深1）各6点，并按命中人数挂下一次攻击的吸血', () => {
+        const state = makeGameState();
+        const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
+        const up = addHero(state, 'moran', 'player2', [1, 3]);
+        const mid = addHero(state, 'baize', 'player2', [2, 3]);
+        const down = addHero(state, 'zhenxiao', 'player2', [3, 3]);
+        const beyond = addHero(state, 'liuli', 'player2', [2, 4]);
         yunying.counters['__yunying_skill2_dir'] = 3;   // 向东
 
         const output = SkillSystem.executeSkill(yunying, yunyingSkill2, [[2, 3]], state);
 
         expect(output.success).toBe(true);
-        expect(getYunyingChargeCells(yunying, 3)).toEqual([[2, 3], [2, 4], [2, 5]]);
-        for (const enemy of [near, mid, far]) {
+        // 命中面是"那一列"三格，纵深只有 1 格，第二格往后的敌人不该吃到
+        expect(getYunyingChargeCells(yunying, 3)).toEqual([[1, 3], [2, 3], [3, 3]]);
+        for (const enemy of [up, mid, down]) {
             expect(enemy.currentHp).toBe(enemy.maxHp - 6);
         }
+        expect(beyond.currentHp).toBe(beyond.maxHp);
         const buff = yunying.effects.find(effect => effect.name === YUNYING_VAMPIRE_EFFECT);
         expect(buff?.value).toBeCloseTo(0.6);
         expect(yunying.counters['__yunying_skill2_dir']).toBeUndefined();
+    });
+
+    it('踏火长驱：朝向换成南北时命中面转成横排，贴边时只保留盘内格子', () => {
+        const state = makeGameState();
+        const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
+        expect(getYunyingChargeCells(yunying, 0)).toEqual([[1, 1], [1, 2], [1, 3]]);   // 向北
+        expect(getYunyingChargeCells(yunying, 1)).toEqual([[3, 1], [3, 2], [3, 3]]);   // 向南
+
+        const edge = addHero(state, 'yunying', 'player1', [0, 0]);
+        expect(getYunyingChargeCells(edge, 1)).toEqual([[1, 0], [1, 1]]);              // 向北贴边只剩 2 格
     });
 
     it('燎原吸血只作用于下一次攻击的整批命中，用完即摘', () => {
@@ -226,7 +252,7 @@ describe('云缨完整机制', () => {
     it('电脑会用云缨：给得出长驱方向计划，也解得开烈火燎原的待选', () => {
         const state = makeGameState();
         const yunying = addHero(state, 'yunying', 'player2', [2, 2]);
-        addHero(state, 'moran', 'player1', [2, 4]);
+        addHero(state, 'moran', 'player1', [2, 3]);
 
         expect(chooseComputerSkillPlan(state, yunying, yunying.skill2Id)).not.toBeNull();
 
@@ -237,7 +263,7 @@ describe('云缨完整机制', () => {
     it('方向技能两段式：先点相邻方向格，点歪了只提示不消耗行动', () => {
         const state = makeGameState();
         const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
-        const enemy = addHero(state, 'moran', 'player2', [2, 4]);
+        const enemy = addHero(state, 'moran', 'player2', [2, 3]);
         addHero(state, 'baize', 'player2', [5, 0]);
         useGameStore.setState({
             ...state,
@@ -259,5 +285,12 @@ describe('云缨完整机制', () => {
         useGameStore.getState().executeSkill([2, 3]);   // 向东定方向并立即结算
         expect(enemy.currentHp).toBe(enemy.maxHp - 6);
         expect(yunying.hasActedThisTurn).toBe(true);
+
+        // 刀光是区域层的一柄巨刃：事件必须带上整排命中格的包围盒
+        const fx = useGameStore.getState().skillFx;
+        const event = fx[fx.length - 1];
+        expect(event.profile.kind).toBe('yunying-arc-slash');
+        expect(event.coveredPositions).toEqual([[1, 3], [2, 3], [3, 3]]);
+        expect(event.areaBounds).toEqual({ r0: 1, c0: 3, rows: 3, cols: 1 });
     });
 });

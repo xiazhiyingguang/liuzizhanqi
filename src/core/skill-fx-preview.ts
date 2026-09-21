@@ -51,6 +51,7 @@ export const DIRECTIONAL_FX_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKin
     'feynman-beam',
     'shadow-dash',
     'phase-swap',
+    'jinghua-moonblade',
     'zuizhen-throw',
     'zuizhen-wheel',
 ]);

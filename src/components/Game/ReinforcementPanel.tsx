@@ -12,8 +12,11 @@ export default function ReinforcementPanel() {
         reinforcementSelectableHeroId,
         player1BenchHeroIds,
         player2BenchHeroIds,
+        player1BenchHp,
+        player2BenchHp,
         selectReinforcementHero,
         clearReinforcementSelection,
+        releaseAutoBattle,
         isAiMode,
         aiPlayer,
         isOnlineMode,
@@ -24,6 +27,9 @@ export default function ReinforcementPanel() {
 
     const isP1 = reinforcingPlayer === 'player1';
     const bench = (isP1 ? player1BenchHeroIds : player2BenchHeroIds) ?? [];
+    // 曾被临时拉上场又退回候补席的，带着伤等登场；这里要把余血显示出来，
+    // 否则玩家只看到满血入场，以为伤害没被记上
+    const benchHp = (isP1 ? player1BenchHp : player2BenchHp) ?? {};
     const localPlayerKey = localPlayerNumber === 2 ? 'player2' : 'player1';
     const canOperate = isAiMode
         ? reinforcingPlayer !== aiPlayer
@@ -79,7 +85,12 @@ export default function ReinforcementPanel() {
                                 key={heroId}
                                 type="button"
                                 data-testid={`reinforce-hero-${heroId}`}
-                                onClick={() => (isActive ? clearReinforcementSelection() : selectReinforcementHero(heroId))}
+                                onClick={() => {
+                                    // 接管中点替补席＝收回操作权，这一次选择照常生效
+                                    releaseAutoBattle();
+                                    if (isActive) clearReinforcementSelection();
+                                    else selectReinforcementHero(heroId);
+                                }}
                                 title={`${info.name} · ${info.class}`}
                                 className={`
                                     game-card flex items-center gap-1.5 rounded-lg px-2 py-1 transition-all
@@ -101,6 +112,14 @@ export default function ReinforcementPanel() {
                                     />
                                 </div>
                                 <span className="font-title text-xs text-ink">{info.name}</span>
+                                {benchHp[heroId] !== undefined && (
+                                    <span
+                                        className="font-title text-[10px] text-vermillion"
+                                        title={`曾替${info.name}出战，带着${benchHp[heroId]}点余血登场`}
+                                    >
+                                        余血 {benchHp[heroId]}
+                                    </span>
+                                )}
                             </button>
                         );
                     })}

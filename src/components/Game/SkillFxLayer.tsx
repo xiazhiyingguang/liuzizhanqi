@@ -147,11 +147,11 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
         case 'yunying-sweep':
             // 云缨起手：长枪在周身凌乱横扫，弧刃以自身为圆心甩开
             return <YunyingSweepFx />;
-        case 'yunying-thrust':
-            // 云缨起手：枪尖前送拉出一段速度光痕，突刺本体在命中格贯出
+        case 'yunying-arc-slash':
+            // 云缨起手：她这一格只起一道挥斩的起手光，两道火斩落在正前方那排格子上
             return (
                 <span className="fx-anchor" style={fxStyleVars(event)}>
-                    <i className="fxp-trail" />
+                    <i className="fxp-auraglow" />
                 </span>
             );
         case 'liehuo-blaze':
@@ -182,6 +182,12 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
                     <LingxiFanOpenFx />
                 </span>
             );
+        case 'jinghong-slash-ring':
+            // 惊鸿·环海旋斩：整圈斩痕以施法者为心划出，只在她脚下这一份
+            return <JinghongSlashRingFx event={event} />;
+        case 'jinghua-moonblade':
+            // 镜花·天威起手：月华在她脚下凝成一弯刃，真正的飞斩画在敌人那一格
+            return <JinghuaMoonGatherFx />;
         case 'wind-blade-volley':
             // 四向风刃是自身技，四弯风刃自施法者格射向周身四格
             return (
@@ -518,21 +524,25 @@ function YunyingSweepFx() {
     );
 }
 
-/** 云缨·踏火长驱（命中格）：一杆长枪（枪杆+枪头+红缨）贯出一记，到位时炸震环 */
-function YunyingThrustFx() {
+/** 一记火斩的刀身：中间厚、两端收尖的月牙带，叠一道白热内芯当锋口 */
+function YunyingSlashGlyph() {
     return (
-        <span className="fx-anchor fx-yyt">
-            <i className="fx-yyt-speed fx-yyt-speed-1" />
-            <i className="fx-yyt-speed fx-yyt-speed-2" />
-            <i className="fx-yyt-spear">
-                <b className="fx-yyt-bar" />
-                <b className="fx-yyt-head" />
-                <b className="fx-yyt-tassel" />
-            </i>
-            <i className="fx-yyt-wave" />
+        <svg className="fx-yas-glyph" viewBox="0 0 120 60" preserveAspectRatio="none" aria-hidden="true">
+            <path className="fx-yas-blade" d="M4 48 Q60 -26 116 42 Q60 18 4 48 Z" />
+            <path className="fx-yas-core" d="M14 44 Q60 -8 106 38 Q60 14 14 44 Z" />
+        </svg>
+    );
+}
+
+/** 云缨·踏火长驱（命中格）：这一格只负责"被扫到"的反应——火气腾起 + 爆闪 + 余烬。
+ *  刀光本体是区域层那一柄横扫整排格子的巨刃（AreaBladeSweepFx），逐格刻刀痕会看成三刀。
+ *  --yas-fwd 让这团的亮起来的那一刻跟上刀锋扫到本格的时机。 */
+function YunyingArcSlashFx() {
+    return (
+        <span className="fx-anchor fx-yas">
+            <i className="fx-yas-glow" />
             <i className="fxp-hitflash" />
-            <i className="fxp-ring" />
-            <Shards count={6} />
+            <Sparks count={5} className="fxp-spark-ember" />
         </span>
     );
 }
@@ -550,6 +560,104 @@ function XubaiPearlsFx() {
                 <b className="fx-pearl-orb fx-pearl-orb-3" />
             </i>
             <i className="fxp-auraglow" />
+        </span>
+    );
+}
+
+/** 斩痕圆环相对棋盘四边该裁掉多少"格距"（格宽 + 格间距）。
+ *  环身正好罩住以她为中心的 5×5，故中心格为 cr/cc 时，
+ *  上方越界 (2-cr) 格、下方越界 (cr-3) 格，左右同理；不到 0 就不裁。
+ *  贴边施放时斩痕到盘边即止，不会飘到棋盘外面。 */
+function slashRingClip(from: Position) {
+    return {
+        '--fx-clip-t': `${Math.max(0, 2 - from[0])}`,
+        '--fx-clip-b': `${Math.max(0, from[0] - 3)}`,
+        '--fx-clip-l': `${Math.max(0, 2 - from[1])}`,
+        '--fx-clip-r': `${Math.max(0, from[1] - 3)}`,
+    } as CSSProperties;
+}
+
+/** 惊鸿·环海旋斩：一柄水蓝旋刃以她为心顺时针扫过一整圈。
+ *  拖痕分四层叠出锥度——刃头最厚最亮，往后依次收细成一道水线，
+ *  转满一周再炸开一圈外飞水沫，才读得出是"斩"而不是一根静止的圆。
+ *  半径约 2.1 格正好压在 5×5 外圈那一环的伤害格上。 */
+function JinghongSlashRingFx({ event }: { event: SkillFxEvent }) {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-slashring" style={slashRingClip(event.fromPos)}>
+                <i className="fx-slashring-sheen" />
+                <i className="fx-slashring-blade">
+                    <svg viewBox="0 0 100 100" aria-hidden="true">
+                        <circle className="fx-slash-tail" cx="50" cy="50" r="42" pathLength={100} />
+                        <circle className="fx-slash-mid" cx="50" cy="50" r="42" pathLength={100} />
+                        <circle className="fx-slash-head" cx="50" cy="50" r="42" pathLength={100} />
+                        <circle className="fx-slash-core" cx="50" cy="50" r="42" pathLength={100} />
+                    </svg>
+                    <b className="fx-slash-glaze" />
+                </i>
+                <i className="fx-slashring-flash" />
+                <i className="fx-slashring-spray">
+                    {Array.from({ length: 10 }).map((_, index) => (
+                        <b key={index} style={{ '--fx-angle': `${index * 36}deg` } as CSSProperties} />
+                    ))}
+                </i>
+            </i>
+        </span>
+    );
+}
+
+/** 月牙刃轮廓：外接框以原点为中心，两尖在 ±y、鼓腹朝 +x。
+ *  外层容器按 --fx-rot 旋转后，刃口（凸边）正对着飞行方向，
+ *  看上去是"月牙砍过去"而不是"月牙飘过去"。
+ *  用贝塞尔而不是 SVG 圆弧：圆弧的大弧/扫掠标志极易配错，
+ *  一旦两段弧落到同一个圆上，刃身就填不出面积。 */
+const MOONBLADE_PATH = 'M-4.8 -9.4 C 8 -6, 8 6, -4.8 9.4 C 0.4 4.6, 0.4 -4.6, -4.8 -9.4 Z';
+/** 刃口弧线：只描外凸那一道，锋锐感全在这里 */
+const MOONBLADE_EDGE = 'M-4.8 -9.4 C 8 -6, 8 6, -4.8 9.4';
+/** 刃身中线：月华内瓤沿这条脊亮起，两侧仍留深色刃肉 */
+const MOONBLADE_CORE = 'M-3.6 -7.2 C 3.8 -4.4, 3.8 4.4, -3.6 7.2';
+
+/** 镜花·月牙刃图形：外晕 + 玄蓝刃体 + 月华内瓤 + 白热锋口。
+ *  刻意不用 linearGradient defs：多处同时渲染时 SVG id 会相互覆盖。 */
+function MoonBladeGlyph({ className = '' }: { className?: string }) {
+    return (
+        <svg className={className || undefined} viewBox="-12 -12 24 24" aria-hidden="true">
+            <path className="mb-halo" d={MOONBLADE_PATH} />
+            <path className="mb-body" d={MOONBLADE_PATH} />
+            <path className="mb-core" d={MOONBLADE_CORE} />
+            <path className="mb-edge" d={MOONBLADE_EDGE} />
+        </svg>
+    );
+}
+
+/** 镜花·天威起手格：月华在她脚下收拢凝刃，两圈反向螺光 + 出斩闪光 */
+function JinghuaMoonGatherFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-moon-swell" />
+            <i className="fx-moon-gather" />
+            <i className="fx-moon-gather fx-moon-gather-b" />
+            <i className="fx-moon-muzzle" />
+        </span>
+    );
+}
+
+/** 镜花·月华飞斩（命中格）：一弯月牙刃自镜花格沿攻击轴斩到本格，
+ *  沿途拖出一道月华痕，到位后绽出斩痕印记、双道扩散月环与镜光碎屑。
+ *  落在敌人身上的这记要压过棋子，故整段排在刃到位之后才起播。 */
+function JinghuaMoonbladeFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-moonblade-trail" />
+            <i className="fx-moonblade"><MoonBladeGlyph /></i>
+            <i className="fx-moonblade-mark"><MoonBladeGlyph /></i>
+            <i className="fx-moonblade-flash" />
+            <i className="fx-moonblade-ring" />
+            <i className="fx-moonblade-ring fx-moonblade-ring-b" />
+            <i className="fxp-shard fxp-shard-1" />
+            <i className="fxp-shard fxp-shard-2" />
+            <i className="fxp-shard fxp-shard-3" />
+            <i className="fxp-shard fxp-shard-4" />
         </span>
     );
 }
@@ -1279,9 +1387,9 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
         case 'fengling-pounce':
             // 风铃落点：爪牙撕咬特写（天威由 pounce 档案加重拖尾与配色）
             return <FenglingClawFx />;
-        case 'yunying-thrust':
-            // 云缨落点：整杆长枪贯出一记，刺到位时炸出震环并震格
-            return <YunyingThrustFx />;
+        case 'yunying-arc-slash':
+            // 云缨落点：正前方那排格子各挨两道来回的圆弧火斩
+            return <YunyingArcSlashFx />;
         case 'yunying-sweep':
             // 3×3 的次要命中格只点一记爆点，弧刃主效由起手格那份承担
             return <RadialBurstFx />;
@@ -1325,6 +1433,12 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
         case 'lingxi-fan':
             // 泠汐·涌潮拍岸：命中格浪头拍击（扇面在施法者格展开）
             return <LingxiFanCrashFx />;
+        case 'jinghong-slash-ring':
+            // 惊鸿·环海旋斩：整圈斩痕在施法者格，玩家点中的那一格只留一记水花
+            return <ImpactMarkFx />;
+        case 'jinghua-moonblade':
+            // 镜花·月华飞斩：月牙刃飞到本格并绽开（起手格只有凝刃月光）
+            return <JinghuaMoonbladeFx />;
         case 'ink':
         default:
             // 默认兜底：双层墨韵涟漪
@@ -1431,6 +1545,16 @@ export function SkillFxVisual({
         }
     }
 
+    // 踏火长驱：本格那团火气要跟上巨刃扫到自己的时刻（按"横扫正方向"的格子序号排）
+    if (atPos && event.profile.kind === 'yunying-arc-slash') {
+        const bar = event.coveredPositions ?? [];
+        const index = Math.max(0, bar.findIndex(([r, c]) => r === atPos[0] && c === atPos[1]));
+        style = {
+            ...style,
+            '--yas-fwd': `${index * YUNYING_SLASH_STEP_MS}ms`,
+        } as CSSProperties;
+    }
+
     // 烈火燎原：射线上的第 N 格晚 N 拍起燃（--fx-ray-delay），让火是一路烧过去的
     // 而不是整条线同帧点亮；云缨脚下那一格始终是最先引爆的火种
     if (atPos && event.profile.kind === 'liehuo-blaze') {
@@ -1439,6 +1563,19 @@ export function SkillFxVisual({
         style = {
             ...style,
             '--fx-ray-delay': `${Math.max(0, rayIndex) * LIEHUO_STEP_MS}ms`,
+        } as CSSProperties;
+    }
+
+    // 镜花·天威：照中几名敌人就飞来几弯月牙刃，刃画在敌人那一格，
+    // 攻击轴得按"镜花格→本格"重算，否则次要命中格的飞刃会斜着指向主目标
+    if (atPos && (variant === 'impact' || variant === 'target')
+        && event.profile.kind === 'jinghua-moonblade') {
+        const dx = atPos[1] - event.fromPos[1];
+        const dy = atPos[0] - event.fromPos[0];
+        style = {
+            ...style,
+            '--fx-rot': `${computeFxAngleDeg(event.fromPos, atPos)}deg`,
+            '--fx-dist': String(Math.round(Math.hypot(dx, dy) * 100) / 100),
         } as CSSProperties;
     }
 
@@ -1468,7 +1605,9 @@ export function SkillFxVisual({
                 ? <ZuizhenThrowPathFx />
                 : event.profile.kind === 'liehuo-blaze'
                     ? <LiehuoBlazeCellFx />
-                    : <AreaTileFx />)}
+                    : event.profile.kind === 'yunying-arc-slash'
+                        ? <YunyingArcSlashFx />
+                        : <AreaTileFx />)}
             {variant === 'splash' && <SplashEmberFx />}
             {variant === 'chain' && <ChainBoltFx />}
         </span>
@@ -1527,6 +1666,9 @@ function AreaFirestormFx() {
 /** 燎原火墙沿射线逐格起燃的间隔（毫秒）——一格一拍，火才看得出是在往前烧 */
 const LIEHUO_STEP_MS = 150;
 
+/** 踏火长驱：巨刃扫过一整排格子时，每格的火气相隔多久亮起 */
+const YUNYING_SLASH_STEP_MS = 150;
+
 /** 燎原火墙：火线自云缨那一端沿射线长到棋盘尽头 + 焦痕 + 沿轴向飘的余烬 */
 function AreaFirewallFx() {
     // 余烬按 --fw-i 沿攻击轴分布（-1..1 对应射线两端），轴向由 --fx-travel-x/y 决定，
@@ -1545,6 +1687,18 @@ function AreaFirewallFx() {
                     style={{ '--fw-i': String(ratio), '--fw-d': `${120 + index * 130}ms` } as CSSProperties}
                 />
             ))}
+        </>
+    );
+}
+
+/** 踏火长驱的区域巨刃：一柄红刃沿整片命中面横扫一趟，收势后再从另一侧扫回来。
+ *  横扫轴是攻击方向的垂直轴（--fx-travel-x/y 给出攻击单位向量），位移按格宽换算，
+ *  所以横排/竖排的命中面共用同一套关键帧，刀身始终横在扫掠方向上。 */
+function AreaBladeSweepFx() {
+    return (
+        <>
+            <i className="saf-blade saf-blade-a"><YunyingSlashGlyph /></i>
+            <i className="saf-blade saf-blade-b"><YunyingSlashGlyph /></i>
         </>
     );
 }
@@ -1713,6 +1867,7 @@ export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
             {archetype === 'shockwave' && <AreaShockwaveFx />}
             {archetype === 'firestorm' && <AreaFirestormFx />}
             {archetype === 'firewall' && <AreaFirewallFx />}
+            {archetype === 'bladesweep' && <AreaBladeSweepFx />}
             {archetype === 'thunderstorm' && <AreaThunderstormFx />}
             {archetype === 'cage' && <AreaCageFx />}
             {archetype === 'runearray' && <AreaRuneArrayFx />}

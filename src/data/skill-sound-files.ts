@@ -77,4 +77,7 @@ export const SKILL_SOUND_FILES: Record<string, string> = {
     chenyuan_skill2: 'skills/chenyuan_skill2.wav',
     dai_skill1: 'skills/dai_skill1.wav',
     dai_skill2: 'skills/dai_skill2.wav',
+    jinghua_skill1: 'skills/jinghua_skill1.wav',
+    jinghua_skill2: 'skills/jinghua_skill2.wav',
+    jinghua_tianwei: 'skills/jinghua_tianwei.wav',
 };

@@ -89,7 +89,8 @@ export default function Board() {
         roundNumber,
         selectedSkill,
         daiReviveHeroId,
-        selectDaiReviveTarget
+        selectDaiReviveTarget,
+        releaseAutoBattle
     } = useGameStore();
 
     // 挂起的棋盘动作：可点格直接从挂起态推导，不依赖各条 set 路径是否记得同步 skillRange，
@@ -257,6 +258,10 @@ export default function Board() {
     const handleCellClick = (e: MouseEvent, row: number, col: number) => {
         e.preventDefault();
         e.stopPropagation();
+
+        // AI 接管中玩家点棋盘＝收回这一侧的操作权，本次点击照常执行。
+        // 放在 AI 回合门禁之前：对手回合点一下也该把接管停下来。
+        releaseAutoBattle();
 
         // 人机模式下 AI 回合禁止玩家操作；
         // 但补员挂起期间回合尚未切边（currentPlayer 可能仍是 AI），
@@ -441,6 +446,19 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 镜花·水月的两枚镜像标记：水月（可踏的跳板）与月座（等她归场）
+                            const waterMoon = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'water-moon' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            const moonSeat = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'moon-seat' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
                             // 时空停滞残影：本格空着、但躺着一个被戴尔凝固时间的阵亡单位
                             const stasisGhost = stasisGhostAt(rowIndex, colIndex);
                             const stasisAnchored = stasisGhost !== null && daiReviveHeroId === stasisGhost.id;
@@ -522,6 +540,10 @@ export default function Board() {
                                     {/* 移动目标点 */}
                                     {moveTarget && !cell && (
                                         <div className="w-3 h-3 rounded-full bg-jade/30 shadow-[0_0_6px_rgba(45,106,79,0.3)]" />
+                                    )}
+                                    {/* 镜花真身格作为免费交换落点：占格不能画普通点，改描一圈镜面环 */}
+                                    {moveTarget && cell && cell.owner === selectedHero?.owner && cell.id !== selectedHero?.id && (
+                                        <i className="cell-swap-mark pointer-events-none" aria-hidden="true" />
                                     )}
 
                                     {/* 补员落位点 */}
@@ -619,6 +641,27 @@ export default function Board() {
                                             title="束缚格：圈内敌人无法靠移动脱身"
                                         >
                                             <div className="absolute inset-1 border border-indigo-300/40 rounded-sm" />
+                                        </div>
+                                    )}
+
+                                    {waterMoon && (
+                                        <div
+                                            className={`bf-water-moon bf-water-moon-${waterMoon.owner === 'player1' ? 'p1' : 'p2'} absolute inset-1 pointer-events-none`}
+                                            title="水月：友方每次移动可踏入换影，白得5点护盾"
+                                        >
+                                            <i className="bf-water-moon-ring" aria-hidden="true" />
+                                            <i className="bf-water-moon-core" aria-hidden="true" />
+                                        </div>
+                                    )}
+
+                                    {moonSeat && (
+                                        <div
+                                            className="bf-moon-seat absolute inset-1 pointer-events-none"
+                                            title={`月座：友方踏上即接镜花归场（${moonSeat.duration}回合内无人踏则自动归位）`}
+                                        >
+                                            <i className="bf-moon-seat-ring" aria-hidden="true" />
+                                            <i className="bf-moon-seat-ring bf-moon-seat-ring-b" aria-hidden="true" />
+                                            <i className="bf-moon-seat-dot" aria-hidden="true" />
                                         </div>
                                     )}
 

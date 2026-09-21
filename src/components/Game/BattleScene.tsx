@@ -33,6 +33,8 @@ export default function BattleScene() {
         selectedHero,
         activeHero,
         battleLog,
+        autoBattle,
+        toggleAutoBattle,
         resetGame
     } = useGameStore();
 
@@ -93,6 +95,23 @@ export default function BattleScene() {
                             </span>
                             <span className={`w-2.5 h-2.5 rounded-full ${!isP1Turn ? 'bg-vermillion' : 'bg-vermillion/30'}`} />
                         </div>
+
+                        {/* AI 接管：人机对局里把自己这一侧也交给电脑，随开随停 */}
+                        {isAiMode && !isOnlineMode && phase === 'battle' && (
+                            <InkButton
+                                variant={autoBattle ? 'primary' : 'ghost'}
+                                size="sm"
+                                sfx="toggle"
+                                data-testid="auto-battle-toggle"
+                                aria-pressed={Boolean(autoBattle)}
+                                title={autoBattle
+                                    ? '电脑正在替你出手，点击这里收回操作权'
+                                    : '让电脑替你出手，看两个 AI 对局；随时可以收回'}
+                                onClick={() => toggleAutoBattle()}
+                            >
+                                {autoBattle ? '接管中 · 收回操作' : 'AI 接管'}
+                            </InkButton>
+                        )}
 
                         <InkButton variant="ghost" size="sm" onClick={() => setShowExitConfirm(true)}>
                             退出对局

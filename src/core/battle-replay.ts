@@ -361,6 +361,8 @@ export function detectKeyMoments(frames: ReplayFrame[], statics: ReplayStatic[],
     }
 
     // 帧差分节点：补员上场、濒死、回合切换、终局
+    // 濒危按"每名单位整局一次"记账：残血往往持续好几回合且来回拉扯，
+    // 按回合记账会让同一个名字在关键节点里反复出现。
     const criticalSeen = new Set<number>();
     for (let i = 1; i < frames.length; i++) {
         const previous = frames[i - 1];
@@ -382,15 +384,32 @@ export function detectKeyMoments(frames: ReplayFrame[], statics: ReplayStatic[],
             if (
                 previousRatio >= CRITICAL_PREVIOUS_FLOOR &&
                 ratio < CRITICAL_HP_RATIO &&
-                !criticalSeen.has(unit.def * 10000 + current.round)
+                !criticalSeen.has(unit.def)
             ) {
-                criticalSeen.add(unit.def * 10000 + current.round);
+                criticalSeen.add(unit.def);
                 push(i, 'critical', `${statics[unit.def]?.name ?? '单位'}跌入濒危（${unit.hp}/${statics[unit.def]?.maxHp}）`);
             }
         }
     }
 
-    return marks.sort((left, right) => left.frame - right.frame || left.kind.localeCompare(right.kind));
+    // 击杀与它触发的天威是同一次事件的两半，合成一枚标签：
+    // 两者都落在同一帧上，分开的话右下角成对刷屏、时间轴刻度也叠在同一个位置。
+    const tianweiByFrame = new Map<number, ReplayMark>();
+    for (const mark of marks) {
+        if (mark.kind === 'tianwei') tianweiByFrame.set(mark.frame, mark);
+    }
+    const absorbed = new Set<ReplayMark>();
+    for (const mark of marks) {
+        if (mark.kind !== 'kill') continue;
+        const twin = tianweiByFrame.get(mark.frame);
+        if (!twin || absorbed.has(twin)) continue;
+        mark.label = `${mark.label}；${twin.label}`;
+        absorbed.add(twin);
+    }
+
+    return marks
+        .filter(mark => !absorbed.has(mark))
+        .sort((left, right) => left.frame - right.frame || left.kind.localeCompare(right.kind));
 }
 
 export interface ReplayDelta {

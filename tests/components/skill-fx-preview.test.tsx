@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import SkillFxPreview, { SkillFxStage } from '../../src/components/HeroCodex/SkillFxPreview';
-import { SkillFxVisual } from '../../src/components/Game/SkillFxLayer';
+import { SkillAreaFx, SkillFxVisual } from '../../src/components/Game/SkillFxLayer';
 import { computeFxAngleDeg, computeFxDirection, resolveSkillFx, type SkillFxEvent } from '../../src/core/skill-fx';
 
 /** 手工构造一次烈火燎原的特效事件（射线向东，覆盖 [2,3]→[2,5]） */
@@ -20,6 +20,26 @@ function makeLiehuoEvent(): SkillFxEvent {
         direction: computeFxDirection(angleDeg),
         coveredPositions: [[2, 3], [2, 4], [2, 5]],
         areaBounds: { r0: 2, c0: 3, rows: 1, cols: 3 },
+    };
+}
+
+/** 手工构造一次踏火长驱的特效事件（云缨在 [2,2] 向东，命中面是那一列 3 格） */
+function makeChargeEvent(): SkillFxEvent {
+    const fromPos: [number, number] = [2, 2];
+    const targetPos: [number, number] = [2, 3];
+    const angleDeg = computeFxAngleDeg(fromPos, targetPos);
+    return {
+        id: 2,
+        bornAt: 0,
+        profile: resolveSkillFx('yunying_skill2'),
+        owner: 'player1',
+        fromPos,
+        targetPos,
+        angleDeg,
+        direction: computeFxDirection(angleDeg),
+        coveredPositions: [[1, 3], [2, 3], [3, 3]],
+        // 巨刃由区域层画在整片命中面上，没有包围盒就什么都不会出现
+        areaBounds: { r0: 1, c0: 3, rows: 3, cols: 1 },
     };
 }
 
@@ -112,17 +132,26 @@ describe('SkillFxStage 特效演示舞台', () => {
         expect(html).toContain('fx-yys-shaft');
     });
 
-    it('云缨踏火长驱：只一记突刺，整杆长枪带枪杆/枪头/红缨 + 速度线与震环', () => {
+    it('云缨踏火长驱：逐格只起火气不刻刀痕，刀光是区域层那一柄来回扫的巨刃', () => {
         const html = renderStage('yunying_skill2');
-        expect(html).toContain('skill-fx skill-fx-kind-yunying-thrust skill-fx-target');
-        expect(html).toContain('class="fx-yyt-spear"');
-        expect(html).not.toContain('fx-yyt-spear-');
-        expect(html).toContain('class="fx-yyt-bar"');
-        expect(html).toContain('class="fx-yyt-head"');
-        expect(html).toContain('class="fx-yyt-tassel"');
-        expect((html.match(/class="fx-yyt-(bar|head|tassel)"/g) ?? []).length).toBe(3);
-        expect(html.split('fx-yyt-speed fx-yyt-speed-').length - 1).toBe(2);
-        expect(html).toContain('fx-yyt-wave');
+        expect(html).toContain('skill-fx skill-fx-kind-yunying-arc-slash skill-fx-target');
+        expect(html).toContain('fx-yas-glow');
+        // 三格各刻一道刀痕会被看成三刀，逐格刀痕必须彻底没有
+        expect(html).not.toContain('fx-yas-arc');
+        expect(html).not.toContain('fx-yyt-');
+
+        const area = renderToStaticMarkup(<SkillAreaFx event={makeChargeEvent()} />);
+        expect(area).toContain('skill-area-fx-bladesweep');
+        expect(area.split('saf-blade saf-blade-').length - 1).toBe(2);
+        expect((area.match(/fx-yas-blade/g) ?? []).length).toBe(2);
+    });
+
+    it('踏火长驱逐格的火气跟上刀锋扫到本格的时刻', () => {
+        const event = makeChargeEvent();
+        const first = renderToStaticMarkup(<SkillFxVisual event={event} variant="area" atPos={[1, 3]} />);
+        const last = renderToStaticMarkup(<SkillFxVisual event={event} variant="area" atPos={[3, 3]} />);
+        expect(first).toContain('--yas-fwd:0ms');
+        expect(last).toContain('--yas-fwd:300ms');
     });
 
     it('烈火燎原：起手格火种炸开，射线格各起三道火舌 + 灼地环与热浪', () => {

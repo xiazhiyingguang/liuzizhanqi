@@ -1,4 +1,4 @@
-import { Hero, DamageResult, GameState, HeroState, BattleLogEntry } from '../types/game';
+import { Hero, DamageResult, GameState, HeroState, BattleLogEntry, Player } from '../types/game';
 import { EffectManager } from './effect-manager';
 import { MovementSystem } from './movement-system';
 import {
@@ -34,6 +34,7 @@ import {
     XIANGRUI_TRIGGER_STACKS,
     YUNYING_VAMPIRE_EFFECT,
     purgeYinyangLinksOf,
+    getJinghuaStacks,
 } from '../data/extended-heroes';
 import { recordBattleDamage, recordBattleHealing, recordBattleKill } from './battle-statistics';
 import {
@@ -244,6 +245,13 @@ export class DamageCalculator {
             attacker.currentHp * 2 > attacker.maxHp
         ) {
             finalDamage *= 1.5;
+        }
+        // 镜花·水月被动「镜湖双照」：每层镜影提升10%攻击（走增伤通道，她没有基础攻击力）
+        if (attacker.passiveId === 'jinghua_passive' && attacker.owner !== target.owner) {
+            const jingying = getJinghuaStacks(attacker);
+            if (jingying > 0) {
+                finalDamage *= 1 + 0.1 * jingying;
+            }
         }
         finalDamage *= options.damageMultiplier ?? 1;
         for (const effect of attacker.effects) {
@@ -693,6 +701,27 @@ export class DamageCalculator {
                     player: actualTarget.owner,
                     message: `${actualTarget.name}触发化险为夷，将伤害转化为${healed}点治疗`,
                     timestamp: Date.now()
+                });
+            }
+        }
+
+        // 镜花·水月被动「镜湖双照」：每层镜影提供10%闪避（上限5层=50%），只闪不反击
+        if (
+            !unavoidable &&
+            remainingDamage > 0 &&
+            actualTarget.passiveId === 'jinghua_passive' &&
+            attacker.owner !== actualTarget.owner
+        ) {
+            const jingying = getJinghuaStacks(actualTarget);
+            if (jingying > 0 && Math.random() < jingying * 0.1) {
+                remainingDamage = 0;
+                damageResult.finalDamage = 0;
+                damageResult.shieldDamage = 0;
+                damageResult.hpDamage = 0;
+                this.addBattleLog(gameState, {
+                    type: 'passive',
+                    player: actualTarget.owner,
+                    message: `${actualTarget.name}镜光晃影，闪避了${attacker.name}的攻击`
                 });
             }
         }
@@ -1463,6 +1492,21 @@ export class DamageCalculator {
             purgeYinyangLinksOf(target, gameState, '阵亡');
         }
 
+        // 镜花·水月阵亡：水月倒影与月座随镜碎散，不给无人认领的镜像留在场上
+        if (target.passiveId === 'jinghua_passive') {
+            const beforeMarks = (gameState.boardEffects ?? []).length;
+            gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect =>
+                !((effect.type === 'water-moon' || effect.type === 'moon-seat')
+                    && effect.sourceHeroId === target.id));
+            if ((gameState.boardEffects ?? []).length < beforeMarks) {
+                this.addBattleLog(gameState, {
+                    type: 'system',
+                    player: target.owner,
+                    message: `${target.name}阵亡，水月与月座随镜碎散`
+                });
+            }
+        }
+
         let removedCloneCount = 0;
         for (let r = 0; r < 6; r++) {
             for (let c = 0; c < 6; c++) {
@@ -1978,6 +2022,37 @@ export class DamageCalculator {
             }
         }
         this.triggerMirrorBrokenBlade(hero, gameState);
+    }
+
+    /**
+     * 镜花·水月天威的回声：击杀后随机点一名尚有天威的存活友方，
+     * 原地结算一次它的"击杀型天威"。排除镜花自己（她的天威是登场型，回声会递归）。
+     * 返回被回声的英雄名，供调用方写日志；无人可回声返回 null。
+     */
+    static rollRandomAllyTianwei(gameState: GameState, owner: Player, excludeHeroId: string): Hero | null {
+        const pool = (owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes).filter(hero =>
+            hero.id !== excludeHeroId &&
+            hero.state === HeroState.ALIVE &&
+            !!hero.position &&
+            !!hero.tianweiId &&
+            hero.passiveId !== 'jinghua_passive');
+        if (pool.length === 0) {
+            // 无人可回声也要明确播报——否则击杀后静默，很容易被当成没实现
+            this.addBattleLog(gameState, {
+                type: 'system',
+                player: owner,
+                message: '镜花照水击杀成功，但场上没有携带天威的友方可以回声'
+            });
+            return null;
+        }
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        this.triggerTianwei(pick, gameState);
+        this.addBattleLog(gameState, {
+            type: 'tianwei',
+            player: owner,
+            message: `月影回声：${pick.name}的天威随镜花照水一同响起`
+        });
+        return pick;
     }
 
     private static isInOwnSandDune(hero: Hero, gameState: GameState): boolean {

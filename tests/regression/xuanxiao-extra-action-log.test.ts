@@ -122,11 +122,19 @@ describe('AI 会施放并兑现玄霄的再动', () => {
             }
 
             const s = useGameStore.getState();
-            const cast = s.battleLog.filter(entry => entry.message.includes('立即再动')).length;
-            const triggered = s.battleLog.filter(entry => entry.message.includes('触发再次行动')).length;
+            const cast = s.battleLog.filter(entry => entry.message.includes('立即再动'));
+            const triggered = s.battleLog.filter(entry => entry.message.includes('触发再次行动'));
             expect(steps).toBeLessThan(1200);
-            expect(cast, `AI 整局未施放玄霄技能二（round=${s.roundNumber}）`).toBeGreaterThan(0);
-            expect(triggered).toBe(cast);
+            expect(cast.length, `AI 整局未施放玄霄技能二（round=${s.roundNumber}）`).toBeGreaterThan(0);
+            // 再动通道是共享的：墨阑「为道」、游隼、薛定谔被动都会播报「触发再次行动」，
+            // 因此只能按人名核对"玄霄这一次施放有没有被引擎兑现"，不能比较两条日志的总数
+            for (const entry of cast) {
+                const targetName = entry.message.split('令')[1]?.replace('立即再动', '').trim();
+                expect(
+                    triggered.some(item => item.message.startsWith(`${targetName}触发再次行动`)),
+                    `玄霄令「${targetName}」再动，但引擎没有兑现：${triggered.map(item => item.message).join(' / ')}`
+                ).toBe(true);
+            }
         } finally {
             Math.random = realRandom;
         }

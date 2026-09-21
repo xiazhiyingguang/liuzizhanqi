@@ -11,24 +11,33 @@ import {
     addDilanFeather,
     addTide,
     applyDilanWind,
+    clearBenchHeroHp,
     consumeDilanFeather,
     consumeTide,
     createTPaintingSummon,
     currentDeadCount,
+    findJinghua,
+    findMoonSeat,
+    findWaterMoon,
     getAllies,
     getEnemies,
     getDilanFeatherStacks,
     getJinghongOuterRing,
+    getJinghuaStacks,
     getLivingHeroes,
     getSummonOwnerId,
     getXiangruiStacks,
+    isJinghuaOffboard,
     isJinghongCharging,
     isJinghongReleaseWindow,
     isLingxiEchoPending,
     JINGHONG_MAX,
+    JINGHUA_STACK_MAX,
     resonanceCount,
+    setBenchHeroHp,
     YUNYING_VAMPIRE_EFFECT,
 } from './extended-heroes';
+import { createHero } from './heroes';
 
 function result(log: string[] = []): SkillExecuteResult {
     return { success: true, damageDealt: [], healingDone: [], effectsApplied: [], log };
@@ -1168,7 +1177,7 @@ export function getLibaiFrontRect(caster: Hero): Position[] {
  */
 export const libaiSkill2: Skill = {
     id: 'libai_skill2',
-    name: '谪仙谪仙醉斩',
+    name: '谪仙醉斩',
     type: 'damage',
     description: '对前方2x3范围内的所有敌方角色造成醉意数x4伤害，醉意清空',
     rangeType: 'line',
@@ -3107,8 +3116,8 @@ export const xueqiSkill2: Skill = {
    ============================================================ */
 
 const YUNYING_SPARK_DAMAGE = 3;           // 技能一：每名敌人 3 点
-const YUNYING_CHARGE_DAMAGE = 6;          // 技能二：前方每格 6 点
-const YUNYING_CHARGE_DEPTH = 3;           // 技能二：向前一格起算 3 格
+const YUNYING_SPARK_PER_STACK = 2;        // 技能一：目标每有 1 层祥瑞，这一击再 +2 点
+const YUNYING_CHARGE_DAMAGE = 6;          // 技能二：正前方每格 6 点
 const YUNYING_VAMPIRE_PER_TARGET = 0.2;   // 每个命中敌人为下一次攻击提供 20% 吸血
 
 function yunyingDirectionStep(dirCode: number): [number, number] {
@@ -3118,15 +3127,21 @@ function yunyingDirectionStep(dirCode: number): [number, number] {
     return [0, 1];
 }
 
-/** 云缨技能二：所选方向上、从自己起向前 3 格 */
+/**
+ * 云缨技能二：正前方那一排 3 格（宽 3、纵深 1，垂直于所选朝向）。
+ * 返回顺序恒为"横扫的正方向"（横排=左→右，竖排=上→下），特效据此排两道火斩的先后。
+ */
 export function getYunyingChargeCells(caster: Hero, dirCode: number): Position[] {
     if (!caster.position) return [];
     const [dr, dc] = yunyingDirectionStep(dirCode);
+    // 铺开方向是朝向的垂直轴
+    const [wr, wc] = dc !== 0 ? [1, 0] : [0, 1];
     const cells: Position[] = [];
-    for (let step = 1; step <= YUNYING_CHARGE_DEPTH; step++) {
-        const next: Position = [caster.position[0] + dr * step, caster.position[1] + dc * step];
-        if (next[0] < 0 || next[0] >= 6 || next[1] < 0 || next[1] >= 6) break;
-        cells.push(next);
+    for (let offset = -1; offset <= 1; offset++) {
+        const row = caster.position[0] + dr + wr * offset;
+        const col = caster.position[1] + dc + wc * offset;
+        if (row < 0 || row >= 6 || col < 0 || col >= 6) continue;
+        cells.push([row, col]);
     }
     return cells;
 }
@@ -3186,7 +3201,7 @@ export const yunyingSkill1: Skill = {
     id: 'yunying_skill1',
     name: '星火照野',
     type: 'damage',
-    description: '对周围一格（含斜角）的所有敌人各造成3点伤害，并按这些敌人引火前已有的祥瑞层数之和为自己叠加护盾',
+    description: '对周围一格（含斜角）的所有敌人各造成3点伤害，并按每名敌人引火前已有的祥瑞层数增伤（每层+2点）',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
@@ -3200,24 +3215,21 @@ export const yunyingSkill1: Skill = {
         const enemies = yunyingEnemiesOn(caster, cells, gameState);
         if (enemies.length === 0) return fail('周围没有可烧到的敌人');
 
-        // 护盾只看引火前已有的层数：本次刚叠上的那层不计入
-        const shieldGain = enemies.reduce((sum, enemy) => sum + getXiangruiStacks(enemy), 0);
+        // 增伤只看引火前已有的层数：本次命中刚叠上的那层不计入，否则越打越自我放大
+        const bonusByEnemy = new Map(enemies.map(enemy => [enemy.id, getXiangruiStacks(enemy)]));
 
         const output = result();
         output.fxCoveredPositions = MovementSystem.getAreaPositions(caster.position, 3);
         beginYunyingAttack(caster);
         DamageCalculator.asOneAttack(() => {
             for (const enemy of enemies) {
-                const hit = damageOne(caster, enemy, YUNYING_SPARK_DAMAGE, gameState, true);
+                const stacks = bonusByEnemy.get(enemy.id) ?? 0;
+                const hit = damageOne(caster, enemy, YUNYING_SPARK_DAMAGE + stacks * YUNYING_SPARK_PER_STACK, gameState, true);
                 output.damageDealt?.push(hit.finalDamage);
             }
         });
         finishYunyingAttack(caster);
 
-        if (shieldGain > 0) {
-            EffectManager.addShield(caster, shieldGain);
-            output.log.push(`${caster.name}借${shieldGain}层祥瑞护体，积攒${shieldGain}点护盾`);
-        }
         output.log.push(`${caster.name}星火照野，烧过${enemies.length}名敌人`);
         return output;
     },
@@ -3227,9 +3239,9 @@ export const yunyingSkill2: Skill = {
     id: 'yunying_skill2',
     name: '踏火长驱',
     type: 'damage',
-    description: '选择一个方向，对前方3格上的所有敌人造成6点伤害；按命中人数为下一次攻击附加吸血（每人20%，再次释放可刷新）',
+    description: '选择一个方向，对正前方一排3格（宽3深1）上的所有敌人造成6点伤害；按命中人数为下一次攻击附加吸血（每人20%，再次释放可刷新）',
     rangeType: 'line',
-    range: 3,
+    range: 1,
     targetType: 'enemy',
     targetCount: 'all',
     baseDamage: YUNYING_CHARGE_DAMAGE,
@@ -3397,11 +3409,466 @@ export const jinghongSkill2: Skill = {
 
         const output = result();
         output.fxCoveredPositions = [caster.position];
+        // 蓄力段不是斩击，切到「静水」自养光环的条件形态，别套用决渊那圈刀痕
+        gameState.skillFxExtras = {
+            fxVariant: 'jinghong_still',
+            coveredPositions: [caster.position],
+        };
         output.log.push(
             `${caster.name}敛息止水，消耗${stacks}层惊鸿，防御提升${Math.round(defenseRate * 100)}%`
         );
         return output;
     },
+};
+
+/* ============================================================
+   镜花·水月：水月换身 / 印月替身 / 镜湖双照
+   换位是她的骨架：技能1与友方真身换身并在水中留影，被动让队友拿移动力
+   换"镜像"（水月）或换本体，每一次交换都替她叠一层镜影；
+   大招把镜影印给候补替身，自己退坐月座，等人来踏座接她回场。
+   ============================================================ */
+
+/** 水月瞬身的护盾值 */
+const JINGHUA_MOON_SHIELD = 5;
+/** 天威登场照击的基础伤害 */
+const JINGHUA_ENTRANCE_DAMAGE = 5;
+
+function pushJinghuaLog(gameState: GameState, player: Player, message: string): void {
+    gameState.battleLog.push({
+        id: `log-${Date.now()}-${Math.random()}`,
+        timestamp: Date.now(),
+        type: 'passive',
+        player,
+        message,
+    });
+}
+
+function addJingyingFromSwap(jinghua: Hero, mover: Hero, gameState: GameState): void {
+    if (jinghua.state !== HeroState.ALIVE) return;
+    const before = jinghua.counters['镜影'] ?? 0;
+    if (before >= JINGHUA_STACK_MAX) {
+        pushJinghuaLog(gameState, jinghua.owner, `${jinghua.name}镜影已满（${JINGHUA_STACK_MAX}层），水面平静无波`);
+        return;
+    }
+    jinghua.counters['镜影'] = before + 1;
+    pushJinghuaLog(gameState, jinghua.owner,
+        `${jinghua.name}借${mover.name}的交换凝出镜影第${before + 1}层（${before + 1}/${JINGHUA_STACK_MAX}）`);
+}
+
+/**
+ * 某名友方移动时可选的"免费镜像落点"：镜花真身格 / 水月影格 / （镜花下场时）月座格。
+ * 这些格子并入移动高亮，点击后由 resolveJinghuaSwapMove 以交换结算，不走普通寻路。
+ */
+export function getJinghuaSwapDestinations(mover: Hero, gameState: GameState): Position[] {
+    if (mover.passiveId === 'jinghua_passive' || !mover.position) return [];
+    const jinghua = findJinghua(gameState, mover.owner);
+    if (!jinghua || jinghua.state === HeroState.DEAD) return [];
+    const [mr, mc] = mover.position;
+    const dests: Position[] = [];
+    if (isJinghuaOffboard(jinghua)) {
+        // 月座格被占时不再提供踏座落点（敌人压上占位就只能等自动归位）
+        const seat = findMoonSeat(gameState, mover.owner);
+        if (seat && !gameState.board[seat.position[0]][seat.position[1]]) {
+            dests.push([...seat.position] as Position);
+        }
+    } else {
+        if (jinghua.position && jinghua.state === HeroState.ALIVE) dests.push([...jinghua.position] as Position);
+        // 月影格被任何单位占着时不再提供踏月落点（ occupant 走开后可再踩）
+        const moon = findWaterMoon(gameState, mover.owner);
+        if (moon && !gameState.board[moon.position[0]][moon.position[1]]) {
+            dests.push([...moon.position] as Position);
+        }
+    }
+    return dests.filter(([r, c]) => !(r === mr && c === mc));
+}
+
+/**
+ * 天威·镜花照水：登场刹那照向离自己最近的敌人（并列即群攻），
+ * 造成5点伤害；若这一照击杀了敌人，随机回声一名友方单位的天威。
+ */
+export function jinghuaEntranceStrike(jinghua: Hero, gameState: GameState): void {
+    if (jinghua.state !== HeroState.ALIVE || !jinghua.position) return;
+    const enemies = getEnemies(jinghua, gameState).filter(
+        enemy => enemy.state === HeroState.ALIVE && enemy.position
+    );
+    if (enemies.length === 0) {
+        pushJinghuaLog(gameState, jinghua.owner, `${jinghua.name}登场，镜光落在空处`);
+        return;
+    }
+    let minDist = Infinity;
+    for (const enemy of enemies) {
+        minDist = Math.min(minDist, MovementSystem.getManhattanDistance(jinghua.position, enemy.position!));
+    }
+    const targets = enemies.filter(enemy =>
+        MovementSystem.getManhattanDistance(jinghua.position!, enemy.position!) === minDist);
+    let killed = 0;
+    const impactPositions: Position[] = [];
+    for (const enemy of targets) {
+        const before = enemy.state;
+        if (enemy.position) impactPositions.push([...enemy.position] as Position);
+        damageOne(jinghua, enemy, JINGHUA_ENTRANCE_DAMAGE, gameState, targets.length > 1);
+        if (before === HeroState.ALIVE && enemy.state !== HeroState.ALIVE) killed += 1;
+    }
+    pushJinghuaLog(gameState, jinghua.owner,
+        `${jinghua.name}天威·镜花照水，登场即照${targets.length === 1 ? `${targets[0].name}` : `${targets.length}名敌人`}，造成${JINGHUA_ENTRANCE_DAMAGE}点伤害`);
+    if (impactPositions.length > 0) {
+        requestSkillFx({
+            skillId: 'jinghua_tianwei',
+            owner: jinghua.owner,
+            fromPos: [...jinghua.position] as Position,
+            targetPos: impactPositions[0],
+            impactPositions,
+        });
+    }
+    if (killed > 0) {
+        const echoed = DamageCalculator.rollRandomAllyTianwei(gameState, jinghua.owner, jinghua.id);
+        if (echoed?.position) {
+            // 回声也要"看得见"：被点名友方脚下亮起一轮月华，播专属铃音
+            requestSkillFx({
+                skillId: 'jinghua_tianwei_echo',
+                owner: jinghua.owner,
+                fromPos: [...echoed.position] as Position,
+                targetPos: [...echoed.position] as Position,
+                impactPositions: [[...echoed.position] as Position],
+            });
+        }
+    }
+}
+
+/**
+ * 真身归场即收回替身：经「印月替身」登场的候补是镜中虚影——镜花回到场上，
+ * 虚影就散去：离场（棋盘+名册移除），模板 id 回候补席（若替身已经真阵亡则
+ * 不回收，保持死亡事实）。
+ */
+function retireJinghuaSubstitute(jinghua: Hero, gameState: GameState): Hero | null {
+    const pool = jinghua.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+    const sub = pool.find(hero => (hero.counters['__jinghua_substitute'] ?? 0) === 1);
+    if (!sub) return null;
+    sub.counters['__jinghua_substitute'] = 0;
+    if (sub.position) {
+        const [r, c] = sub.position;
+        if (gameState.board[r][c] === sub) gameState.board[r][c] = null;
+        sub.position = null;
+    }
+    const stillUsable = sub.state === HeroState.ALIVE || sub.state === HeroState.TEMP_DEAD;
+    // 替身是借来的形：消散后不留尸体，死亡账已由 handleDeath 记过
+    const idx = pool.indexOf(sub);
+    if (idx >= 0) pool.splice(idx, 1);
+    if (stillUsable) {
+        const templateId = sub.id.replace(/-(player1|player2)-\d+$/, '');
+        if (jinghua.owner === 'player1') {
+            gameState.player1BenchHeroIds = [...(gameState.player1BenchHeroIds ?? []), templateId];
+        } else {
+            gameState.player2BenchHeroIds = [...(gameState.player2BenchHeroIds ?? []), templateId];
+        }
+        // 候补席只存模板 id，实例连同伤口会被丢掉；不记这一笔，
+        // 替身挨的打就在真正补员登场时被清零
+        setBenchHeroHp(gameState, jinghua.owner, templateId, sub.currentHp);
+        pushJinghuaLog(gameState, jinghua.owner, `${sub.name}的月影替身功成身退，回到候补席`);
+    } else {
+        // 已经真阵亡：不回收，也别留下会被误用的残血记录
+        clearBenchHeroHp(gameState, jinghua.owner, sub.id.replace(/-(player1|player2)-\d+$/, ''));
+        pushJinghuaLog(gameState, jinghua.owner, `${sub.name}的月影替身随镜花归场散去`);
+    }
+    return sub;
+}
+
+/**
+ * 月座归场：镜花重返月座格（被占则就近让位），踏座者被安置到月座旁最近空格；
+ * 归场即触发天威登场照击。stepper 为 null 时是"三回合无人触发自动归位"。
+ */
+export function jinghuaMoonSeatReturn(
+    jinghua: Hero,
+    stepperArg: Hero | null,
+    gameState: GameState,
+    verb = '踏座而来'
+): void {
+    const seat = findMoonSeat(gameState, jinghua.owner);
+    if (!seat || !isJinghuaOffboard(jinghua)) return;
+    // 先收替身再落本体：棋盘同一时刻不出现 5 个现役角色。
+    // retired 必须带出去——踏座者往往就是替身自己，若不再拦一道，
+    // 下面的"让位"会把这名已从名册移除的虚影重新摆回棋盘，变成永远下场的卡死棋子
+    const retired = retireJinghuaSubstitute(jinghua, gameState);
+    const stepper = stepperArg && stepperArg !== retired ? stepperArg : null;
+    const [sr, sc] = seat.position;
+    if (stepper && gameState.board[sr][sc] === stepper) {
+        gameState.board[sr][sc] = null;
+    }
+    let landing: Position | null = gameState.board[sr][sc] === null ? [sr, sc] : null;
+    if (!landing) landing = MovementSystem.findNearestEmptyPosition([sr, sc], gameState);
+    if (!landing) return; // 棋盘塞满：继续留在月座等下一轮
+
+    gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => effect.id !== seat.id);
+    jinghua.state = HeroState.ALIVE;
+    jinghua.currentHp = Math.max(1, jinghua.counters['__jinghua_return_hp'] || Math.ceil(jinghua.maxHp / 2));
+    jinghua.counters['__jinghua_offboard'] = 0;
+    jinghua.position = landing;
+    jinghua.hasActedThisTurn = false;
+    jinghua.hasMovedThisTurn = false;
+    gameState.board[landing[0]][landing[1]] = jinghua;
+    if (stepper) {
+        // 踏座者让位：先抹掉他此刻所在的格（拦截发生在移动落地前，人还在出发格），
+        // 再安置到月座旁最近空格
+        if (stepper.position && gameState.board[stepper.position[0]][stepper.position[1]] === stepper) {
+            gameState.board[stepper.position[0]][stepper.position[1]] = null;
+        }
+        const spot = MovementSystem.findNearestEmptyPosition(landing, gameState);
+        if (spot) {
+            stepper.position = spot;
+            gameState.board[spot[0]][spot[1]] = stepper;
+        } else {
+            stepper.position = null;
+        }
+    }
+    pushJinghuaLog(gameState, jinghua.owner,
+        stepper
+            ? `${stepper.name}${verb}，${jinghua.name}携月之倒影归场（生命${jinghua.currentHp}）`
+            : stepperArg && stepperArg === retired
+                ? `${stepperArg.name}踏座交还月影，${jinghua.name}携月之倒影归场（生命${jinghua.currentHp}）`
+                : `月落时辰到，${jinghua.name}携月之倒影归场（生命${jinghua.currentHp}）`);
+    jinghuaEntranceStrike(jinghua, gameState);
+}
+
+/** 回合初结算：三回合将满仍未被踏响的月座自动归位（在通用 duration 衰减移除它之前抢一步） */
+export function tickJinghuaMoonSeats(gameState: GameState): void {
+    for (const seat of (gameState.boardEffects ?? []).filter(effect => effect.type === 'moon-seat')) {
+        if (seat.duration > 1) continue;
+        const jinghua = findJinghua(gameState, seat.owner);
+        if (jinghua && isJinghuaOffboard(jinghua)) {
+            jinghuaMoonSeatReturn(jinghua, null, gameState, '月落无声，自动归位');
+        } else {
+            gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => effect.id !== seat.id);
+        }
+    }
+}
+
+/**
+ * 镜花·水月被真阵亡带走时，水面倒影与月座随镜碎散（防止无人认领的常驻标记留在场地上）。
+ */
+export function purgeJinghuaMarks(hero: Hero, gameState: GameState): boolean {
+    const before = (gameState.boardEffects ?? []).length;
+    gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect =>
+        !((effect.type === 'water-moon' || effect.type === 'moon-seat') && effect.sourceHeroId === hero.id)
+    );
+    if (gameState.boardEffects.length === before) return false;
+    pushJinghuaLog(gameState, hero.owner, `${hero.name}阵亡，水月与月座随镜碎散`);
+    return true;
+}
+
+/**
+ * 队友"移动"点击镜像落点时的统一结算：真身换位 / 水月换影 / 踏座归场。
+ * 命中任一模式就完成全部盘面改动与日志，返回模式名；未命中返回 null 走普通移动。
+ */
+export function resolveJinghuaSwapMove(
+    mover: Hero,
+    to: Position,
+    gameState: GameState
+): 'self' | 'moon' | 'moonseat' | null {
+    if (!mover.position || mover.passiveId === 'jinghua_passive') return null;
+    const jinghua = findJinghua(gameState, mover.owner);
+    if (!jinghua) return null;
+    const [mr, mc] = mover.position;
+    const same = (pos: Position) => pos[0] === to[0] && pos[1] === to[1];
+    const stepsOf = (pos: Position) => Math.abs(mr - pos[0]) + Math.abs(mc - pos[1]);
+    // 任何交换结算都即时定格，不允许"撤回移动"回退位置/镜影/护盾收益
+    const lockSwap = () => { mover.counters['__jinghua_swap_no_undo'] = 1; };
+
+    if (isJinghuaOffboard(jinghua)) {
+        const seat = findMoonSeat(gameState, mover.owner);
+        if (seat && same(seat.position)) {
+            // 月座只认本方队友的踏座，且格上必须无人：被敌方站上时踏不响、
+            // 也绝不允许把占格的敌人挤开或把镜花硬塞进旁边格子
+            const occupant = gameState.board[seat.position[0]][seat.position[1]];
+            if (occupant && occupant !== mover) return null;
+            lockSwap();
+            jinghuaMoonSeatReturn(jinghua, mover, gameState);
+            return 'moonseat';
+        }
+        return null;
+    }
+
+    if (jinghua.state === HeroState.ALIVE && jinghua.position && same(jinghua.position)) {
+        const [jr, jc] = jinghua.position;
+        lockSwap();
+        gameState.board[mr][mc] = jinghua;
+        gameState.board[jr][jc] = mover;
+        mover.position = [jr, jc];
+        jinghua.position = [mr, mc];
+        const steps = stepsOf([jr, jc]);
+        DamageCalculator.applyDilanMovementDamage(mover, steps, gameState);
+        DamageCalculator.applyDilanMovementDamage(jinghua, steps, gameState);
+        addJingyingFromSwap(jinghua, mover, gameState);
+        pushJinghuaLog(gameState, mover.owner, `${mover.name}与${jinghua.name}穿过镜面互换了位置`);
+        return 'self';
+    }
+
+    const moon = findWaterMoon(gameState, mover.owner);
+    if (moon && same(moon.position)) {
+        // 月影格上站着别人时无法再踩：先让 occupant 走开，水月才可再次换影
+        const occupant = gameState.board[to[0]][to[1]];
+        if (occupant && occupant !== mover) return null;
+        lockSwap();
+        gameState.board[mr][mc] = null;
+        gameState.board[to[0]][to[1]] = mover;
+        mover.position = [to[0], to[1]];
+        moon.position = [mr, mc];
+        EffectManager.addShield(mover, JINGHUA_MOON_SHIELD);
+        const steps = stepsOf(to);
+        DamageCalculator.applyDilanMovementDamage(mover, steps, gameState);
+        addJingyingFromSwap(jinghua, mover, gameState);
+        pushJinghuaLog(gameState, mover.owner,
+            `${mover.name}借水月换影，不耗移动力掠至月影处并获得${JINGHUA_MOON_SHIELD}点护盾，月影退回其原位`);
+        return 'moon';
+    }
+    return null;
+}
+
+/**
+ * 换位印的镜影不该被"撤回移动"白嫖：交换完成即落账，标记拒绝撤回。
+ */
+export function jinghuaSwapLocked(hero: Hero): boolean {
+    return (hero.counters['__jinghua_swap_no_undo'] ?? 0) === 1;
+}
+
+/** 技能1「水月换身」：全场任选一名友方换身，原位放水月 */
+export const jinghuaSkill1: Skill = {
+    id: 'jinghua_skill1',
+    name: '水月换身',
+    type: 'special',
+    description: '与全场任意一名友方交换位置，并在自己原来的位置放置「水月」：被换上的队友正好落进水月格、立刻获得5点护盾；此后友方每次移动仍可再踏月换影（每次都得5护盾，水月随之挪到其出发格）。水月持续一回合，且镜花下一次行动后消失',
+    rangeType: '全场',
+    range: 6,
+    targetType: 'ally',
+    targetCount: 1,
+    execute: (caster, targets, gameState) => {
+        const ally = targets[0];
+        if (!ally?.position || !caster.position || ally === caster) return fail('请选择一名友方交换位置');
+        const [cr, cc] = caster.position;
+        const [ar, ac] = ally.position;
+        gameState.board[cr][cc] = ally;
+        gameState.board[ar][ac] = caster;
+        caster.position = [ar, ac];
+        ally.position = [cr, cc];
+        const steps = Math.abs(cr - ar) + Math.abs(cc - ac);
+        const output = result();
+        DamageCalculator.applyDilanMovementDamage(ally, steps, gameState);
+        DamageCalculator.applyDilanMovementDamage(caster, steps, gameState);
+        if (caster.state !== HeroState.ALIVE) {
+            output.log.push(`${caster.name}与${ally.name}换身途中${caster.name}触发羽化伤害并阵亡，水月未凝`);
+            return output;
+        }
+        // 换身把队友恰好送进水月格里：落地即结一次踏月收益（5点护盾），
+        // 之后他每次移动还能再来踩月；月影本体留在镜花的出发格
+        EffectManager.addShield(ally, JINGHUA_MOON_SHIELD);
+        output.log.push(`${caster.name}与${ally.name}换身归位，${ally.name}踏上月影获${JINGHUA_MOON_SHIELD}点护盾`);
+        const effects = gameState.boardEffects ?? [];
+        effects.push({
+            id: `water-moon-${caster.id}-${Date.now()}`,
+            type: 'water-moon',
+            position: [cr, cc],
+            owner: caster.owner,
+            sourceHeroId: caster.id,
+            duration: 1,
+            // 下一回合开始前一直可用；镜花再完成一次行动（计数+2）则由行动清理撤除
+            expireAtActionSerial: (caster.counters['__actionSerial'] ?? 0) + 2,
+        });
+        gameState.boardEffects = effects;
+        output.fxCoveredPositions = [[cr, cc]];
+        return output;
+    },
+};
+
+/** 技能2「印月替身」：唤候补登场携印月，自己退入月座等踏座归场 */
+export const jinghuaSkill2: Skill = {
+    id: 'jinghua_skill2',
+    name: '印月替身',
+    type: 'summon',
+    description: '选择一名候补友方登场到镜花周围3×3内的空格，按镜花当前镜影层数获得「印月」（每层攻防+10%，持续三回合），登场当回合不行动；镜花下场，原位留下「月座」：友方踏上月座即接镜花归场，三回合无人触发则自动归位',
+    rangeType: 'area',
+    range: 1,
+    areaSize: 3,
+    targetType: 'empty',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        const landing = encodedTarget(caster);
+        if (!caster.position || !landing) return fail('请选择登场落点');
+        const pickIndex = caster.counters['__jinghua_summon_pick'];
+        if (typeof pickIndex !== 'number' || pickIndex < 0) return fail('请先在技能栏选择一名候补友方');
+        const bench = caster.owner === 'player1'
+            ? gameState.player1BenchHeroIds ?? []
+            : gameState.player2BenchHeroIds ?? [];
+        const pick = bench[pickIndex];
+        if (!pick) return fail('该候补已不在席上');
+        if (pick === 'jinghua') return fail('镜中无处照出第二个镜花');
+        const [cr, cc] = caster.position;
+        const [lr, lc] = landing;
+        if (Math.abs(lr - cr) > 1 || Math.abs(lc - cc) > 1 || (lr === cr && lc === cc)) {
+            return fail('只能让友方落到镜花周围3×3内的空格');
+        }
+        if (!MovementSystem.inBounds(landing) || gameState.board[lr][lc] !== null) {
+            return fail('落点已被占据');
+        }
+
+        delete caster.counters['__jinghua_summon_pick'];
+        const stacks = getJinghuaStacks(caster);
+        const output = result();
+        const rookie = createHero(pick, caster.owner, landing);
+        // 标记月影替身：镜花归场时这一具要退回候补席
+        rookie.counters['__jinghua_substitute'] = 1;
+        // 与 T 型帛画重新落位同口径：登场这一拍只入座，不当回合行动
+        rookie.hasActedThisTurn = true;
+        rookie.hasMovedThisTurn = true;
+        addHeroToOwnerList(rookie, gameState);
+        gameState.board[lr][lc] = rookie;
+        if (caster.owner === 'player1') {
+            gameState.player1BenchHeroIds = (gameState.player1BenchHeroIds ?? []).filter(id => id !== pick);
+        } else {
+            gameState.player2BenchHeroIds = (gameState.player2BenchHeroIds ?? []).filter(id => id !== pick);
+        }
+        if (stacks > 0) {
+            // 印月要盖住替身真正能动手的那两拍：登场当回合只入座不行动，
+            // 三回合的月座窗口里它才有两次行动，增益不能比窗口先到期
+            EffectManager.addEffect(rookie, {
+                type: 'buff', name: '印月增伤', duration: 3, value: 0.1 * stacks,
+                sourceHeroId: caster.id, description: `镜影${stacks}层映入其身：攻击提升${stacks * 10}%`,
+            });
+            EffectManager.addEffect(rookie, {
+                type: 'buff', name: '印月免伤', duration: 3, value: 0.1 * stacks,
+                sourceHeroId: caster.id, description: `镜影${stacks}层映入其身：防御提升${stacks * 10}%`,
+            });
+        }
+        output.log.push(`${caster.name}推镜让身：${rookie.name}踏月登场${stacks > 0 ? `，携${stacks}层镜影凝成的印月` : ''}`);
+
+        // 下场：暂死留编制、不占死亡计数；镜影随印月清空，原位留下月座
+        const oldPos: Position = [cr, cc];
+        gameState.board[cr][cc] = null;
+        caster.counters['__jinghua_return_hp'] = caster.currentHp;
+        caster.currentHp = 0;
+        caster.state = HeroState.TEMP_DEAD;
+        caster.position = null;
+        caster.counters['__jinghua_offboard'] = 1;
+        caster.counters['镜影'] = 0;
+        const effects = gameState.boardEffects ?? [];
+        effects.push({
+            id: `moon-seat-${caster.id}-${Date.now()}`,
+            type: 'moon-seat',
+            position: oldPos,
+            owner: caster.owner,
+            sourceHeroId: caster.id,
+            // 三回合窗口：替身登场当回合只入座，之后才有两拍可动手
+            duration: 3,
+        });
+        gameState.boardEffects = effects;
+        output.log.push(`${caster.name}退入月座，静候有人踏月而来`);
+        output.fxCoveredPositions = [oldPos, landing];
+        return output;
+    },
+};
+
+export const jinghuaPassiveInfo = {
+    id: 'jinghua_passive',
+    name: '镜湖双照',
+    description: '友方每次移动都可以不消耗移动力选择与镜花·水月或其「水月」交换位置：每次交换为镜花叠1层镜影（上限5层）。镜影：每层提升10%闪避与10%攻击',
 };
 
 export const EXTENDED_SKILLS: Record<string, Skill> = {
@@ -3465,4 +3932,6 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     yunying_skill2: yunyingSkill2,
     jinghong_skill1: jinghongSkill1,
     jinghong_skill2: jinghongSkill2,
+    jinghua_skill1: jinghuaSkill1,
+    jinghua_skill2: jinghuaSkill2,
 };

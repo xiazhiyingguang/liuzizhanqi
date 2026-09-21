@@ -137,6 +137,8 @@ const AREA_TITLES: Record<BoardEffect['type'], string> = {
     'dark-circle': '暗夜法阵',
     'binding-zone': '束缚区',
     'blade-mark': '刃痕',
+    'water-moon': '水月之影',
+    'moon-seat': '月座',
     brush: '毛笔',
 };
 

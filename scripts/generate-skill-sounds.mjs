@@ -1202,6 +1202,37 @@ const RECIPES = {
         place(b, bell(0.45, { freq: 880, ratio: 1.42, modDepth: 2.0, gain: 0.35 }), 0.66);
         return b;
     } },
+
+    /* ===== 镜花·水月：水月换身 / 印月替身 / 天威·镜花照水 ===== */
+    jinghua_skill1: { build: () => {
+        const b = buffer(0.8);
+        // 镜面翻转的银色嗖声（两段错位，像在镜两边走位）
+        place(b, noiseBurst(0.26, { from: 3400, to: 900, type: 'bandpass', q: 1.8, attack: 0.005, release: 0.16, gain: 0.6 }));
+        place(b, noiseBurst(0.26, { from: 2600, to: 700, type: 'bandpass', q: 1.8, attack: 0.005, release: 0.16, gain: 0.5 }), 0.14);
+        // 水月凝成的清冷泛音
+        place(b, bell(0.5, { freq: 1568, ratio: 1.5, modDepth: 1.2, gain: 0.34 }), 0.3);
+        place(b, shimmer(0.4, { freqs: [2093, 2637], spacing: 0.09, gain: 0.26, release: 0.25 }), 0.42);
+        return b;
+    } },
+    jinghua_skill2: { build: () => {
+        const b = buffer(1.05);
+        // 镜面凹陷抽气：下行滑音
+        place(b, tone(0.4, { freq: 740, freqTo: 300, type: 'sine', attack: 0.01, decay: 0.12, sustain: 0.4, release: 0.2, gain: 0.45 }));
+        // 候补踏月登场：三重上行月铃
+        place(b, bell(0.45, { freq: 784, ratio: 1.4, modDepth: 1.6, gain: 0.4 }), 0.26);
+        place(b, bell(0.45, { freq: 988, ratio: 1.4, modDepth: 1.6, gain: 0.38 }), 0.4);
+        place(b, bell(0.6, { freq: 1319, ratio: 1.45, modDepth: 1.8, gain: 0.42 }), 0.54);
+        place(b, shimmer(0.45, { freqs: [1760, 2093, 2637], spacing: 0.08, gain: 0.24, release: 0.3 }), 0.62);
+        return b;
+    } },
+    jinghua_tianwei: { build: () => {
+        const b = buffer(0.7);
+        // 月光乍照：高频泛音起爆 + 一记银弦拂过
+        place(b, bell(0.4, { freq: 2093, ratio: 1.33, modDepth: 1.1, gain: 0.4 }));
+        place(b, noiseBurst(0.24, { from: 4200, to: 1400, type: 'bandpass', q: 2.2, attack: 0.003, release: 0.14, gain: 0.5 }), 0.06);
+        place(b, thump(0.28, { freq: 150, dropTo: 60, gain: 0.5, crack: 0.2 }), 0.1);
+        return b;
+    } },
 };
 
 /* ============================================================

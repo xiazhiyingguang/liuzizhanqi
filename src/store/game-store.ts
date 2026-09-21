@@ -9,8 +9,8 @@ import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { sendPlayerAction, syncGameState } from '../services/socket-service';
 import { noteReplayStep } from '../services/battle-replay';
-import { checkYinyangLinks, isJinghongReleaseWindow, syncPositionAnchoredEffects } from '../data/extended-heroes';
-import { castBloodSweep, castLiehuoBurn, drainPendingSkillFxRequests, getDilanFrontRect, getDilanSkill1Cells, getYunyingChargeCells, getLibaiFrontRect, grantLingxiAssist, hasShangguanDashOption, performShangguanDashSegment, settleXubaiOrbs, triggerXubaiEntrance, ZUIYI_MAX } from '../data/extended-skills';
+import { checkYinyangLinks, isJinghongReleaseWindow, syncPositionAnchoredEffects, takeBenchHeroHp } from '../data/extended-heroes';
+import { castBloodSweep, castLiehuoBurn, drainPendingSkillFxRequests, getDilanFrontRect, getDilanSkill1Cells, getJinghuaSwapDestinations, getYunyingChargeCells, getLibaiFrontRect, grantLingxiAssist, hasShangguanDashOption, jinghuaSwapLocked, performShangguanDashSegment, resolveJinghuaSwapMove, settleXubaiOrbs, triggerXubaiEntrance, ZUIYI_MAX } from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
 import { soundManager } from '../core/sound-manager';
 import { audioManager } from '../audio/audio-manager';
@@ -303,6 +303,8 @@ function syncEngineFlowFields(state: GameState): Partial<GameStore> {
         reinforceResumeContext: state.reinforceResumeContext,
         player1BenchHeroIds: state.player1BenchHeroIds,
         player2BenchHeroIds: state.player2BenchHeroIds,
+        player1BenchHp: state.player1BenchHp,
+        player2BenchHp: state.player2BenchHp,
         // 额外行动 / 强制行动（continueTurnFlow 可能发起或收尾）
         pendingExtraActionHeroIds: state.pendingExtraActionHeroIds,
         performingExtraAction: state.performingExtraAction,
@@ -370,6 +372,14 @@ interface GameStore extends GameState {
     pushSkillFx: (event: Omit<SkillFxEvent, 'id' | 'bornAt'>) => void;
     dismissSkillFx: (id: number) => void;
 
+    /**
+     * AI 接管开关：人机对战中把玩家这一侧也交给同一套电脑决策，
+     * 让玩家能脱手看两边 AI 对局；随时可开可停。
+     */
+    toggleAutoBattle: () => void;
+    /** 玩家手动操作即收回控制权：所有人类输入入口都先调它 */
+    releaseAutoBattle: () => void;
+
     // 初始化游戏
     initGame: () => void;
 
@@ -404,6 +414,8 @@ interface GameStore extends GameState {
     selectDaiReviveTarget: (heroId: string) => void;
     toggleChangliSkill2Empowered: () => void;
     toggleJetzmiSkill1Enhanced: () => void;
+    /** 镜花「印月替身」：技能栏点选候补友方（写入英雄计数器，施法时消费） */
+    selectJinghuaSummonHero: (templateId: string | null) => void;
     selectHeroXRedirectTarget: (heroId: string) => void;
     selectSoulLampBeneficiary: (heroId: string) => void;
     selectSkillHeroTarget: (heroId: string) => void;
@@ -463,6 +475,8 @@ export function createOnlineStateSnapshot(state: GameStore) {
         player2ReadyDeploy: state.player2ReadyDeploy,
         player1BenchHeroIds: state.player1BenchHeroIds,
         player2BenchHeroIds: state.player2BenchHeroIds,
+        player1BenchHp: state.player1BenchHp,
+        player2BenchHp: state.player2BenchHp,
         reinforcingPlayer: state.reinforcingPlayer,
         reinforceResumeContext: state.reinforceResumeContext,
         pendingExtraActionHeroIds: state.pendingExtraActionHeroIds,
@@ -554,6 +568,8 @@ const createInitialState = (): GameState => ({
     player1ReadyDeploy: false,
     player2ReadyDeploy: false,
     player1BenchHeroIds: [],
+    player1BenchHp: {},
+    player2BenchHp: {},
     player2BenchHeroIds: [],
     reinforcingPlayer: null,
     reinforcementSelectableHeroId: null,
@@ -567,6 +583,7 @@ const createInitialState = (): GameState => ({
     isAiMode: false,
     aiPlayer: undefined,
     aiDifficulty: undefined,
+    autoBattle: false,
     performingExtraAction: false,
     resumePlayer: undefined,
     pendingForcedActionHeroId: undefined,
@@ -593,6 +610,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     wukongSkill2State: undefined,
     suppressOnlineBroadcast: false,
     skillFx: [],
+
+    toggleAutoBattle: () => {
+        const state = get();
+        // 只在人机对局的战斗阶段成立：联机与选将/布阵阶段一律不开
+        if (!state.isAiMode || state.isOnlineMode || state.phase !== 'battle') return;
+        set({ autoBattle: !state.autoBattle });
+    },
+
+    releaseAutoBattle: () => {
+        if (get().autoBattle) set({ autoBattle: false });
+    },
 
     initGame: () => {
         const onlineContext = get();
@@ -929,6 +957,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!GameEngine.hasReinforcementNeed(state, player)) return false;
 
         const hero = createHero(heroId, player, position);
+        // 曾被临时拉上场又退回候补席的，按离场那一刻的血量入场，而不是又开满血新号
+        const carriedHp = takeBenchHeroHp(state, player, heroId);
+        if (carriedHp !== undefined && carriedHp > 0) {
+            hero.currentHp = Math.min(hero.maxHp, carriedHp);
+        }
         hero.hasActedThisTurn = false;  // 当轮即可行动
         hero.hasMovedThisTurn = false;
         // 补员是在回合开始之后进场，回合初的快照里没有它；不补录就无法被「时空回溯」
@@ -1193,6 +1226,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
 
         const movablePositions = MovementSystem.getMovablePositions(hero, state);
+        // 镜花·水月的被动免费落点：镜花真身格 / 水月影格 / 月座格（点击后走交换结算）
+        const swapDests = getJinghuaSwapDestinations(hero, state);
+        const moveKeys = new Set(movablePositions.map(([r, c]) => `${r}:${c}`));
+        for (const [r, c] of swapDests) {
+            const key = `${r}:${c}`;
+            if (!moveKeys.has(key)) {
+                moveKeys.add(key);
+                movablePositions.push([r, c]);
+            }
+        }
         set({
             highlightedPositions: movablePositions,
             moveRange: movablePositions,
@@ -1243,7 +1286,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const youjunPathBefore = hero.passiveId === 'youjun_passive'
             ? (hero.counters['youjun_moved_path'] ?? 0)
             : 0;
-        const success = MovementSystem.moveHero(hero, to, state);
+        // 镜花·水月：点击真身格/水月影格/月座格先走"交换"结算，命中则不再走普通移动
+        const jinghuaSwap = resolveJinghuaSwapMove(hero, to, state);
+        const success = jinghuaSwap !== null || MovementSystem.moveHero(hero, to, state);
+        if (jinghuaSwap) {
+            hero.counters['__jinghua_swap_no_undo'] = 1;
+        } else {
+            delete hero.counters['__jinghua_swap_no_undo'];
+        }
 
         if (success) {
             if (hero.name === '琉璃') {
@@ -1359,6 +1409,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
         if (hero.state !== HeroState.ALIVE || !hero.position) return;
+        // 镜花交换（真身换位/水月换影/踏座归场）落账即定格，撤回会连带错位与白嫖镜影
+        if (jinghuaSwapLocked(hero)) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}的镜中交换已经落定，无法撤回移动`
+            });
+            return;
+        }
 
         const encoded = hero.counters['__move_from'];
         if (encoded === undefined) {
@@ -1851,6 +1910,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
             : state.deathCounters.player2Dead;
         if (resonance < 2) return;
         set({ jetzmiSkill1Enhanced: !state.jetzmiSkill1Enhanced });
+    },
+
+    selectJinghuaSummonHero: (templateId: string | null) => {
+        const state = get();
+        const hero = state.selectedHero;
+        if (!hero || hero.passiveId !== 'jinghua_passive') return;
+        if (state.selectedSkill?.id !== 'jinghua_skill2') return;
+        if (templateId) {
+            // counters 只存数字：把模板 id 编码为候补席下标，施法时由技能自行解出
+            const bench = hero.owner === 'player1'
+                ? state.player1BenchHeroIds ?? []
+                : state.player2BenchHeroIds ?? [];
+            const index = bench.indexOf(templateId);
+            if (index < 0) return;
+            hero.counters['__jinghua_summon_pick'] = index;
+        } else {
+            delete hero.counters['__jinghua_summon_pick'];
+        }
+        // 选择写在英雄计数器上，刷新数组引用让技能栏即时重绘
+        set({
+            player1Heroes: [...state.player1Heroes],
+            player2Heroes: [...state.player2Heroes],
+        });
     },
 
     selectHeroXRedirectTarget: (heroId: string) => {
@@ -2704,7 +2786,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
         }
 
-        // 云缨技能2：点相邻方向格定住长驱方向后，直接结算前方3格
+        // 云缨技能2：点相邻方向格定住长驱方向后，直接结算正前方那一排 3 格
         if (skill.id === 'yunying_skill2' && hero.counters['__yunying_skill2_dir'] === undefined) {
             if (!hero.position) return;
             const [cr, cc] = hero.position;

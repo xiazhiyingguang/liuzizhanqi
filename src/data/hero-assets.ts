@@ -38,6 +38,10 @@ export const HERO_ASSET_IDS = [
     'yousun',
     'xubai',
     'lingxi',
+    'xueqi',
+    'yunying',
+    'jinghong',
+    'jinghua',
 ] as const;
 
 export type HeroAssetId = typeof HERO_ASSET_IDS[number];
@@ -56,6 +60,12 @@ const TEMPLATE_ASSET_ALIASES: Record<string, HeroAssetId> = {
     dai: 'daier',
 };
 
+/** 图片文件名与模板 ID 不同的英雄（立绘按完整称号命名，模板 ID 只取前半） */
+const ASSET_FILE_NAMES: Partial<Record<HeroAssetId, string>> = {
+    jinghong: 'jinghongzhishui',
+    jinghua: 'jinghuashuiyue',
+};
+
 export const HERO_ASSETS: Record<HeroAssetId, HeroAsset> = Object.fromEntries(
     HERO_ASSET_IDS.map(heroId => [
         heroId,
@@ -63,8 +73,8 @@ export const HERO_ASSETS: Record<HeroAssetId, HeroAsset> = Object.fromEntries(
             avatar: '/others/full-body/shamozhinu.png',
             fullBody: '/others/full-body/shamozhinu.png',
         } : {
-            avatar: `/hero-images/avatars/${heroId}.png`,
-            fullBody: `/hero-images/full-body/${heroId}.png`,
+            avatar: `/hero-images/avatars/${ASSET_FILE_NAMES[heroId] ?? heroId}.png`,
+            fullBody: `/hero-images/full-body/${ASSET_FILE_NAMES[heroId] ?? heroId}.png`,
         },
     ])
 ) as Record<HeroAssetId, HeroAsset>;

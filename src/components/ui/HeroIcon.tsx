@@ -562,6 +562,19 @@ function JinghongIcon() {
     );
 }
 
+function JinghuaIcon() {
+    // 镜花·水月 — 执镜映月，镜里一轮、水面一轮，花影落在两端
+    return (
+        <Stroke>
+            <circle cx="12.5" cy="11" r="7" />
+            <path d="M12.5 7.5 Q14.5 6 16.5 7.8" strokeWidth={1.2} opacity={0.6} />
+            <path d="M6 22 Q11 19.5 16 22 Q21 24.5 26.5 22" strokeWidth={1.5} opacity={0.7} />
+            <circle cx="20.5" cy="26.5" r="3" strokeWidth={1.2} opacity={0.5} />
+            <path d="M25 13 Q27.5 15.5 25.5 18.5" strokeWidth={1.3} opacity={0.6} />
+        </Stroke>
+    );
+}
+
 /* 通用/默认图标 */
 function DefaultIcon() {
     return (
@@ -631,6 +644,7 @@ const iconMap: Record<string, () => JSX.Element> = {
     xueqi: () => <XueqiIcon />,
     yunying: () => <YunyingIcon />,
     jinghong: () => <JinghongIcon />,
+    jinghua: () => <JinghuaIcon />,
 };
 
 /** 已拥有专属线性图标的英雄模板 id；新增英雄必须补一个，否则测试会拦住通用兜底图标 */

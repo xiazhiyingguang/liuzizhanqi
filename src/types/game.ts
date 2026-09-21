@@ -224,7 +224,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -291,6 +291,10 @@ export interface GameState {
     // 替补制：六人选将、四人上阵，阵亡后从替补席立即补员
     player1BenchHeroIds?: string[];  // 玩家1替补席（已选将但尚未上场的英雄模板id）
     player2BenchHeroIds?: string[];  // 玩家2替补席
+    // 候补席上的"带伤入场"账：模板id → 离场那一刻的生命。
+    // 未登场单位没有实例，只有被临时拉上场又退回候补席的才会在这里留数
+    player1BenchHp?: Record<string, number>;
+    player2BenchHp?: Record<string, number>;
     reinforcingPlayer?: Player | null;          // 当前需要补员上场的一方（null=无）
     reinforcementSelectableHeroId?: string | null; // 补员交互中已点选的替补英雄（UI用）
     reinforceResumeContext?: {       // 补员完成后续跑回合流程所需上下文（endHeroAction 挂起时记录）
@@ -309,6 +313,7 @@ export interface GameState {
     isAiMode?: boolean;           // 是否由本地电脑控制一方
     aiPlayer?: Player;            // 电脑控制的玩家，当前固定为玩家2
     aiDifficulty?: AiDifficulty;  // 简单/普通/宗师三档（默认宗师）：影响容差、失误率与规划深度
+    autoBattle?: boolean;         // AI 接管：把玩家这一侧也交给电脑决策（仅战斗阶段生效）
 
     // 特殊行动标记
     pendingExtraActionHeroIds?: Partial<Record<Player, string>>; // 待执行额外行动的英雄ID（按玩家分槽位）

@@ -292,6 +292,22 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                     <Blink count={1} />
                 </>
             );
+        case 'jingying':
+            // 镜影：环绕的碎镜片数=当前层数（上限5），银蓝冷光
+            return (
+                <Orbit
+                    count={Math.max(1, Math.min(5, hero?.counters['镜影'] ?? 0))}
+                    className="sfx-orbit-jingying"
+                />
+            );
+        case 'imprint':
+            // 印月：一轮月环缓旋 + 上浮辉屑
+            return (
+                <>
+                    <i className="sfx-ring sfx-imprint-ring" />
+                    <Rise count={2} />
+                </>
+            );
         case 'xubai-orbs':
             // 黑白球：环绕珠数 = 剩余颗数（上限3），黑白交替阴阳配色
             return (

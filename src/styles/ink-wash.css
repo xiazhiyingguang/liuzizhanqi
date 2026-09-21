@@ -6678,6 +6678,193 @@
     100% { opacity: 0; transform: scale(1.18); }
 }
 
+/* ============================================================
+   惊鸿·技能二「止水决渊」——环海旋斩
+   一柄水蓝旋刃以她为心顺时针扫过一整圈：刃头厚而亮，往后依次收细成
+   一道水线（四层 dash 弧叠出锥度），转满一周再炸开一圈外飞水沫。
+   环身正好罩住以她为中心的 5×5，越界部分由 clip-path 按盘边裁掉。
+   ============================================================ */
+
+.fx-slashring {
+    /* 一格在网格里的间距 = 格宽 + 格间距；环身要正好罩住 5×5，
+       横向即 4 个间距再加一格宽，裁切量也按同一单位算才不会切错 */
+    --fx-pitch: calc(var(--board-cell-size, 76px) + 6px);
+    --fx-ring-size: calc(var(--fx-pitch) * 4 + var(--board-cell-size, 76px));
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--fx-ring-size);
+    height: var(--fx-ring-size);
+    margin: calc(var(--fx-ring-size) / -2) 0 0 calc(var(--fx-ring-size) / -2);
+    /* 裁切线严格落在盘边上（圆环本身收在框内，模糊不会顶到框）：
+       留溢出余量会让刃口这种细亮线探到棋盘外面，反而更难看 */
+    clip-path: inset(
+        calc(var(--fx-pitch) * var(--fx-clip-t, 0))
+        calc(var(--fx-pitch) * var(--fx-clip-r, 0))
+        calc(var(--fx-pitch) * var(--fx-clip-b, 0))
+        calc(var(--fx-pitch) * var(--fx-clip-l, 0))
+    );
+    pointer-events: none;
+}
+
+/* 旋刃组：dash 的终点即刃头，整组自 12 点起顺时针扫满一周后减速收势 */
+.fx-slashring-blade {
+    position: absolute;
+    inset: 0;
+    transform: rotate(-90deg);
+    animation:
+        fx-slash-spin 460ms cubic-bezier(0.1, 0.75, 0.25, 1) forwards,
+        fx-slash-vanish 300ms ease-in 460ms forwards;
+}
+
+.fx-slashring-blade svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
+}
+
+/* 四层弧都以 dash 终点（origin）收尾，长度与粗细依次递减，
+   叠起来才是"刃头厚、拖痕越来越细"的一道斩痕；
+   等宽单圈只会读成一根静止的圆 */
+.fx-slashring-blade circle {
+    fill: none;
+    stroke-linecap: round;
+}
+
+.fx-slash-tail {
+    stroke: var(--fx-c1, #2f8fb0);
+    stroke-width: 3.4;
+    stroke-dasharray: 58 42;
+    stroke-dashoffset: 58;
+    opacity: 0.34;
+}
+
+.fx-slash-mid {
+    stroke: var(--fx-c1, #2f8fb0);
+    stroke-width: 7;
+    stroke-dasharray: 26 74;
+    stroke-dashoffset: 26;
+    opacity: 0.7;
+}
+
+.fx-slash-head {
+    stroke: var(--fx-c2, #bdf0ff);
+    stroke-width: 10;
+    stroke-dasharray: 11 89;
+    stroke-dashoffset: 11;
+    opacity: 0.9;
+}
+
+.fx-slash-core {
+    stroke: #ffffff;
+    stroke-width: 3.4;
+    stroke-dasharray: 11 89;
+    stroke-dashoffset: 11;
+}
+
+/* 刃头水珠：一团凝在锋尖上的水光，跟着旋刃一起绕圈。
+   dash 的终点在 svg 的 3 点方向（半径 42），故贴在框内 92% 处而非正上方 */
+.fx-slash-glaze {
+    position: absolute;
+    left: 85.5%;
+    top: 43.5%;
+    width: 13%;
+    height: 13%;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        #ffffff 0%,
+        rgba(200, 244, 255, 0.9) 34%,
+        rgba(120, 205, 235, 0.3) 62%,
+        transparent 76%);
+    filter: blur(1px);
+}
+
+/* 湿痕：旋刃扫过的环形水面留一层薄光，交代这一圈确实被切过 */
+.fx-slashring-sheen {
+    position: absolute;
+    inset: 8%;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        transparent 50%,
+        rgba(47, 143, 176, 0.11) 68%,
+        rgba(150, 220, 245, 0.18) 84%,
+        transparent 93%);
+    filter: blur(4px);
+    opacity: 0;
+    transform: scale(0.72);
+    animation: fx-slash-sheen 780ms ease-out forwards;
+}
+
+/* 定形一闪：转满整圈时环形水痕骤然亮起再扩散消失，即"斩势落定" */
+.fx-slashring-flash {
+    position: absolute;
+    inset: 8%;
+    border-radius: 50%;
+    border: 4px solid rgba(232, 252, 255, 1);
+    box-shadow:
+        0 0 18px var(--fx-glow, rgba(47, 143, 176, 0.55)),
+        inset 0 0 16px var(--fx-glow, rgba(47, 143, 176, 0.55));
+    opacity: 0;
+    transform: scale(0.92);
+    animation: fx-slash-flash 340ms ease-out 400ms forwards;
+}
+
+/* 水沫：斩势落定时沿半径向外迸出的十滴水珠 */
+.fx-slashring-spray {
+    position: absolute;
+    inset: 0;
+}
+
+.fx-slashring-spray b {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 7.5%;
+    height: 7.5%;
+    margin: -3.75% 0 0 -3.75%;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        #ffffff 0%,
+        rgba(190, 236, 252, 0.7) 52%,
+        transparent 76%);
+    opacity: 0;
+    animation: fx-slash-spray 340ms ease-out 430ms forwards;
+}
+
+@keyframes fx-slash-spin {
+    from { transform: rotate(-90deg); }
+    to { transform: rotate(270deg); }
+}
+
+@keyframes fx-slash-vanish {
+    to { opacity: 0; transform: rotate(270deg) scale(1.05); }
+}
+
+@keyframes fx-slash-sheen {
+    0% { opacity: 0; transform: scale(0.72); }
+    38% { opacity: 1; }
+    100% { opacity: 0; transform: scale(1.05); }
+}
+
+@keyframes fx-slash-flash {
+    0% { opacity: 0; transform: scale(0.92); }
+    18% { opacity: 1; }
+    100% { opacity: 0; transform: scale(1.14); }
+}
+
+@keyframes fx-slash-spray {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--fx-angle, 0deg)) translateY(calc(var(--board-cell-size, 76px) * -1.6)) scale(0.5);
+    }
+    22% { opacity: 1; }
+    100% {
+        opacity: 0;
+        transform: rotate(var(--fx-angle, 0deg)) translateY(calc(var(--board-cell-size, 76px) * -2.75)) scale(0.28);
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .fx-pearl,
     .fx-pearl-orbit,
@@ -6686,6 +6873,10 @@
     .fx-wave,
     .fx-wave-cast,
     .fx-wave-spray,
+    .fx-slashring-blade,
+    .fx-slashring-sheen,
+    .fx-slashring-flash,
+    .fx-slashring-spray b,
     .fx-wavering,
     .fx-wavefoam,
     .fx-fan svg,
@@ -7516,11 +7707,10 @@
 }
 
 /* ============================================================
-   云缨·乱樱枪影 / 踏火一刺（yunying-sweep / yunying-thrust）
-   技能一：四道弧刃绕格心逐条甩开（错峰 170ms，一条看清了才出下一条），
-           收势时枪杆整条抽打一记，呈现"长枪在空中搅出凌乱刀刃"的观感；
-   技能二：一杆真正的长枪（枪杆+枪头+红缨）沿攻击方向贯出一记，顶到最深处
-           炸开震环并震一下格子 —— 只做一次冲击，干净利落。
+   云缨·乱樱枪影（yunying-sweep，技能一「星火照野」）
+   四道弧刃绕格心逐条甩开（错峰 170ms，一条看清了才出下一条），
+   收势时枪杆整条抽打一记，呈现"长枪在空中搅出凌乱刀刃"的观感。
+   技能二「踏火长驱」的双道火斩见文件末尾 yunying-arc-slash 一节。
    配色由档案注入 --fx-c1（焰金）/--fx-c2（烧红）/--fx-glow。
    ============================================================ */
 
@@ -7589,136 +7779,6 @@
     100% { opacity: 0; transform: rotate(calc(var(--fx-rot, 0deg) + 44deg)) translateX(56%) scaleX(1.1); }
 }
 
-/* —— 踏火一刺：整杆长枪（枪杆 + 枪头 + 红缨）只贯出一记 —— */
-.fx-yyt-spear {
-    --spear-len: calc((var(--board-cell-size) + 6px) * 2.45);
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: var(--spear-len);
-    height: 30px;
-    margin: -15px 0 0 calc(var(--spear-len) * -0.3);
-    transform-origin: 30% 50%;
-    filter: drop-shadow(0 0 13px var(--fx-glow));
-    opacity: 0;
-    animation: fx-yyt-spear 520ms cubic-bezier(0.08, 0.86, 0.22, 1) 80ms forwards;
-}
-
-/* 枪杆：木杆一路烧到焰色，越靠近枪头越亮 */
-.fx-yyt-bar {
-    position: absolute;
-    left: 0;
-    right: 24%;
-    top: 50%;
-    height: 7px;
-    margin-top: -3.5px;
-    border-radius: 999px 2px 2px 999px;
-    background: linear-gradient(90deg,
-        rgba(50, 22, 14, 0.6) 0%,
-        #7d2f18 24%,
-        var(--fx-c2, #ff4d2e) 64%,
-        #ffdfc4 92%,
-        #fff6ec 100%);
-}
-
-/* 枪头：柳叶形锋尖，贴在杆身前端 */
-.fx-yyt-head {
-    position: absolute;
-    right: 0;
-    top: 50%;
-    width: 26%;
-    height: 23px;
-    margin-top: -11.5px;
-    clip-path: polygon(0% 50%, 38% 4%, 72% 22%, 100% 50%, 72% 78%, 38% 96%);
-    background: linear-gradient(90deg, var(--fx-c2, #ff4d2e) 0%, #ffe9d6 72%, #ffffff 100%);
-}
-
-/* 枪头下的红缨 */
-.fx-yyt-tassel {
-    position: absolute;
-    right: 22%;
-    top: 50%;
-    width: 11%;
-    height: 28px;
-    margin-top: -14px;
-    border-radius: 46% 46% 62% 62%;
-    background: linear-gradient(180deg, #ff6a44 0%, #b8241a 100%);
-    box-shadow: 0 0 8px rgba(255, 96, 60, 0.7);
-}
-
-/* 突刺 = 捅出去、在最深处顶住一下、再抽回 */
-@keyframes fx-yyt-spear {
-    0% { opacity: 0; transform: rotate(var(--fx-rot, 0deg)) translateX(-58%) scale(0.88); }
-    12% { opacity: 1; }
-    34% { opacity: 1; transform: rotate(var(--fx-rot, 0deg)) translateX(44%) scale(1.06); }
-    50% { opacity: 1; transform: rotate(var(--fx-rot, 0deg)) translateX(40%) scale(1.05); }
-    100% { opacity: 0; transform: rotate(var(--fx-rot, 0deg)) translateX(-12%) scale(1); }
-}
-
-/* 速度线：贴著枪身两侧的残光，只在刺出的瞬间亮一下 */
-.fx-yyt-speed {
-    --sp-off: 0px;
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: calc((var(--board-cell-size) + 6px) * 1.5);
-    height: 2px;
-    margin: -1px 0 0 calc((var(--board-cell-size) + 6px) * -0.75);
-    border-radius: 999px;
-    background: linear-gradient(90deg,
-        rgba(255, 255, 255, 0) 0%,
-        var(--fx-c1, #ffb347) 58%,
-        #fffdf6 100%);
-    opacity: 0;
-    animation: fx-yyt-speed 260ms ease-out forwards;
-}
-
-@keyframes fx-yyt-speed {
-    0% { opacity: 0; transform: rotate(var(--fx-rot, 0deg)) translateY(var(--sp-off)) translateX(-62%) scaleX(0.3); }
-    24% { opacity: 0.9; }
-    100% { opacity: 0; transform: rotate(var(--fx-rot, 0deg)) translateY(var(--sp-off)) translateX(58%) scaleX(1.2); }
-}
-
-.fx-yyt-speed-1 { --sp-off: -13px; animation-delay: 100ms; }
-.fx-yyt-speed-2 { --sp-off: 13px; animation-delay: 170ms; }
-
-/* 枪尖贯入时炸开的震环 */
-.fx-yyt-wave {
-    position: absolute;
-    inset: 8%;
-    border-radius: 50%;
-    border: 2px solid var(--fx-c2, #ff4d2e);
-    box-shadow: 0 0 10px var(--fx-glow);
-    opacity: 0;
-    animation: fx-yyt-wave 520ms ease-out 260ms forwards;
-}
-
-@keyframes fx-yyt-wave {
-    0% { opacity: 0; transform: scale(0.3); }
-    22% { opacity: 0.95; }
-    100% { opacity: 0; transform: scale(2.2); }
-}
-
-/* 爆闪、冲击环、碎屑全部压到枪尖顶到位的那一拍，别抢在枪之前 */
-.fx-yyt .fxp-hitflash { animation-delay: 230ms; }
-.fx-yyt .fxp-ring { animation-delay: 250ms; }
-.fx-yyt .fxp-shard { animation-delay: 260ms; }
-
-/* 枪尖到位时震一下格子 */
-.skill-fx-target.skill-fx-kind-yunying-thrust {
-    animation: fx-cell-quake 320ms ease-out 240ms;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .fx-yys-arc,
-    .fx-yys-shaft,
-    .fx-yyt-spear,
-    .fx-yyt-speed,
-    .fx-yyt-wave {
-        animation-duration: 0.01s !important;
-        animation-delay: 0s !important;
-    }
-}
 
 /* ============================================================
    云缨·烈火燎原（liehuo-blaze）
@@ -7879,23 +7939,23 @@
     --s0-x: calc(1 - min(1, (var(--sa-cols, 1) - 1)) * 0.92);
     --s0-y: calc(1 - min(1, (var(--sa-rows, 1) - 1)) * 0.92);
     position: absolute;
-    inset: 2%;
+    inset: 14%;
     border-radius: 999px;
     transform-origin: calc((1 - var(--fx-travel-x, 1)) * 50%) calc((1 - var(--fx-travel-y, 1)) * 50%);
     background: radial-gradient(ellipse at 50% 50%,
-        rgba(255, 248, 220, 0.92) 0%,
-        var(--fx-c2, #ffe08a) 24%,
-        var(--fx-c1, #ff7a3c) 52%,
-        rgba(220, 66, 18, 0.42) 74%,
+        rgba(255, 238, 190, 0.4) 0%,
+        var(--fx-c2, #ffe08a) 26%,
+        var(--fx-c1, #ff7a3c) 54%,
+        rgba(200, 54, 12, 0.18) 76%,
         rgba(255, 255, 255, 0) 100%);
-    filter: blur(2.5px);
+    filter: blur(5px);
     mix-blend-mode: screen;
     opacity: 0;
     animation: saf-fw-grow 1180ms cubic-bezier(0.12, 0.8, 0.28, 1) forwards;
 }
 
 .skill-area-fx-firewall .saf-fw-wash-b {
-    inset: 16%;
+    inset: 30%;
     filter: blur(6px);
     animation-duration: 1320ms;
     animation-delay: 140ms;
@@ -7903,17 +7963,17 @@
 
 @keyframes saf-fw-grow {
     0% { opacity: 0; transform: scale(var(--s0-x), var(--s0-y)); }
-    18% { opacity: 0.96; }
-    52% { opacity: 0.9; transform: scale(1.02, 1.06); }
+    18% { opacity: 0.78; }
+    52% { opacity: 0.7; transform: scale(1.02, 1.06); }
     100% { opacity: 0; transform: scale(1.06, 1.2); }
 }
 
-/* 白热内核：贴着射线中心的一道亮筋 */
+/* 白热内核：贴着射线中心的一道细亮筋 */
 .skill-area-fx-firewall .saf-fw-edge {
     --s0-x: calc(1 - min(1, (var(--sa-cols, 1) - 1)) * 0.96);
     --s0-y: calc(1 - min(1, (var(--sa-rows, 1) - 1)) * 0.96);
     position: absolute;
-    inset: 32%;
+    inset: 44%;
     border-radius: 999px;
     transform-origin: calc((1 - var(--fx-travel-x, 1)) * 50%) calc((1 - var(--fx-travel-y, 1)) * 50%);
     background: linear-gradient(90deg,
@@ -7921,7 +7981,7 @@
         #fffdf2 30%,
         var(--fx-c2, #ffe08a) 55%,
         rgba(255, 255, 255, 0) 100%);
-    filter: blur(1.5px);
+    filter: blur(1.2px);
     mix-blend-mode: screen;
     opacity: 0;
     animation: saf-fw-grow 900ms cubic-bezier(0.1, 0.84, 0.3, 1) 60ms forwards;
@@ -7953,20 +8013,20 @@
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 9px;
-    height: 9px;
-    margin: -4.5px 0 0 -4.5px;
+    width: 12px;
+    height: 12px;
+    margin: -6px 0 0 -6px;
     border-radius: 50%;
-    background: radial-gradient(circle, #fff6d6 0%, var(--fx-c1, #ff7a3c) 58%, rgba(255, 120, 50, 0) 84%);
-    box-shadow: 0 0 10px var(--fx-glow);
+    background: radial-gradient(circle, #fffdf2 0%, #ffd35c 34%, var(--fx-c1, #ff7a3c) 62%, rgba(255, 120, 50, 0) 84%);
+    box-shadow: 0 0 12px var(--fx-glow);
     opacity: 0;
     animation: saf-fw-ember-rise 1000ms ease-out var(--fw-d, 0ms) forwards;
 }
 
 @keyframes saf-fw-ember-rise {
-    0% { opacity: 0; transform: translate(var(--fw-x), var(--fw-y)) scale(0.4); }
-    24% { opacity: 1; }
-    100% { opacity: 0; transform: translate(var(--fw-x), calc(var(--fw-y) - 32px)) scale(0.85); }
+    0% { opacity: 0; transform: translate(var(--fw-x), var(--fw-y)) scale(0.35); }
+    22% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--fw-x), calc(var(--fw-y) - 38px)) scale(0.9); }
 }
 
 /* 火烧过的位置同样震一下，逐格延迟与火焰共用 --fx-ray-delay */
@@ -8097,5 +8157,602 @@
         animation-duration: 0.01s !important;
         animation-delay: 0s !important;
         animation-iteration-count: 1 !important;
+    }
+}
+
+/* ============================================================
+   镜花·水月：棋盘标记（水月/月座）、交换落点提示与常驻状态
+   （镜影碎镜环 / 印月月环）。冷月银蓝主色，阵营各偏一档色温。
+   ============================================================ */
+
+/* —— 水月：悬在原位的镜像跳板，外环微旋、月芯浮沉 —— */
+.bf-water-moon-ring {
+    position: absolute;
+    inset: 4%;
+    border-radius: 50%;
+    border: 2px solid rgba(140, 200, 245, 0.95);
+    box-shadow:
+        0 0 14px rgba(150, 205, 245, 0.75),
+        0 0 28px rgba(150, 205, 245, 0.35),
+        inset 0 0 16px rgba(170, 215, 250, 0.45);
+    animation: bf-wm-shimmer 2.6s ease-in-out infinite;
+}
+
+/* 月相弧：一弯更亮的弦月绕月心缓旋，一眼能认出"这是能踩的月影" */
+.bf-water-moon-ring::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    border-top-color: rgba(255, 255, 255, 0.95);
+    border-right-color: rgba(220, 240, 255, 0.5);
+    animation: bf-ms-spin 3.4s linear infinite;
+}
+
+.bf-water-moon-p2 .bf-water-moon-ring {
+    border-color: rgba(190, 165, 240, 0.95);
+    box-shadow:
+        0 0 14px rgba(185, 160, 240, 0.75),
+        0 0 28px rgba(185, 160, 240, 0.35),
+        inset 0 0 16px rgba(200, 180, 245, 0.45);
+}
+
+.bf-water-moon-core {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 58%;
+    height: 58%;
+    margin: -29% 0 0 -29%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 42% 36%,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(175, 220, 250, 0.68) 42%,
+        rgba(110, 165, 225, 0.22) 68%,
+        transparent 76%);
+    box-shadow: 0 0 16px rgba(170, 215, 250, 0.6);
+    animation: bf-wm-float 3.2s ease-in-out infinite;
+}
+
+@keyframes bf-wm-shimmer {
+    0%, 100% { opacity: 0.55; transform: rotate(0deg) scale(1); }
+    50% { opacity: 0.95; transform: rotate(6deg) scale(1.04); }
+}
+
+@keyframes bf-wm-float {
+    0%, 100% { transform: translateY(0) scale(1); opacity: 0.9; }
+    50% { transform: translateY(-7%) scale(1.06); opacity: 1; }
+}
+
+/* —— 月座：双层对旋环 + 中心候场月光 —— */
+.bf-moon-seat-ring {
+    position: absolute;
+    inset: 6%;
+    border-radius: 50%;
+    border: 2px dashed rgba(215, 232, 250, 0.9);
+    box-shadow: 0 0 12px rgba(190, 215, 250, 0.55), inset 0 0 10px rgba(190, 215, 250, 0.3);
+    animation: bf-ms-spin 9s linear infinite;
+}
+
+.bf-moon-seat-ring-b {
+    inset: 20%;
+    border-style: solid;
+    border-color: rgba(160, 200, 240, 0.55);
+    animation: bf-ms-spin 6s linear infinite reverse;
+}
+
+.bf-moon-seat-dot {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 26%;
+    height: 26%;
+    margin: -13% 0 0 -13%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #ffffff 0%, rgba(205, 228, 255, 0.9) 50%, transparent 76%);
+    box-shadow: 0 0 16px rgba(195, 220, 255, 0.95), 0 0 30px rgba(195, 220, 255, 0.45);
+    animation: bf-ms-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes bf-ms-spin { to { transform: rotate(360deg); } }
+
+@keyframes bf-ms-pulse {
+    0%, 100% { transform: scale(0.85); opacity: 0.75; }
+    50% { transform: scale(1.12); opacity: 1; }
+}
+
+/* —— 真身格作为交换落点：绕格描一圈镜面呼吸环 —— */
+.cell-swap-mark {
+    position: absolute;
+    inset: 8%;
+    border-radius: 50%;
+    border: 2px solid rgba(170, 215, 245, 0.9);
+    box-shadow: 0 0 10px rgba(160, 205, 240, 0.55), inset 0 0 8px rgba(160, 205, 240, 0.35);
+    animation: cell-swap-breathe 1.4s ease-in-out infinite;
+}
+
+@keyframes cell-swap-breathe {
+    0%, 100% { transform: scale(1); opacity: 0.75; }
+    50% { transform: scale(1.07); opacity: 1; }
+}
+
+/* —— 镜影：环绕的碎镜片（片数=层数），银蓝冷光 —— */
+.sfx-orbit-jingying { animation-duration: 2.4s; }
+
+.sfx-orbit-jingying b {
+    width: 5px;
+    height: 5px;
+    border-radius: 1px;
+    background: linear-gradient(135deg, #ffffff 0%, #a8d4f0 55%, #5a8ab8 100%);
+    box-shadow: 0 0 6px rgba(168, 212, 240, 0.85);
+    transform: rotate(var(--sfx-angle, 0deg)) translateY(-62%) rotate(40deg);
+}
+
+/* —— 印月：一轮月环缓旋，配少量上浮辉屑 —— */
+.sfx-imprint-ring {
+    border-color: rgba(205, 228, 250, 0.85);
+    box-shadow: 0 0 8px rgba(190, 215, 245, 0.6), inset 0 0 6px rgba(190, 215, 245, 0.4);
+    animation: sfx-imprint-turn 3.4s linear infinite;
+}
+
+@keyframes sfx-imprint-turn { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .bf-water-moon-ring,
+    .bf-water-moon-core,
+    .bf-moon-seat-ring,
+    .bf-moon-seat-dot,
+    .cell-swap-mark,
+    .sfx-imprint-ring {
+        animation-duration: 0.01s !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+/* ============================================================
+   镜花·天威「镜花照水」（jinghua-moonblade 原型）
+   一弯月牙刃自镜花格沿攻击轴斩到敌人那一格：起手格只见月华凝刃，
+   真正的飞斩画在被照中的敌人脚下（照中几人飞来几弯）。
+   位移量按 --fx-dist × 格距反推，起点正是镜花所站的格子。
+   ============================================================ */
+
+/* 格距 = 格宽 + 网格间隙（与其余跨格飞行零件同一口径） */
+.skill-fx-kind-jinghua-moonblade {
+    --fx-pitch: calc(var(--board-cell-size, 76px) + 6px);
+}
+
+/* —— 起手格：镜花脚下的月华 —— */
+.fx-moon-swell {
+    position: absolute;
+    inset: -6%;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        rgba(255, 255, 255, 0.95) 0%,
+        var(--fx-c2) 26%,
+        var(--fx-c1) 52%,
+        rgba(255, 255, 255, 0) 74%);
+    filter: blur(3px);
+    opacity: 0;
+    animation: fx-moon-swell-bloom 520ms ease-out forwards;
+}
+
+@keyframes fx-moon-swell-bloom {
+    0% { opacity: 0; transform: scale(0.3); }
+    26% { opacity: 0.95; }
+    100% { opacity: 0; transform: scale(1.18); }
+}
+
+/* 收拢的月华螺环：由外向内旋聚，正是"凝刃"那一拍 */
+.fx-moon-gather {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 152%;
+    height: 152%;
+    margin: -76% 0 0 -76%;
+    border-radius: 50%;
+    border: 3px dashed var(--fx-c2);
+    box-shadow: 0 0 12px var(--fx-glow), inset 0 0 10px var(--fx-glow);
+    filter: blur(0.6px);
+    opacity: 0;
+    animation: fx-moon-gather-turn 480ms cubic-bezier(0.32, 0.66, 0.4, 1) forwards;
+}
+
+.fx-moon-gather-b {
+    width: 112%;
+    height: 112%;
+    margin: -56% 0 0 -56%;
+    border-color: var(--fx-c1);
+    animation-delay: 110ms;
+    animation-duration: 420ms;
+}
+
+@keyframes fx-moon-gather-turn {
+    0% { opacity: 0; transform: rotate(-46deg) scale(1.34); }
+    24% { opacity: 0.95; }
+    100% { opacity: 0; transform: rotate(74deg) scale(0.3); }
+}
+
+/* 出斩一闪：刃离手那一刻的月华爆点 */
+.fx-moon-muzzle {
+    position: absolute;
+    inset: 24%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #ffffff 0%, var(--fx-c2) 40%, rgba(255, 255, 255, 0) 72%);
+    box-shadow: 0 0 18px var(--fx-glow), 0 0 34px var(--fx-c1);
+    opacity: 0;
+    animation: fx-moon-muzzle-pop 340ms ease-out 210ms forwards;
+}
+
+@keyframes fx-moon-muzzle-pop {
+    0% { opacity: 0; transform: scale(0.4); }
+    28% { opacity: 1; transform: scale(1.06); }
+    100% { opacity: 0; transform: scale(1.52); }
+}
+
+/* —— 命中格：飞来的月牙刃 —— */
+.fx-moonblade {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 146%;
+    height: 146%;
+    margin: -73% 0 0 -73%;
+    opacity: 0;
+    filter: drop-shadow(0 0 7px var(--fx-glow));
+    animation: fx-moonblade-fly 400ms cubic-bezier(0.34, 0.42, 0.46, 1)
+        calc(var(--fx-cell-delay, 0ms) + 120ms) forwards;
+}
+
+.fx-moonblade svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    /* 飞行途中刃身轻轻立起攻角，落点时砍到底 */
+    animation: fx-moonblade-cant 400ms ease-in-out calc(var(--fx-cell-delay, 0ms) + 120ms) forwards;
+}
+
+@keyframes fx-moonblade-fly {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--fx-rot, 0deg))
+            translateX(calc(var(--fx-dist, 1) * var(--fx-pitch) * -1)) scale(0.55);
+    }
+    14% { opacity: 1; }
+    76% {
+        opacity: 1;
+        transform: rotate(var(--fx-rot, 0deg)) translateX(calc(var(--fx-pitch) * -0.04)) scale(1.04);
+    }
+    100% {
+        opacity: 0;
+        transform: rotate(var(--fx-rot, 0deg)) translateX(0) scale(1.45);
+    }
+}
+
+@keyframes fx-moonblade-cant {
+    0% { transform: rotate(-36deg) scale(0.94); }
+    58% { transform: rotate(-8deg) scale(1); }
+    100% { transform: rotate(17deg) scale(1.08); }
+}
+
+/* 月华拖痕：钉在攻击轴上，跟着刃一路铺到本格，刃到位后再淡去。
+   拉开与飞行同一缓动，拖痕的头部才正好咬住刃身。
+   铺展与消散必须写在同一条动画里——分成 draw + fade 两条后，
+   后一条一开始播，前一条 forwards 保持的 transform 就掉了，
+   拖痕会瞬移回"未旋转"的水平状态横在棋盘上。 */
+.fx-moonblade-trail {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(var(--fx-dist, 1) * var(--fx-pitch));
+    height: 11px;
+    margin-top: -5.5px;
+    transform-origin: 0 50%;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        var(--fx-c1) 20%,
+        var(--fx-c2) 76%,
+        #ffffff 100%);
+    filter: blur(1.6px);
+    opacity: 0;
+    animation: fx-moonblade-trail-sweep 760ms cubic-bezier(0.34, 0.42, 0.46, 1)
+        calc(var(--fx-cell-delay, 0ms) + 120ms) forwards;
+}
+
+@keyframes fx-moonblade-trail-sweep {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--fx-rot, 0deg))
+            translateX(calc(var(--fx-dist, 1) * var(--fx-pitch) * -1)) scaleX(0.06);
+    }
+    15% { opacity: 0.8; }
+    /* 与刃同时到位（400/760 ≈ 53%），此后只淡出不收回 */
+    53% {
+        opacity: 0.8;
+        transform: rotate(var(--fx-rot, 0deg))
+            translateX(calc(var(--fx-dist, 1) * var(--fx-pitch) * -1)) scaleX(1);
+    }
+    100% {
+        opacity: 0;
+        transform: rotate(var(--fx-rot, 0deg))
+            translateX(calc(var(--fx-dist, 1) * var(--fx-pitch) * -1)) scaleX(1.02);
+    }
+}
+
+/* 月牙刃本体配色：玄蓝刃身托月华内瓤，锋口一道白热。
+   描边一律收细——刃身最厚处也只有 4 个单位，线一粗白刃就把蓝肉全盖没了。 */
+.mb-halo {
+    fill: var(--fx-c1);
+    opacity: 0.26;
+    filter: blur(2.6px);
+    transform: scale(1.06);
+    transform-box: view-box;
+    transform-origin: 50% 50%;
+}
+
+/* 刃体压成玄蓝并外描一道暗边，浅色盘面上才收得住形状 */
+.mb-body {
+    fill: var(--fx-c1);
+    stroke: rgba(18, 46, 72, 0.55);
+    stroke-width: 0.7;
+    stroke-linejoin: round;
+}
+
+/* 月华内瓤：贴着刃身中线的一道亮青，两侧仍留深色刃肉 */
+.mb-core {
+    fill: none;
+    stroke: var(--fx-c2);
+    stroke-width: 1.3;
+    stroke-linecap: round;
+    opacity: 0.9;
+}
+
+/* 锋口：白热一线，自带一点辉光 */
+.mb-edge {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 1;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 0.8px #ffffff);
+}
+
+/* 着弹：留在敌人身上的月牙斩痕，随刃到位绽开又散去 */
+.fx-moonblade-mark {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 158%;
+    height: 158%;
+    margin: -79% 0 0 -79%;
+    transform: rotate(var(--fx-rot, 0deg));
+    filter: blur(1.2px) drop-shadow(0 0 10px var(--fx-glow));
+    opacity: 0;
+    animation: fx-moonblade-mark-bloom 380ms ease-out calc(var(--fx-cell-delay, 0ms) + 450ms) forwards;
+}
+
+.fx-moonblade-mark svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    animation: fx-moonblade-mark-open 380ms ease-out calc(var(--fx-cell-delay, 0ms) + 450ms) forwards;
+}
+
+@keyframes fx-moonblade-mark-bloom {
+    0% { opacity: 0; }
+    18% { opacity: 0.9; }
+    100% { opacity: 0; }
+}
+
+@keyframes fx-moonblade-mark-open {
+    0% { transform: rotate(-14deg) scale(0.72); }
+    100% { transform: rotate(12deg) scale(1.3); }
+}
+
+/* 印记要的是"一痕月光"，不是第二柄刀：褪掉暗边，只留月华白 */
+.fx-moonblade-mark .mb-body {
+    fill: var(--fx-c2);
+    stroke: none;
+    opacity: 0.5;
+}
+
+.fx-moonblade-mark .mb-core { stroke: #ffffff; opacity: 0.95; }
+.fx-moonblade-mark .mb-edge { stroke: #ffffff; opacity: 0.8; }
+
+/* 着弹白闪 */
+.fx-moonblade-flash {
+    position: absolute;
+    inset: 20%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #ffffff 0%, var(--fx-c2) 32%, var(--fx-glow) 58%, rgba(255, 255, 255, 0) 76%);
+    opacity: 0;
+    animation: fx-moonblade-flash-burst 300ms ease-out calc(var(--fx-cell-delay, 0ms) + 460ms) forwards;
+}
+
+@keyframes fx-moonblade-flash-burst {
+    0% { opacity: 0; transform: scale(0.35); }
+    22% { opacity: 1; transform: scale(1.05); }
+    100% { opacity: 0; transform: scale(1.6); }
+}
+
+/* 扩散月环：两道，一薄一厚，把这一照"荡"出去 */
+.fx-moonblade-ring {
+    position: absolute;
+    inset: 16%;
+    border-radius: 50%;
+    border: 3px solid var(--fx-c2);
+    box-shadow: 0 0 12px var(--fx-glow), inset 0 0 10px var(--fx-glow);
+    opacity: 0;
+    animation: fx-moonblade-ring-out 420ms cubic-bezier(0.2, 0.7, 0.35, 1)
+        calc(var(--fx-cell-delay, 0ms) + 470ms) forwards;
+}
+
+.fx-moonblade-ring-b {
+    inset: 26%;
+    border-width: 2px;
+    border-color: var(--fx-c1);
+    animation-duration: 480ms;
+    animation-delay: calc(var(--fx-cell-delay, 0ms) + 520ms);
+}
+
+@keyframes fx-moonblade-ring-out {
+    0% { opacity: 0; transform: scale(0.24); }
+    24% { opacity: 0.95; }
+    100% { opacity: 0; transform: scale(1.55); }
+}
+
+/* 镜光碎屑：飞刃撞碎一面镜子的余韵，压到刃到位那一拍才迸出 */
+.skill-fx-kind-jinghua-moonblade .fxp-shard {
+    animation-delay: calc(var(--fx-cell-delay, 0ms) + 480ms);
+    width: 11%;
+    height: 11%;
+    margin: -5.5% 0 0 -5.5%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fx-moon-swell,
+    .fx-moon-gather,
+    .fx-moon-muzzle,
+    .fx-moonblade,
+    .fx-moonblade svg,
+    .fx-moonblade-trail,
+    .fx-moonblade-mark,
+    .fx-moonblade-mark svg,
+    .fx-moonblade-flash,
+    .fx-moonblade-ring,
+    .skill-fx-kind-jinghua-moonblade .fxp-shard {
+        animation-duration: 0.01s !important;
+        animation-delay: 0s !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+/* ============================================================
+   云缨·踏火双斩（yunying-arc-slash，技能二「踏火长驱」）
+   刀光只有一柄：区域层的红刃沿正前方那一排格子横扫一趟，空一下再反扫回来。
+   逐格只留"被扫到"的火气与爆闪（--yas-fwd 由派发层按格子序号注入），
+   不再逐格各刻一道刀痕——三格三刀看着就是三下，而不是一道扫过去。
+   伤害只结算一次，回程是纯特效。
+   ============================================================ */
+
+/* 这一格被扫中时先腾起一团火气 */
+.fx-yas-glow {
+    position: absolute;
+    inset: 18%;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        rgba(255, 244, 210, 0.6) 0%,
+        var(--fx-c1, #ffb347) 42%,
+        rgba(255, 90, 30, 0) 72%);
+    filter: blur(2px);
+    mix-blend-mode: screen;
+    opacity: 0;
+    animation: fx-yas-glow 900ms ease-out var(--yas-fwd, 0ms) forwards;
+}
+
+@keyframes fx-yas-glow {
+    0% { opacity: 0; transform: scale(0.5); }
+    26% { opacity: 0.85; }
+    100% { opacity: 0; transform: scale(1.25); }
+}
+
+/* 刀身图元（区域层那一柄巨刃复用）：中间厚、两端收尖的月牙 + 白热内芯 */
+.fx-yas-glyph {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.fx-yas-blade { fill: currentColor; }
+.fx-yas-core { fill: #fff6dc; opacity: 0.9; }
+
+/* 爆闪与火气跟着刀锋扫到本格的时刻亮起 */
+.fx-yas .fxp-hitflash { animation-delay: var(--yas-fwd, 0ms); }
+
+.skill-fx-target.skill-fx-kind-yunying-arc-slash,
+.skill-fx-impact.skill-fx-kind-yunying-arc-slash,
+.skill-fx-area.skill-fx-kind-yunying-arc-slash {
+    animation: fx-cell-quake 240ms ease-out var(--yas-fwd, 0ms);
+}
+
+/* 通用格间波浪规则会把零件延迟统一改写成 --fx-cell-delay，
+   这里要按刀锋扫到的时刻走（与烈火燎原同一类例外） */
+.skill-fx-impact.skill-fx-kind-yunying-arc-slash .fx-anchor > *,
+.skill-fx-area.skill-fx-kind-yunying-arc-slash .fx-anchor > * {
+    animation-delay: var(--yas-fwd, 0ms);
+}
+
+/* —— 区域层：一柄红刃横跨整片命中面，沿攻击方向顶出去再抽回来（只这一道刀光） —— */
+.saf-blade {
+    --step: calc(var(--board-cell-size, 76px) + 6px);
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(var(--step) * 2.85);
+    height: calc(var(--step) * 0.92);
+    color: var(--fx-c2, #ff4d2e);
+    filter: drop-shadow(0 0 12px var(--fx-glow));
+    opacity: 0;
+}
+
+/* 去程：刀身横跨整片命中面（弦沿命中面长边），顺着攻击方向顶出去再收回来，
+   所以朝东/朝西看到的是左右两趟，朝南/朝北看到的是上下两趟 */
+.saf-blade-a {
+    animation: saf-blade-lr 460ms cubic-bezier(0.3, 0.6, 0.4, 1) 60ms forwards;
+}
+
+@keyframes saf-blade-lr {
+    0% {
+        opacity: 0;
+        transform: translate(calc(-50% - var(--fx-travel-x) * var(--step) * 0.34), calc(-50% - var(--fx-travel-y) * var(--step) * 0.34)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(0.92);
+    }
+    22% { opacity: 1; }
+    60% {
+        opacity: 1;
+        transform: translate(calc(-50% + var(--fx-travel-x) * var(--step) * 0.1), calc(-50% + var(--fx-travel-y) * var(--step) * 0.1)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(1.04);
+    }
+    82% { opacity: 0.95; }
+    100% {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fx-travel-x) * var(--step) * 0.36), calc(-50% + var(--fx-travel-y) * var(--step) * 0.36)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(1.1);
+    }
+}
+
+/* 回程：更宽更亮、角度反着带一点，第二下要更狠；与去程之间留一段空档 */
+.saf-blade-b {
+    width: calc(var(--step) * 3.1);
+    height: calc(var(--step) * 1.05);
+    filter: drop-shadow(0 0 18px var(--fx-glow));
+    animation: saf-blade-rl 520ms cubic-bezier(0.24, 0.7, 0.36, 1) 760ms forwards;
+}
+
+.saf-blade-b .fx-yas-core { fill: #fff1d6; opacity: 0.96; }
+
+@keyframes saf-blade-rl {
+    0% {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fx-travel-x) * var(--step) * 0.36), calc(-50% + var(--fx-travel-y) * var(--step) * 0.36)) rotate(calc(var(--fx-rot, 0deg) + 82deg)) scale(0.94);
+    }
+    24% { opacity: 1; }
+    56% {
+        opacity: 1;
+        transform: translate(calc(-50% - var(--fx-travel-x) * var(--step) * 0.08), calc(-50% - var(--fx-travel-y) * var(--step) * 0.08)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(1.06);
+    }
+    82% { opacity: 0.92; }
+    100% {
+        opacity: 0;
+        transform: translate(calc(-50% - var(--fx-travel-x) * var(--step) * 0.38), calc(-50% - var(--fx-travel-y) * var(--step) * 0.38)) rotate(calc(var(--fx-rot, 0deg) + 98deg)) scale(1.14);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fx-yys-arc,
+    .fx-yys-shaft,
+    .fx-yas-glow,
+    .saf-blade {
+        animation-duration: 0.01s !important;
+        animation-delay: 0s !important;
     }
 }

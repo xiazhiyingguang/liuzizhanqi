@@ -14,6 +14,7 @@ export default function HeroList({ player, label }: HeroListProps) {
     );
     const selectedHero = useGameStore(state => state.selectedHero);
     const selectHeroForAction = useGameStore(state => state.selectHeroForAction);
+    const releaseAutoBattle = useGameStore(state => state.releaseAutoBattle);
     const isAiMode = useGameStore(state => state.isAiMode);
     const aiPlayer = useGameStore(state => state.aiPlayer);
     const currentPlayer = useGameStore(state => state.currentPlayer);
@@ -61,7 +62,12 @@ export default function HeroList({ player, label }: HeroListProps) {
                                 className="hero-roster-item outline-none"
                             >
                                 <div
-                                    onClick={() => isAlive && !computerIsActing && selectHeroForAction(hero)}
+                                    onClick={() => {
+                                        // 接管中点我方英雄＝收回操作权（对手回合点也停），这一次选择照常生效
+                                        releaseAutoBattle();
+                                        if (!isAlive || computerIsActing) return;
+                                        selectHeroForAction(hero);
+                                    }}
                                     className={`game-card flex h-full w-full min-h-0 flex-col justify-center gap-1.5 px-2.5 transition-all duration-200
                                         ${isAlive
                                             ? (computerIsActing ? 'cursor-default' : 'cursor-pointer')

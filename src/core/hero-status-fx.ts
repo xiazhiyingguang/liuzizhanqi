@@ -47,6 +47,8 @@ export type HeroStatusFxKind =
     | 'mirror-blade' // 破镜之刃层数（镜）
     | 'momentum'     // 增势层数（英雄X）
     | 'drunk'        // 醉意层数（太白/醉枕刀）
+    | 'jingying'     // 镜影层数（镜花·水月：环绕碎镜数=层数）
+    | 'imprint'      // 印月（镜花候补登场的攻防增益）
     | 'xubai-orbs';  // 黑白球余量（叙白，环绕珠数=剩余颗数）
 
 /** 同时渲染的状态特效上限（棋子很小，多了会糊） */
@@ -91,6 +93,8 @@ const STATUS_FX_PRIORITY: Array<{ kind: HeroStatusFxKind; effectNames?: string[]
     { kind: 'mirror-blade', counter: '破镜之刃' },
     { kind: 'momentum', counter: '增势' },
     { kind: 'drunk', counter: '醉意' },
+    { kind: 'jingying', counter: '镜影' },
+    { kind: 'imprint', effectNames: ['印月增伤'] },
     { kind: 'xubai-orbs', counter: '黑白球' },
 ];
 

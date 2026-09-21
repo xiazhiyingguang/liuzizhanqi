@@ -151,12 +151,19 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
 
     // ===== 云缨：星火、长驱与烈火燎原 =====
     yunying_skill1: 'fire',           // 星火照野
-    yunying_skill2: 'dash',           // 踏火长驱
+    yunying_skill2: 'slash',          // 踏火长驱：两道圆弧火斩
     yunying_liehuo: 'explosion',      // 烈火燎原射线（被动引燃，辅助特效）
 
     // ===== 惊鸿·止水：掠水突进与止水决渊 =====
     jinghong_skill1: 'dash',          // 掠水惊鸿：贴敌斩过并绕后
-    jinghong_skill2: 'impact',        // 止水决渊：蓄力与外环爆发共用
+    jinghong_skill2: 'slash',         // 止水决渊：刀痕绕 5×5 外圈顺时针斩过
+    jinghong_still: 'buff',           // 静水（技能2蓄力形态）
+
+    // ===== 镜花·水月：水月换身与印月替身 =====
+    jinghua_skill1: 'dash',           // 水月换身：镜面两端换身（专属银泠音效优先）
+    jinghua_skill2: 'summon',         // 印月替身：唤候补登场、本体退场
+    jinghua_tianwei: 'slash',         // 镜花照水：登场月华弧斩
+    jinghua_tianwei_echo: 'revive',   // 月影回声：被点名友方脚下的月华光柱
 
     // ===== 沉渊·镇岳：极寒领域与拖拽援护 =====
     chenyuan_skill1: 'snow',

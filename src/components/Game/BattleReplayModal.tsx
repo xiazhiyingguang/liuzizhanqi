@@ -107,6 +107,9 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
     const earlierLogs = replay.narration.slice(Math.max(0, frame.logFrom - 12), frame.logFrom);
     const actor = frame.actor >= 0 ? frame.units[frame.actor] : undefined;
     const actorName = actor ? replay.statics[actor.def]?.name : undefined;
+    // 回合切换在页眉与时间轴刻度上都已经看得到，不再占一枚关键节点标签：
+    // 它是长对局里数量最大、信息量最低的一类
+    const markChips = replay.marks.filter(mark => mark.kind !== 'round');
 
     return (
         <Shell onClose={onClose}>
@@ -155,11 +158,14 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                         </section>
 
                         <section className="rounded-lg border border-ink/8 bg-rice-light/60 px-3 py-2">
-                            <h3 className="font-title text-sm text-ink">关键节点</h3>
+                            <h3 className="font-title text-sm text-ink">
+                                关键节点
+                                <span className="ml-1.5 text-[10px] font-normal text-ink-faint">回合切换见时间轴刻度</span>
+                            </h3>
                             <div className="replay-stable-scroll mt-2 flex max-h-[168px] flex-wrap gap-1.5 overflow-y-auto light-scrollbar">
-                                {replay.marks.length === 0 ? (
+                                {markChips.length === 0 ? (
                                     <p className="text-[12px] text-ink-faint">本局没有识别到击杀/天威等关键节点。</p>
-                                ) : replay.marks.map(mark => (
+                                ) : markChips.map(mark => (
                                     <button
                                         key={`${mark.frame}-${mark.kind}-${mark.label}`}
                                         type="button"

@@ -65,13 +65,15 @@ export type SkillFxKind =
     | 'xubai-pearls'    // 叙白·黑白凝珠：三颗阴阳珠汇聚环绕
     | 'lingxi-wave'     // 泠汐·海浪涟漪：潮面漫染 + 多道浪环一圈圈荡开 + 浪尖白沫
     | 'lingxi-fan'      // 泠汐·涌潮折扇：自施法者展开的巨扇横扫
+    | 'jinghong-slash-ring' // 惊鸿·环海旋斩：水蓝刀痕沿 5×5 外圈顺时针逐格斩过
+    | 'jinghua-moonblade' // 镜花·月华飞斩：一弯月牙刃自镜花格飞向敌人，落点绽开月华斩痕
     | 'xueqi-scythe'    // 血契·血誓横扫：红色镰刀绕自身旋转一圈，刀尖拖出血色扫弧
     | 'fengling-claw'   // 风铃·爪牙撕裂：三道扇形爪痕依次撕开 + 亮爪尖 + 沙砾迸溅
     | 'fengling-pounce' // 风铃·掠沙闪袭：残影自起手格跨格疾闪至目标格，落点补一记爪咬尘爆
     | 'zuizhen-throw'   // 醉枕刀·醉掷寒锋：掷刀疾飞 + 沿冲刺路径铺展的琥珀光轨与逐段疾光残影，沿途每格各吃一记贯斩
     | 'zuizhen-wheel'   // 醉枕刀·醉影换位：落位后一柄太刀绕格心旋满一周，刃尖拖出旋扫弧光，周身一圈斩痕依次亮起
     | 'yunying-sweep'   // 云缨·星火照野：长枪横扰，弧刃按拍逐条甩开（时序分明）+ 收势枪杆抽打
-    | 'yunying-thrust'  // 云缨·踏火长驱：整杆长枪（枪杆/枪头/红缨）贯出一记，到位炸震环 + 震格
+    | 'yunying-arc-slash'  // 云缨·踏火长驱：正前方一排3格挨两道圆弧火斩，先左→右再右→左
     | 'liehuo-blaze'    // 云缨·烈火燎原：火线沿射线逐格引燃，火焰柱一路烧到棋盘尽头
     | 'ink';            // 默认兜底：墨韵波纹
 
@@ -114,13 +116,15 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'xubai-pearls': '黑白凝珠',
     'lingxi-wave': '海浪涟漪',
     'lingxi-fan': '涌潮折扇',
+    'jinghong-slash-ring': '环海旋斩',
+    'jinghua-moonblade': '月华飞斩',
     'xueqi-scythe': '血镰旋环',
     'zuizhen-throw': '醉掷疾影',
     'zuizhen-wheel': '醉影旋斩',
     'fengling-claw': '爪牙撕裂',
     'fengling-pounce': '掠沙闪袭',
     'yunying-sweep': '乱樱枪影',
-    'yunying-thrust': '踏火一刺',
+    'yunying-arc-slash': '踏火双斩',
     'liehuo-blaze': '燎原火墙',
     'ink': '墨韵波纹',
 };
@@ -314,7 +318,7 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
 
     // ===== 云缨：瑞火缨枪（焰橙金）=====
     yunying_skill1: { kind: 'yunying-sweep', durationMs: 1350, c1: '#ffcf7a', c2: '#ff7a3c' },   // 星火照野：弧刃逐条甩开，收势枪杆抽打
-    yunying_skill2: { kind: 'yunying-thrust', durationMs: 1000, c1: '#ffb347', c2: '#ff4d2e' },  // 踏火长驱：整杆长枪贯出一记，到位炸震环
+    yunying_skill2: { kind: 'yunying-arc-slash', durationMs: 1400, c1: '#ffb347', c2: '#ff4d2e' },  // 踏火长驱：两道圆弧火斩来回扫过正前方一排3格
     // 烈火燎原：祥瑞满层引燃（非技能，由 store 挂起选择后显式派发，带射线覆盖格）
     yunying_liehuo: { kind: 'liehuo-blaze', durationMs: 1900, c1: '#ff7a3c', c2: '#ffe08a' },
 
@@ -345,7 +349,22 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
 
     // ===== 惊鸿·止水：掠水绕后与止水决渊（月白青 / 静水蓝）=====
     jinghong_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#8fb8d8', c2: '#e8f6ff' },   // 掠水惊鸿：残影跨格疾闪，落点补一记斩
-    jinghong_skill2: { kind: 'radial-burst', durationMs: 1150, c1: '#4f9fc4', c2: '#dff4ff' },  // 止水决渊：以自身为中心的潮环炸开
+    // 决渊：一柄水蓝旋刃以她为心顺时针扫满一圈（渲染在施法者格，半径约 2.1 格），
+    // 转满再炸开一圈外飞水沫。fxArea 挂 'none' 关掉整块区域特效；
+    // 圆环越界的部分由 clip-path 按她到盘边的距离裁掉。
+    jinghong_skill2: { kind: 'jinghong-slash-ring', durationMs: 900, c1: '#2f8fb0', c2: '#bdf0ff', fxArea: 'none' },
+    // 蓄力段的条件形态（execute 经 skillFxExtras.fxVariant 覆盖默认档案）：静水自养的光环
+    jinghong_still: { kind: 'aura-buff', durationMs: 900, c1: '#4fa8cc', c2: '#dff4ff', fxArea: 'none' },
+
+    // ===== 镜花·水月：换身映月（镜银蓝 / 月华白）=====
+    jinghua_skill1: { kind: 'phase-swap', durationMs: 950, c1: '#a8d4f0', c2: '#eaf6ff' },      // 水月换身：两端涡环，原位铺一枚水月底纹
+    jinghua_skill2: { kind: 'light-summon', durationMs: 1150, c1: '#b8d8ff', c2: '#f2f8ff', fxArea: 'none' }, // 印月替身：候补身上召光登场，镜花端涡环淡出
+    // 天威「镜花照水」登场照击（非主动技能，由特效请求队列派发）：
+    // 一弯月牙刃自镜花格飞向被照中的敌人，落点绽出月华斩痕。
+    // 主色取深镜蓝而非淡银蓝——淡色压在浅色水墨盘面上几乎看不见。
+    jinghua_tianwei: { kind: 'jinghua-moonblade', durationMs: 900, c1: '#3f7fae', c2: '#dff2ff' },
+    // 天威击杀后的「月影回声」：被点名友方脚下亮起月华光柱
+    jinghua_tianwei_echo: { kind: 'light-summon', durationMs: 950, c1: '#bfe0ff', c2: '#f6fbff' },
 
     // ===== 血契：血誓横扫与强锁（赤血 / 骨白）作用区均以施法者为中心 =====
     xueqi_skill1: { kind: 'xueqi-scythe', durationMs: 900, c1: '#c0392f', c2: '#ffd0c6', fxArea: 'self-box' }, // 血誓横扫：血镰绕身旋一圈（天威复用此档案）
@@ -412,10 +431,12 @@ const SKILL_FX_IMPACT_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>([
     'fengling-pounce',
     'lingxi-wave',
     'lingxi-fan',
+    'jinghong-slash-ring',
+    'jinghua-moonblade',
     'zuizhen-throw',
     'zuizhen-wheel',
     'yunying-sweep',
-    'yunying-thrust',
+    'yunying-arc-slash',
 ]);
 
 export function isImpactFxKind(kind: SkillFxKind): boolean {
@@ -443,10 +464,13 @@ const SKILL_FX_PER_TARGET_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>
     'feixue-stomp',
     'feixue-shatter',
     'lingxi-wave',
+    // 天威照中几名敌人，就飞来几弯月牙刃：飞斩本身就是这一击的特写
+    'jinghua-moonblade',
     'zuizhen-throw',
-    // 突刺本身就是命中特写：射线上每名敌人各吃一记长枪贯刺
-    // （星火照野的乱樱枪影刻意不入列，避免 3×3 每格都甩一遍弧刃糊成一片）
-    'yunying-thrust',
+    // 踏火长驱：打到的每格各起一团"被刀锋扫过"的火气（刀光本身由区域层那一柄巨刃扫，
+    // 见 AREA_FX_KIND_MAP 的 bladesweep，逐格刻刀痕会看成三刀）
+    'yunying-arc-slash',
+    // 星火照野的乱樱枪影刻意不入列，避免 3×3 每格都甩一遍弧刃糊成一片
 ]);
 
 export function isPerTargetFxKind(kind: SkillFxKind): boolean {
@@ -556,7 +580,8 @@ export type SkillAreaFxKind =
     | 'slashwave'    // 巨刃横扫：循攻击方向掠过整片区域的巨型弧刃
     | 'icespikes'    // 冰刺天降：冰锥成片自空砸落覆盖整个区域
     | 'iceshatter'   // 破冰爆震：冰面轰然炸裂，冰棱自中心向外环射 + 霜原闪光
-    | 'firewall';    // 燎原火墙：火线自施法者一端沿射线烧到尽头 + 灼地焦痕 + 热浪扭曲
+    | 'firewall'     // 燎原火墙：火线自施法者一端沿射线烧到尽头 + 灼地焦痕 + 热浪扭曲
+    | 'bladesweep';  // 巨刃来回扫：一柄红刃沿整片命中面横扫两次，去程回程之间留空档
 
 /**
  * 从区域格集合求包围盒；空集合返回 null。
@@ -598,6 +623,8 @@ export function computeSkillAreaBounds(
 const AREA_FX_KIND_MAP: Partial<Record<SkillFxKind, SkillAreaFxKind>> = {
     'ember-flare': 'firestorm',
     'liehuo-blaze': 'firewall',
+    // 踏火长驱的命中面是一整排格子，刀光必须由一张跨格巨刃来回扫，不能逐格各刻一道
+    'yunying-arc-slash': 'bladesweep',
     'storm-bolt': 'thunderstorm',
     'cage-bind': 'cage',
     'magic-array': 'runearray',

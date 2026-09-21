@@ -734,7 +734,7 @@ export const liuliSkill2: Skill = {
     id: 'liuli_skill2',
     name: '禅悟',
     type: 'heal',
-    description: '消耗所有禅定，每层恢复10%最大生命值，援护增加一回合',
+    description: '消耗所有禅定，每层恢复10%最大生命值（只回血，不给援护续期）',
     rangeType: 'single',
     range: 0,
     targetType: 'self',

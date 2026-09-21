@@ -248,6 +248,24 @@ describe('Liuli', () => {
         expect(liuli.currentHp).toBe(39);
         expect(EffectManager.getCounter(liuli, '禅定')).toBe(0);
     });
+
+    it('skill 1 may be re-cast every turn while skill 2 only heals and never extends the guard', () => {
+        const state = makeGameState();
+        const liuli = addHero(state, 'liuli', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 1]);
+
+        SkillSystem.executeSkill(liuli, liuliSkill1, [[2, 1]], state);
+        SkillSystem.executeSkill(liuli, liuliSkill1, [[2, 1]], state);
+        expect(EffectManager.hasEffect(ally, '援护'), '连续使用技能一应照常维持援护').toBe(true);
+        expect(EffectManager.getCounter(liuli, '禅定')).toBe(2);
+
+        liuli.currentHp = 20;
+        const healed = SkillSystem.executeSkill(liuli, liuliSkill2, [[2, 2]], state);
+
+        expect(healed.success).toBe(true);
+        expect(liuli.currentHp).toBeGreaterThan(20);
+        expect(EffectManager.hasEffect(ally, '援护'), '技能二不再给援护续一回合').toBe(false);
+    });
 });
 
 describe('Baize', () => {

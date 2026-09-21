@@ -53,6 +53,7 @@ export const EXTENDED_HERO_IDS = [
     'xueqi',
     'yunying',
     'jinghong',
+    'jinghua',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -371,6 +372,17 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'jinghong_passive',
         // 天威暂未设计，留空
     },
+    jinghua: {
+        name: '镜花·水月',
+        class: '通灵',
+        maxHp: 48,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'jinghua_skill1',
+        skill2Id: 'jinghua_skill2',
+        passiveId: 'jinghua_passive',
+        tianweiId: 'jinghua_tianwei',
+    },
 };
 
 export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; description: string }> = {
@@ -401,8 +413,9 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     xubai: { name: '叙白', class: '素问', description: '单体净化治疗，黑白球在队友残血时自动回血，首次登场抚育周围友军。生命55，移动力2' },
     lingxi: { name: '泠汐', class: '天师', description: '多段潮汐攻击：本回合命中留下延迟段，下一回合自动补击并叠加潮汐，攻防兼备。生命46，移动力2' },
     xueqi: { name: '血契', class: '霸魁', description: '周身血誓横扫、以血还血，强锁敌人钉在身边替全队挨打。生命58，移动力2' },
-    yunying: { name: '云缨', class: '武曲', description: '攻击为敌人叠祥瑞，满3层引燃烈火燎原；范围星火按祥瑞积攒护盾，长驱一枪为下一次攻击附加吸血。生命45，移动力2' },
+    yunying: { name: '云缨', class: '武曲', description: '攻击为敌人叠祥瑞，满3层引燃烈火燎原；范围星火按敌人已有祥瑞增伤，长驱一记为下一次攻击附加吸血。生命45，移动力2' },
     jinghong: { name: '惊鸿·止水', class: '武曲', description: '掠水一击后落到敌人身后并攒惊鸿；消耗全部惊鸿蓄力止水，下一回合放弃移动换来决渊外环爆发。满血时更锋利，残血时更硬。生命48，移动力2' },
+    jinghua: { name: '镜花·水月', class: '通灵', description: '与友方换位并在水月格留影，被换上的队友落地即得5点护盾，此后友方可反复踏月换影；每次交换为镜花叠一层镜影（攻防提升，上限5层）。必要时把镜影印给候补替身登场、自己退坐月座，有人踏月即归场、替身退回候补席。登场刹那天威照向最近的敌人。生命48，移动力3' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {
@@ -481,7 +494,45 @@ export function initializeExtendedHero(hero: Hero): void {
             hero.counters['jinghong_charge_round'] = -1; // 蓄力起始回合，-1 表示未在蓄力
             hero.counters['jinghong_charge_stacks'] = 0; // 蓄力时锁定的惊鸿层数（加成与回血都读它）
             break;
+        case 'jinghua_passive':
+            hero.counters['镜影'] = 0;                 // 被动叠层，上限 JINGHUA_STACK_MAX
+            hero.counters['__jinghua_offboard'] = 0;   // 1=退入月座下场中
+            hero.counters['__jinghua_return_hp'] = hero.currentHp;
+            break;
     }
+}
+
+/** 「镜影」层数上限：每层 +10% 闪避与增伤，交换位置即叠一层 */
+export const JINGHUA_STACK_MAX = 5;
+
+/** 读取镜花·水月的镜影层数（夹到上限，防历史脏数据） */
+export function getJinghuaStacks(hero: Hero): number {
+    return Math.min(JINGHUA_STACK_MAX, hero.counters['镜影'] ?? 0);
+}
+
+/** 找某方的镜花·水月本体（无论在场与否） */
+export function findJinghua(gameState: GameState, owner: Player): Hero | null {
+    const pool = owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+    return pool.find(hero => hero.passiveId === 'jinghua_passive') ?? null;
+}
+
+/** 某方当前有效的「水月」标记（镜像交换点） */
+export function findWaterMoon(gameState: GameState, owner: Player) {
+    return (gameState.boardEffects ?? []).find(
+        effect => effect.type === 'water-moon' && effect.owner === owner
+    ) ?? null;
+}
+
+/** 某方当前有效的「月座」（等待镜花归场的落点） */
+export function findMoonSeat(gameState: GameState, owner: Player) {
+    return (gameState.boardEffects ?? []).find(
+        effect => effect.type === 'moon-seat' && effect.owner === owner
+    ) ?? null;
+}
+
+/** 镜花是否正退入月座、等待归场 */
+export function isJinghuaOffboard(hero: Hero): boolean {
+    return (hero.counters['__jinghua_offboard'] ?? 0) === 1;
 }
 
 /** 「惊鸿」层数上限：技能1 的所有获取途径都受此约束 */
@@ -504,14 +555,52 @@ export function isJinghongReleaseWindow(hero: Hero, gameState: GameState): boole
 
 /**
  * 「决渊」的落点环：以自身为中心的 5×5 去掉身周 3×3，即最外一圈 16 格。
- * 贴身敌人刻意不吃这一段——那是技能1 的猎物，两段技能各管一圈。
+ * 顺序刻意按**屏幕顺时针**给出（左上角起 → 上边向右 → 右边向下 → 下边向左 → 左边向上），
+ * 特效层直接拿这个下标排起播延迟，刀痕才会绕着一圈转着走，而不是各格同时乱砍。
+ * 出界的格子在这一步就剔掉，所以贴边施放时那一圈只是少几道，不会拖到棋盘外面。
  */
 export function getJinghongOuterRing(center: Position): Position[] {
-    const inner = new Set(
-        MovementSystem.getBoxPositions(center, 3).map(([row, col]) => `${row},${col}`)
-    );
-    return MovementSystem.getBoxPositions(center, 5)
-        .filter(([row, col]) => !inner.has(`${row},${col}`));
+    const [cr, cc] = center;
+    const clockwise: Position[] = [];
+    for (let col = cc - 2; col <= cc + 2; col++) clockwise.push([cr - 2, col]);
+    for (let row = cr - 1; row <= cr + 2; row++) clockwise.push([row, cc + 2]);
+    for (let col = cc + 1; col >= cc - 2; col--) clockwise.push([cr + 2, col]);
+    for (let row = cr + 1; row >= cr - 1; row--) clockwise.push([row, cc - 2]);
+    return clockwise.filter(cell => MovementSystem.inBounds(cell));
+}
+
+/**
+ * 替补席血量账。
+ *
+ * 替补席本身只存模板 id（未登场单位没有 Hero 实例），所以"临时被拉上场、
+ * 又退回候补席"的单位一旦回席，实例连同受过的伤就一起没了——再补员时会
+ * 按 createHero 开出一个满血新号。这里把离场那一刻的生命记下来，
+ * 真正登场时按这份血量入场，做到"血量随人走"。
+ */
+function benchHpMap(gameState: GameState, owner: Player): Record<string, number> {
+    if (owner === 'player1') {
+        gameState.player1BenchHp = gameState.player1BenchHp ?? {};
+        return gameState.player1BenchHp;
+    }
+    gameState.player2BenchHp = gameState.player2BenchHp ?? {};
+    return gameState.player2BenchHp;
+}
+
+export function setBenchHeroHp(gameState: GameState, owner: Player, templateId: string, hp: number): void {
+    benchHpMap(gameState, owner)[templateId] = Math.max(0, Math.floor(hp));
+}
+
+/** 取出并销账：只有真正登场的那一次能用掉这份带伤入场的记录 */
+export function takeBenchHeroHp(gameState: GameState, owner: Player, templateId: string): number | undefined {
+    const map = benchHpMap(gameState, owner);
+    const hp = map[templateId];
+    if (hp === undefined) return undefined;
+    delete map[templateId];
+    return hp;
+}
+
+export function clearBenchHeroHp(gameState: GameState, owner: Player, templateId: string): void {
+    delete benchHpMap(gameState, owner)[templateId];
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useGameStore } from '../../store/game-store';
 import { GameEngine } from '../../core/game-engine';
 import { getSkill } from '../../data/skills';
+import { getHeroInfo } from '../../data/heroes';
 import HeroAvatar from '../ui/HeroAvatar';
 
 export default function SkillPanel() {
@@ -30,12 +31,17 @@ export default function SkillPanel() {
         selectHeroXRedirectTarget,
         selectSoulLampBeneficiary,
         selectSkillHeroTarget,
+        player1BenchHeroIds,
+        player2BenchHeroIds,
+        selectJinghuaSummonHero,
         endHeroAction,
         libaiChainState,
         skipLibaiChainAttack,
         wukongSkill2State,
         skipWukongStep,
-        shangguanDashState
+        shangguanDashState,
+        // 接管标志只可能在人机对局的战斗阶段为真（store 里已把住入口）
+        autoBattle
     } = useGameStore();
 
     if (isAiMode && currentPlayer === aiPlayer) {
@@ -53,6 +59,29 @@ export default function SkillPanel() {
                 <h3 className="font-title text-base text-vermillion">宗师电脑思考中</h3>
                 <p className="mt-2 text-xs leading-5 text-ink-faint font-body">
                     正在评估技能收益、击杀机会与站位风险
+                </p>
+            </div>
+        );
+    }
+
+    // AI 接管：轮到玩家自己时也由同一套电脑决策出手，这里收起操作按钮，
+    // 只留一块说明——想插手不必先关开关，点棋盘任意一处就会交还控制权
+    if (autoBattle) {
+        return (
+            <div className="ink-panel p-4 h-full flex flex-col items-center justify-center text-center">
+                <div className="mb-3 flex items-center gap-1.5" aria-hidden="true">
+                    {[0, 1, 2].map(index => (
+                        <span
+                            key={index}
+                            className="h-2 w-2 rounded-full bg-indigo-ink/55 animate-pulse"
+                            style={{ animationDelay: `${index * 160}ms` }}
+                        />
+                    ))}
+                </div>
+                <h3 className="font-title text-base text-indigo-ink">AI 接管中</h3>
+                <p className="mt-2 text-xs leading-5 text-ink-faint font-body">
+                    电脑正按你的阵容替你出手。点棋盘任意一处即可收回操作权，
+                    或在顶栏点「接管中 · 收回操作」停止接管。
                 </p>
             </div>
         );
@@ -337,6 +366,41 @@ export default function SkillPanel() {
                         </span>
                     </button>
                 )}
+
+                {selectedSkill?.id === 'jinghua_skill2' && (() => {
+                    const benchIds = (selectedHero.owner === 'player1' ? player1BenchHeroIds : player2BenchHeroIds) ?? [];
+                    const pickedIndex = selectedHero.counters['__jinghua_summon_pick'];
+                    const jingying = Math.min(5, selectedHero.counters['镜影'] ?? 0);
+                    if (benchIds.length === 0) {
+                        return (
+                            <p className="text-[10px] text-vermillion font-body px-1">
+                                候补席已空，印月替身无人可换
+                            </p>
+                        );
+                    }
+                    return (
+                        <div className="ink-surface p-2 space-y-1.5">
+                            <p className="text-[11px] text-ink-light font-body">
+                                点选登场候补（将携{jingying}层镜影凝成的印月），再点镜花周围3×3空格落位
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {benchIds.map((templateId, index) => (
+                                    <button
+                                        key={templateId}
+                                        onClick={() => selectJinghuaSummonHero(templateId)}
+                                        className={`px-2 py-1 text-xs rounded border font-body ${
+                                            pickedIndex === index
+                                                ? 'border-indigo-300 bg-indigo-20/15 text-indigo-100'
+                                                : 'border-ink/15 text-ink-light hover:bg-ink/5'
+                                        }`}
+                                    >
+                                        {getHeroInfo(templateId).name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 {selectedHero.passiveId === 'hero_x_passive' &&
                     (selectedHero.counters['增势'] ?? 0) >= 3 &&

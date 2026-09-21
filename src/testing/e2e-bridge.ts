@@ -37,7 +37,7 @@ declare global {
             snapshot: () => E2EGameSnapshot;
             prepareFinalStrike: () => boolean;
             /** 特效演示桥（视觉验收/特效开发用）：构建最小战斗舞台并触发指定特效 */
-            fxDemo: (scenario: 'stage' | 'chain' | 'splash' | 'aoe' | 'death' | 'status' | 'tick' | 'areagrid' | 'areafire' | 'areastorm' | 'areashock' | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade' | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce' | 'fxdash' | 'fxwheel' | 'daistasis') => boolean;
+            fxDemo: (scenario: 'stage' | 'chain' | 'splash' | 'aoe' | 'death' | 'status' | 'tick' | 'areagrid' | 'areafire' | 'areastorm' | 'areashock' | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade' | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce' | 'fxdash' | 'fxwheel' | 'fxjinghua' | 'daistasis') => boolean;
         };
     }
 }
@@ -209,7 +209,7 @@ function runFxDemo(
         | 'areagrid' | 'areafire' | 'areastorm' | 'areashock'
         | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade'
         | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce'
-        | 'fxdash' | 'fxwheel' | 'daistasis'
+        | 'fxdash' | 'fxwheel' | 'fxjinghua' | 'daistasis'
 ): boolean {
     if (!ensureFxDemoStage()) return false;
     const state = useGameStore.getState();
@@ -327,6 +327,34 @@ function runFxDemo(
                 impactPositions: [[2, 3]],
             });
             return true;
+        case 'fxjinghua': {
+            // 镜花·水月的两枚棋盘常驻标记：水月（换影跳板）与月座（归场席位）
+            if (!ensureFxDemoStage()) return false;
+            const stage = useGameStore.getState();
+            useGameStore.setState({
+                boardEffects: [
+                    ...(stage.boardEffects ?? []).filter(effect =>
+                        effect.type !== 'water-moon' && effect.type !== 'moon-seat'),
+                    {
+                        id: 'demo-water-moon',
+                        type: 'water-moon',
+                        position: [2, 2] as Position,
+                        owner: 'player1' as const,
+                        sourceHeroId: 'demo-jinghua',
+                        duration: 99,
+                    },
+                    {
+                        id: 'demo-moon-seat',
+                        type: 'moon-seat',
+                        position: [4, 2] as Position,
+                        owner: 'player2' as const,
+                        sourceHeroId: 'demo-jinghua-2',
+                        duration: 99,
+                    },
+                ],
+            });
+            return true;
+        }
         case 'death':
             // 阵亡水墨消散 + 击杀震屏：由 kill 日志驱动
             state.addLog({
