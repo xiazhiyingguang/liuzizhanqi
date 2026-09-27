@@ -55,8 +55,23 @@ function shuffledTeam(count: number): string[] {
 
 function stateSignature(): string {
     const state = useGameStore.getState();
+    // 必须与真实 hook / 平衡仿真同口径：选中英雄、展示射程、待选目标数都是"局面推进了"，
+    // 漏掉这些字段会让"选将→亮射程→移动"的三步决策被误判成停滞，被 repeat>=2 强制结束，
+    // 于是双电脑各自站桩放辅助，复盘报告里全是假的"整局不交手"。
     return [
-        state.roundNumber, state.currentPlayer, state.activeHero?.id ?? '-',
+        state.phase,
+        state.currentPlayer,
+        state.reinforcingPlayer ?? '-',
+        state.roundNumber,
+        state.actionsThisTurn,
+        state.activeHero?.id ?? '-',
+        state.selectedHero?.id ?? '-',
+        state.selectedSkill?.id ?? '-',
+        state.moveRange.length,
+        state.skillRange.length,
+        state.pendingSkillTargetPositions?.length ?? 0,
+        state.pendingBoardAction?.heroId ?? '-',
+        state.libaiChainState?.heroId ?? '-',
         [...state.player1Heroes, ...state.player2Heroes]
             .map(hero => `${hero.currentHp}:${hero.hasActedThisTurn ? 1 : 0}:${hero.position?.join(',') ?? '-'}`)
             .join(';'),

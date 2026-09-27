@@ -56,9 +56,22 @@ export function recordBattleHealing(
     ensureStatistics(gameState, healer).healingDone += actualHealing;
 }
 
+/**
+ * "算不算一名角色"的唯一口径：召唤物与分身都是临时战术单位，不是名册上的英雄。
+ * 天威的击杀判定、全灭判定、替补编制计数都必须走这里，否则各条链会各自漏一类单位。
+ * 镜花的替身不算在内——那是候补席上那名英雄的本体，杀掉他就是杀掉一个角色。
+ */
+export function isRealCharacterHero(hero: Hero): boolean {
+    return hero.counters?.['__isClone'] !== 1 &&
+        hero.counters?.['__isSummon'] !== 1 &&
+        !hero.id.startsWith('wukong-clone|') &&
+        !hero.id.startsWith('mirror-clone|') &&
+        !hero.id.startsWith('t-summon|');
+}
+
 export function recordBattleKill(gameState: GameState, killer: Hero, target?: Hero): void {
     ensureStatistics(gameState, killer).kills += 1;
-    if (target && target.counters?.['__isClone'] !== 1 && target.counters?.['__isSummon'] !== 1) {
+    if (target && isRealCharacterHero(target)) {
         ensureStatistics(gameState, target).lastDeathRound = Math.max(1, gameState.roundNumber);
     }
 }

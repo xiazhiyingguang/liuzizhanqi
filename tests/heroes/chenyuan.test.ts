@@ -11,7 +11,7 @@ describe('沉渊·镇岳', () => {
     beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
     afterEach(() => vi.restoreAllMocks());
 
-    it('以霸魁60生命、1移动完整接入两项技能、被动与天威', () => {
+    it('以霸魁60生命、2移动完整接入两项技能、被动与天威', () => {
         const state = makeGameState();
         const hero = addHero(state, 'chenyuan', 'player1', [2, 2]);
 
@@ -20,7 +20,7 @@ describe('沉渊·镇岳', () => {
             class: '霸魁',
             maxHp: 60,
             currentHp: 60,
-            moveRange: 1,
+            moveRange: 2,
             baseAttack: 0,
             skill1Id: 'chenyuan_skill1',
             skill2Id: 'chenyuan_skill2',

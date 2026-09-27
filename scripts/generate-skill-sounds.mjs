@@ -1233,6 +1233,35 @@ const RECIPES = {
         place(b, thump(0.28, { freq: 150, dropTo: 60, gain: 0.5, crack: 0.2 }), 0.1);
         return b;
     } },
+
+    /* ===== 花弄影：花间辞扇斩 / 弄影换身 / 影子重演 ===== */
+    huanongying_skill1: { build: () => {
+        const b = buffer(0.8);
+        // 扇形三记轻快刀花：三道错位刀风，一记比一记高
+        place(b, noiseBurst(0.2, { from: 2600, to: 800, type: 'bandpass', q: 2.4, attack: 0.004, release: 0.1, gain: 0.55 }));
+        place(b, noiseBurst(0.2, { from: 3000, to: 950, type: 'bandpass', q: 2.4, attack: 0.004, release: 0.1, gain: 0.52 }), 0.1);
+        place(b, noiseBurst(0.22, { from: 3400, to: 1100, type: 'bandpass', q: 2.4, attack: 0.004, release: 0.12, gain: 0.5 }), 0.2);
+        // 花瓣被刀风卷起的细碎粉响
+        place(b, shimmer(0.32, { freqs: [2637, 3136], spacing: 0.07, gain: 0.2, release: 0.2 }), 0.3);
+        return b;
+    } },
+    huanongying_skill2: { build: () => {
+        const b = buffer(0.9);
+        // 身影抽离：两头对吸的暗紫嗖声
+        place(b, tone(0.34, { freq: 320, freqTo: 880, type: 'sine', attack: 0.01, decay: 0.1, sustain: 0.4, release: 0.14, gain: 0.4 }));
+        place(b, noiseBurst(0.26, { from: 900, to: 3000, type: 'bandpass', q: 1.6, attack: 0.02, release: 0.12, gain: 0.42 }), 0.06);
+        // 落定一记闷响 + 幽蓝泛音
+        place(b, thump(0.26, { freq: 170, dropTo: 70, gain: 0.5, crack: 0.18 }), 0.36);
+        place(b, bell(0.42, { freq: 1046, ratio: 1.5, modDepth: 1.8, gain: 0.32 }), 0.42);
+        return b;
+    } },
+    huanongying_replay: { build: () => {
+        const b = buffer(0.7);
+        // 影子补刀：比真刀空一层的闷刃 + 走调低铃，像隔着一层墨
+        place(b, noiseBurst(0.24, { from: 1500, to: 420, type: 'bandpass', q: 1.2, attack: 0.02, release: 0.14, gain: 0.42 }));
+        place(b, bell(0.4, { freq: 622, ratio: 1.35, modDepth: 2.2, gain: 0.28 }), 0.12);
+        return b;
+    } },
 };
 
 /* ============================================================

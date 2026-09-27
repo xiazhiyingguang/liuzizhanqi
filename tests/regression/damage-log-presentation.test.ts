@@ -49,14 +49,14 @@ describe('伤害结算日志与飘字数据源', () => {
         store.selectSkill('zuizhendao_skill1');
         store.executeSkill([2, 3]);
 
-        expect(enemyA.maxHp - enemyA.currentHp).toBe(6);
-        expect(enemyB.maxHp - enemyB.currentHp).toBe(6);
+        expect(enemyA.maxHp - enemyA.currentHp).toBe(4);
+        expect(enemyB.maxHp - enemyB.currentHp).toBe(4);
 
         const logs = damageLogs();
         expect(logs).toHaveLength(2);
         for (const entry of logs) {
             const details = entry.details as { amount?: number; position?: number[] };
-            expect(details.amount).toBe(6);
+            expect(details.amount).toBe(4);
             expect(details.position).toHaveLength(2);
         }
     });
@@ -73,8 +73,8 @@ describe('伤害结算日志与飘字数据源', () => {
         store.selectSkill('zuizhendao_skill1');
         store.executeSkill([2, 3]);
 
-        expect(enemyA.maxHp - enemyA.currentHp).toBe(6);
-        expect(enemyB.maxHp - enemyB.currentHp).toBe(6);
+        expect(enemyA.maxHp - enemyA.currentHp).toBe(4);
+        expect(enemyB.maxHp - enemyB.currentHp).toBe(4);
         expect(damageLogs()).toHaveLength(2);
         expect(useGameStore.getState().battleLog.length).toBeLessThanOrEqual(200);
     });

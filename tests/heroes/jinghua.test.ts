@@ -11,7 +11,9 @@ import {
     tickJinghuaMoonSeats,
 } from '../../src/data/extended-skills';
 import { getJinghuaStacks } from '../../src/data/extended-heroes';
+import { settleJinghuaSeatReturn } from '../../src/data/extended-skills';
 import { isPerTargetFxKind, resolveSkillFx } from '../../src/core/skill-fx';
+import { useGameStore } from '../../src/store/game-store';
 import { HeroState, type GameState, type Hero, type Position } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
 
@@ -91,6 +93,7 @@ describe('镜花·水月', () => {
             jinghua.position = to;
             state.board[to[0]][to[1]] = jinghua;
             resolveJinghuaSwapMove(ally, to, state);
+        settleJinghuaSeatReturn(ally, state);
         }
         expect(getJinghuaStacks(jinghua)).toBe(5);
 
@@ -159,6 +162,12 @@ describe('镜花·水月', () => {
         const hpBefore = enemy.currentHp;
         expect(resolveJinghuaSwapMove(stepper, [3, 3], state)).toBe('moonseat');
 
+        // 修复点：踏座只是"踩响"，队友这一手没打完之前镜花不得归场抢走行动
+        expect(jinghua.state).toBe(HeroState.TEMP_DEAD);
+        expect(stepper.position).toEqual([2, 3]);
+        expect(state.board[3][3]).toBeNull();
+        expect(settleJinghuaSeatReturn(stepper, state)).toBe(true);
+
         expect(jinghua.state).toBe(HeroState.ALIVE);
         expect(state.board[3][3]).toBe(jinghua);
         expect(stepper.position).not.toEqual([3, 3]); // 踏座者让位（可能回填自己的出发格）
@@ -182,6 +191,7 @@ describe('镜花·水月', () => {
         expect(sub.name).toBe('琉璃');
         expect(sub.counters['__jinghua_substitute']).toBe(1);
         expect(resolveJinghuaSwapMove(sub, [3, 3], state)).toBe('moonseat');
+        settleJinghuaSeatReturn(sub, state);
 
         expect(jinghua.state).toBe(HeroState.ALIVE);
         expect(state.board[3][3]).toBe(jinghua);
@@ -278,6 +288,7 @@ describe('镜花·水月', () => {
         state.board[2][3] = ally;
         const attackBefore = bank.baseAttack ?? 0;
         resolveJinghuaSwapMove(ally, [3, 3], state);
+        settleJinghuaSeatReturn(ally, state);
 
         expect(enemy.state).toBe(HeroState.DEAD);
         expect(state.battleLog.some(entry => entry.message.includes('月影回声'))).toBe(true);
@@ -298,8 +309,9 @@ describe('镜花·水月', () => {
 
         const enemy = state.board[3][5] as Hero;
         enemy.currentHp = 1;
-        const stepper = addHero(state, 'youjun', 'player1', [2, 3]);
+        const stepper = addHero(state, 'baize', 'player1', [2, 3]);
         resolveJinghuaSwapMove(stepper, [3, 3], state);
+        settleJinghuaSeatReturn(stepper, state);
 
         expect(enemy.state).toBe(HeroState.DEAD);
         expect(state.battleLog.some(entry => entry.message.includes('没有携带天威的友方'))).toBe(true);
@@ -331,6 +343,7 @@ describe('镜花·水月', () => {
         jinghuaSkill2.execute!(jinghua, [], state);
         const stepper = addHero(state, 'youjun', 'player1', [2, 3]);
         resolveJinghuaSwapMove(stepper, [3, 3], state);
+        settleJinghuaSeatReturn(stepper, state);
 
         const strike = drainPendingSkillFxRequests()
             .find(request => request.skillId === 'jinghua_tianwei');
@@ -341,5 +354,76 @@ describe('镜花·水月', () => {
         // 用专属月牙原型，而不是退回通用弧斩；照中几人就飞来几弯
         expect(resolveSkillFx('jinghua_tianwei').kind).toBe('jinghua-moonblade');
         expect(isPerTargetFxKind('jinghua-moonblade')).toBe(true);
+    });
+
+    describe('踏座归场的行动收尾（store 级）', () => {
+        afterEach(() => useGameStore.getState().resetGame());
+
+        /** 镜花退坐月座、白泽紧邻月座的残局；直接搭 store 走真实 moveHero */
+        function loadSeatScene() {
+            const state = makeGameState();
+            const jinghua = addHero(state, 'jinghua', 'player1', [3, 3]);
+            const ally = addHero(state, 'baize', 'player1', [2, 3]);
+            const enemy = addHero(state, 'nightowl', 'player2', [5, 5]);
+            state.board[3][3] = null;
+            jinghua.position = null;
+            jinghua.state = HeroState.TEMP_DEAD;
+            jinghua.currentHp = 0;
+            jinghua.counters['__jinghua_offboard'] = 1;
+            jinghua.counters['__jinghua_return_hp'] = 30;
+            state.boardEffects = [{
+                id: 'moon-seat-store-test',
+                type: 'moon-seat',
+                position: [3, 3],
+                owner: 'player1',
+                sourceHeroId: jinghua.id,
+                duration: 3,
+            }];
+            useGameStore.setState({
+                ...state,
+                isOnlineMode: false,
+                isAiMode: false,
+                moveRange: [],
+                skillRange: [],
+                suppressOnlineBroadcast: false,
+            });
+            return { state, jinghua, ally, enemy };
+        }
+
+        it('队友踏月座召还镜花后，其行动当场自动结束，不再悬空等手动点击', () => {
+            const { state, jinghua, ally } = loadSeatScene();
+            useGameStore.getState().selectHeroForAction(ally);
+            useGameStore.getState().moveHero([3, 3]);
+
+            expect(jinghua.state).toBe(HeroState.ALIVE);
+            expect(jinghua.position).toEqual([3, 3]);
+            expect(ally.hasActedThisTurn).toBe(true); // 核心：让位即交付，行动自动收尾
+            const store = useGameStore.getState();
+            // boardEffects 在结算中被重新赋值，断言必须读 store 而不是本地快照
+            expect((store.boardEffects ?? []).some(effect => effect.type === 'moon-seat')).toBe(false);
+            expect(store.selectedHero?.id).not.toBe(ally.id); // 焦点已离开踏座者
+            // 踏座不写误导性的"移动到月座"日志（人其实被安置到旁边）
+            expect(store.battleLog.some(entry =>
+                entry.type === 'move' && entry.message.includes(ally.name) && entry.message.includes('移动到'))).toBe(false);
+        });
+
+        it('真身换位仍只是位移：换完保留后续行动，不被自动收尾误伤', () => {
+            const { state, jinghua, ally } = loadSeatScene();
+            // 把镜花放回场上，改测 'self' 交换分支
+            jinghua.state = HeroState.ALIVE;
+            jinghua.currentHp = 30;
+            jinghua.position = [3, 3];
+            jinghua.counters['__jinghua_offboard'] = 0;
+            state.board[3][3] = jinghua;
+            state.boardEffects = [];
+            useGameStore.setState({ board: state.board.map(row => [...row]), boardEffects: [] });
+
+            useGameStore.getState().selectHeroForAction(ally);
+            useGameStore.getState().moveHero([3, 3]);
+
+            expect(ally.position).toEqual([3, 3]);
+            expect(ally.hasActedThisTurn).toBe(false); // 交换=位移，行动继续
+            expect(getJinghuaStacks(jinghua)).toBe(1);
+        });
     });
 });

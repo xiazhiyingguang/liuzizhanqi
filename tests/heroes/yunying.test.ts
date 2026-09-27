@@ -3,6 +3,7 @@ import { DamageCalculator } from '../../src/core/damage-calculator';
 import { EffectManager } from '../../src/core/effect-manager';
 import { SkillSystem } from '../../src/core/skill-system';
 import { chooseComputerPendingBoardPosition, chooseComputerSkillPlan } from '../../src/core/computer-ai';
+import { runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
 import { getPendingActionCells, useGameStore } from '../../src/store/game-store';
 import {
     addXiangrui,
@@ -29,7 +30,7 @@ describe('云缨完整机制', () => {
     beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
     afterEach(() => vi.restoreAllMocks());
 
-    it('拥有45生命、2移动力与完整技能注册（暂时无天威）', () => {
+    it('拥有45生命、2移动力与完整技能与天威注册', () => {
         const state = makeGameState();
         const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
 
@@ -40,7 +41,7 @@ describe('云缨完整机制', () => {
         expect(yunying.skill1Id).toBe('yunying_skill1');
         expect(yunying.skill2Id).toBe('yunying_skill2');
         expect(yunying.passiveId).toBe('yunying_passive');
-        expect(yunying.tianweiId ?? '').toBe('');
+        expect(yunying.tianweiId).toBe('yunying_tianwei');
     });
 
     it('星火照野：3×3每名敌人3点，并按其引火前已有的祥瑞层数每层+2点（不再给护盾）', () => {
@@ -170,6 +171,8 @@ describe('云缨完整机制', () => {
         const offAxis = addHero(state, 'zhenxiao', 'player2', [3, 3]);
         near.currentHp = Math.floor(near.maxHp * 0.5);   // 已损 24 → 7+4 = 11
         far.currentHp = 5;                               // 濒危：直接被烧穿
+        // 本例只验射线伤害口径：燎原烧死人会连带触发天威·燎原百斩，追加命中会把断言糊掉
+        yunying.tianweiId = undefined;
 
         const output = castLiehuoBurn(yunying, state, 3);   // 向东：[2,3]→[2,5]
 
@@ -292,5 +295,190 @@ describe('云缨完整机制', () => {
         expect(event.profile.kind).toBe('yunying-arc-slash');
         expect(event.coveredPositions).toEqual([[1, 3], [2, 3], [3, 3]]);
         expect(event.areaBounds).toEqual({ r0: 1, c0: 3, rows: 3, cols: 1 });
+    });
+});
+
+describe('烈火燎原挂起的两条死锁出口', () => {
+    /** 人机模式下、云缨在电脑那侧：挂起既不该由玩家点，也不该被归属守卫挡死 */
+    function armComputerLiehuo(): { state: ReturnType<typeof makeGameState>; yunying: Hero } {
+        const state = makeGameState({ currentPlayer: 'player2' });
+        const yunying = addHero(state, 'yunying', 'player2', [2, 2]);
+        state.pendingBoardAction = { type: 'yunying-liehuo', heroId: yunying.id };
+        useGameStore.setState({
+            ...state,
+            phase: 'battle',
+            isAiMode: true,
+            isOnlineMode: false,
+            aiPlayer: 'player2',
+            currentPlayer: 'player2',
+            selectedHero: yunying,
+            activeHero: yunying,
+        });
+        return { state, yunying };
+    }
+
+    beforeEach(() => useGameStore.getState().resetGame());
+    afterEach(() => {
+        useGameStore.getState().resetGame();
+        vi.restoreAllMocks();
+    });
+
+    it('电脑方云缨的燎原由电脑自己解开，不再回一句"当前无法操作"就永久卡住', () => {
+        const { state, yunying } = armComputerLiehuo();
+        const victim = addHero(state, 'moran', 'player1', [2, 4]);
+
+        useGameStore.getState().resolvePendingBoardAction([2, 3], { byComputer: true });
+
+        const after = useGameStore.getState();
+        expect(after.pendingBoardAction).toBeUndefined();
+        expect(victim.currentHp).toBeLessThan(victim.maxHp);      // 火线确实烧出去了
+        expect(yunying.hasActedThisTurn).toBe(true);               // 扣住的行动被放行
+        expect((after.battleLog ?? []).some(entry => entry.message === '当前无法操作')).toBe(false);
+    });
+
+    it('四条射线都烧不到人时：电脑挑不出方向而不是退回全盘格，收尾作废并放行', () => {
+        const { state, yunying } = armComputerLiehuo();
+        addHero(state, 'moran', 'player1', [0, 0]);   // 斜角，不在任何一条行/列射线上
+
+        // 挑不出就必须是 null：返回任意全盘格都会被"只能点相邻方向格"拒掉，挂起原地打转
+        expect(chooseComputerPendingBoardPosition(state, yunying)).toBeNull();
+
+        useGameStore.getState().endHeroAction();
+
+        const after = useGameStore.getState();
+        expect(after.pendingBoardAction).toBeUndefined();
+        expect(yunying.hasActedThisTurn).toBe(true);
+        expect(after.highlightedPositions).toHaveLength(0);
+    });
+
+    /**
+     * 技能二点方向格后在同一次调用里继续结算，那次 set 会让函数开头的 state 快照与 store 脱钩，
+     * 引擎写在快照上的 pendingBoardAction 就再也合并不回去（表现：天威/燎原静默消失）。
+     * 走 store 的完整点击链才能复现，所以这里必须用 store 而不是直接调 SkillSystem。
+     */
+    it('技能二同批触发天威与燎原：先天威后燎原，整条链点到底才收尾', () => {
+        const state = makeGameState();
+        const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
+        const dying = addHero(state, 'moran', 'player2', [1, 3]);   // 长驱 6 伤 → 击杀 → 天威
+        const marked = addHero(state, 'baize', 'player2', [2, 3]);  // 已有2层祥瑞，再吃一发满3 → 燎原
+        dying.currentHp = 1;
+        addXiangrui(marked, yunying, 2);
+        useGameStore.setState({
+            ...state,
+            phase: 'battle',
+            isAiMode: false,
+            isOnlineMode: false,
+            currentPlayer: 'player1',
+            selectedHero: yunying,
+            activeHero: yunying,
+            suppressOnlineBroadcast: false,
+        });
+
+        const store = useGameStore.getState();
+        store.selectHeroForAction(yunying);
+        store.selectSkill('yunying_skill2');
+        store.executeSkill([2, 3]);   // 点正东方向格：定方向并当场长驱
+
+        expect(dying.state).toBe(HeroState.DEAD);
+        expect(getXiangruiStacks(marked)).toBe(0);                  // 燎原确实被引燃（层数已消耗）
+        expect(useGameStore.getState().pendingBoardAction?.type).toBe('yunying-tianwei');
+
+        // 点天威落点 → 应当补挂排队的燎原，而不是直接结束行动
+        const landing = getPendingActionCells(useGameStore.getState())[0];
+        useGameStore.getState().resolvePendingBoardAction(landing);
+        expect(useGameStore.getState().pendingBoardAction?.type).toBe('yunying-liehuo');
+
+        // 点燃烧方向 → 链条闭合，行动才允许结束
+        const dirCell = getPendingActionCells(useGameStore.getState())[0];
+        useGameStore.getState().resolvePendingBoardAction(dirCell);
+        expect(useGameStore.getState().pendingBoardAction).toBeUndefined();
+        expect(yunying.hasActedThisTurn).toBe(true);
+    });
+
+    /**
+     * 第3层由致命一击叠上：目标被这一击打死，身上不会再落祥瑞层，
+     * 但引燃判定必须按"这一击之后满3层"照样成立，否则击杀越准反而越点不着燎原。
+     */
+    it('致命一击凑满第3层：天威与烈火燎原都触发，按先天威后燎原排队', () => {
+        const state = makeGameState();
+        const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
+        const victim = addHero(state, 'moran', 'player2', [2, 3]);
+        victim.currentHp = 3;                 // 3 + 2层×2 = 7 伤 → 击杀
+        addXiangrui(victim, yunying, 2);      // 已有2层，这一击就是第3层
+
+        SkillSystem.executeSkill(yunying, yunyingSkill1, [[2, 3]], state);
+
+        expect(victim.state).toBe(HeroState.DEAD);
+        // 引燃确实发生了：本轮额度记在她名下，且燎原排在天威后面
+        expect(yunying.counters['liehuo_round']).toBe(state.roundNumber);
+        expect(yunying.counters['__yunying_liehuo_queued']).toBe(1);
+        expect(state.pendingBoardAction?.type).toBe('yunying-tianwei');
+    });
+
+    it('致命一击凑满第3层：点掉天威落点后，燎原仍会补挂并走完整链', () => {
+        const state = makeGameState();
+        const yunying = addHero(state, 'yunying', 'player1', [2, 2]);
+        const victim = addHero(state, 'moran', 'player2', [2, 3]);
+        victim.currentHp = 3;
+        addXiangrui(victim, yunying, 2);
+        useGameStore.setState({
+            ...state,
+            phase: 'battle',
+            isAiMode: false,
+            isOnlineMode: false,
+            currentPlayer: 'player1',
+            selectedHero: yunying,
+            activeHero: yunying,
+            suppressOnlineBroadcast: false,
+        });
+
+        const store = useGameStore.getState();
+        store.selectHeroForAction(yunying);
+        store.selectSkill('yunying_skill1');
+        store.executeSkill([2, 3]);
+        expect(useGameStore.getState().pendingBoardAction?.type).toBe('yunying-tianwei');
+
+        const landing = getPendingActionCells(useGameStore.getState())[0];
+        useGameStore.getState().resolvePendingBoardAction(landing);
+        expect(useGameStore.getState().pendingBoardAction?.type).toBe('yunying-liehuo');
+
+        const dirCell = getPendingActionCells(useGameStore.getState())[0];
+        useGameStore.getState().resolvePendingBoardAction(dirCell);
+        expect(useGameStore.getState().pendingBoardAction).toBeUndefined();
+        expect(yunying.hasActedThisTurn).toBe(true);
+    });
+});
+
+describe('挂起漂到别人回合时的兜底放行', () => {
+    /**
+     * 此时控制权已在玩家手里——玩家点会被归属守卫拒绝（"当前无法操作"），
+     * 而"不是它的回合"又让电脑步进器整拍不跑，两头都没人收尾就是死局。
+     */
+    it.each(['yunying-liehuo', 'yunying-tianwei'] as const)('%s 漂到玩家回合时由电脑作废，且不误伤玩家的行动账', type => {
+        const state = makeGameState({ currentPlayer: 'player1' });
+        const yunying = addHero(state, 'yunying', 'player2', [2, 2]);
+        const human = addHero(state, 'moran', 'player1', [2, 4]);
+        state.pendingBoardAction = { type, heroId: yunying.id };
+        useGameStore.setState({
+            ...state,
+            phase: 'battle',
+            isAiMode: true,
+            isOnlineMode: false,
+            aiPlayer: 'player2',
+            currentPlayer: 'player1',
+            selectedHero: human,
+            activeHero: human,
+        });
+
+        // 玩家点一格：归属守卫必须拒绝（不能让玩家替电脑选燃烧方向/落点）
+        useGameStore.getState().resolvePendingBoardAction(type === 'yunying-liehuo' ? [2, 3] : [2, 5]);
+        expect(useGameStore.getState().pendingBoardAction).toBeTruthy();
+
+        // 电脑步进器要能在"不是它的回合"时仍然把这格解掉
+        runComputerBattleStep('player2', 0);
+
+        const after = useGameStore.getState();
+        expect(after.pendingBoardAction).toBeUndefined();
+        expect(human.hasActedThisTurn).toBe(false);   // 作废只清槽，不该替玩家结束行动
     });
 });

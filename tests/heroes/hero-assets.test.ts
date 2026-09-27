@@ -26,51 +26,47 @@ describe('hero image assets', () => {
         expect(resolveHeroTemplateId('soul_lamp-player2-1785423305834')).toBe('soul_lamp');
         expect(resolveHeroTemplateId('wukong-clone|owner|1|0.5')).toBe('wukong');
         expect(resolveHeroTemplateId('mirror-clone|owner|1|0.5')).toBe('mirror');
-        expect(getHeroAvatarUrl('moran-player1-1785423305834')).toBe('/hero-images/avatars/moran.png');
-        expect(getHeroAvatarUrl('feixue-player1-1785423305834')).toBe('/hero-images/avatars/feixue.png');
+        expect(getHeroAvatarUrl('moran-player1-1785423305834')).toBe('/hero-images/avatars/墨阑.png');
+        expect(getHeroAvatarUrl('feixue-player1-1785423305834')).toBe('/hero-images/avatars/绯雪.png');
     });
 
     it('resolves new hero artwork (nanfeng, yousun, daier, zhenyue) to their portraits', () => {
-        // 南风：模板 ID 与资产 ID 一致
-        expect(getHeroAvatarUrl('nanfeng')).toBe('/hero-images/avatars/nanfeng.png');
-        expect(getHeroFullBodyUrl('nanfeng-player1-1785423305834')).toBe('/hero-images/full-body/nanfeng.png');
+        // 南风：模板 ID 与资产 ID 一致，文件名取游戏内显示名
+        expect(getHeroAvatarUrl('nanfeng')).toBe('/hero-images/avatars/南风.png');
+        expect(getHeroFullBodyUrl('nanfeng-player1-1785423305834')).toBe('/hero-images/full-body/南风.png');
 
-        // 游隼：模板 ID youjun → 资产 yousun（技能尚未实现，未入册，仅资产就位）
+        // 游隼：模板 ID youjun → 资产 yousun，resolveHeroTemplateId 的口径不受改名影响
         expect(resolveHeroTemplateId('youjun')).toBe('yousun');
         expect(resolveHeroTemplateId('youjun-player2-1785423305834')).toBe('yousun');
-        expect(getHeroAvatarUrl('youjun-player1-1785423305834')).toBe('/hero-images/avatars/yousun.png');
+        expect(getHeroAvatarUrl('youjun-player1-1785423305834')).toBe('/hero-images/avatars/游隼.png');
 
         // 沉渊·镇岳：模板 ID chenyuan → 资产 zhenyue
         expect(resolveHeroTemplateId('chenyuan')).toBe('zhenyue');
         expect(resolveHeroTemplateId('chenyuan-player2-1785423305834')).toBe('zhenyue');
-        expect(getHeroFullBodyUrl('chenyuan-player1-1785423305834')).toBe('/hero-images/full-body/zhenyue.png');
+        expect(getHeroFullBodyUrl('chenyuan-player1-1785423305834')).toBe('/hero-images/full-body/沉渊·镇岳.png');
 
         // 时空旅者·戴尔：模板 ID dai → 资产 daier
         expect(resolveHeroTemplateId('dai')).toBe('daier');
         expect(resolveHeroTemplateId('dai-player1-1785423305834')).toBe('daier');
-        expect(getHeroAvatarUrl('dai-player2-1785423305834')).toBe('/hero-images/avatars/daier.png');
+        expect(getHeroAvatarUrl('dai-player2-1785423305834')).toBe('/hero-images/avatars/时空旅者·戴尔.png');
 
-        // 叙白：模板 ID 与资产 ID 一致
-        expect(getHeroAvatarUrl('xubai')).toBe('/hero-images/avatars/xubai.png');
-        expect(getHeroFullBodyUrl('xubai-player1-1785423305834')).toBe('/hero-images/full-body/xubai.png');
+        // 叙白 / 泠汐 / 血契 / 云缨
+        expect(getHeroAvatarUrl('xubai')).toBe('/hero-images/avatars/叙白.png');
+        expect(getHeroFullBodyUrl('xubai-player1-1785423305834')).toBe('/hero-images/full-body/叙白.png');
+        expect(getHeroAvatarUrl('lingxi')).toBe('/hero-images/avatars/泠汐.png');
+        expect(getHeroFullBodyUrl('lingxi-player2-1785423305834')).toBe('/hero-images/full-body/泠汐.png');
+        expect(getHeroAvatarUrl('xueqi-player1-1785423305834')).toBe('/hero-images/avatars/血契.png');
+        expect(getHeroFullBodyUrl('xueqi')).toBe('/hero-images/full-body/血契.png');
+        expect(getHeroAvatarUrl('yunying-player2-1785423305834')).toBe('/hero-images/avatars/云缨.png');
+        expect(getHeroFullBodyUrl('yunying')).toBe('/hero-images/full-body/云缨.png');
 
-        // 泠汐：模板 ID 与资产 ID 一致
-        expect(getHeroAvatarUrl('lingxi')).toBe('/hero-images/avatars/lingxi.png');
-        expect(getHeroFullBodyUrl('lingxi-player2-1785423305834')).toBe('/hero-images/full-body/lingxi.png');
-
-        // 血契 / 云缨：模板 ID 与资产 ID 一致
-        expect(getHeroAvatarUrl('xueqi-player1-1785423305834')).toBe('/hero-images/avatars/xueqi.png');
-        expect(getHeroFullBodyUrl('xueqi')).toBe('/hero-images/full-body/xueqi.png');
-        expect(getHeroAvatarUrl('yunying-player2-1785423305834')).toBe('/hero-images/avatars/yunying.png');
-        expect(getHeroFullBodyUrl('yunying')).toBe('/hero-images/full-body/yunying.png');
-
-        // 惊鸿·止水 / 镜花·水月：模板 ID 不变，只把图片文件名换成完整称号命名
+        // 惊鸿·止水 / 镜花·水月：以前要靠 ASSET_FILE_NAMES 特例，现在显示名即文件名
         expect(resolveHeroTemplateId('jinghong')).toBe('jinghong');
         expect(resolveHeroTemplateId('jinghua-player2-1785423305834')).toBe('jinghua');
-        expect(getHeroAvatarUrl('jinghong-player1-1785423305834')).toBe('/hero-images/avatars/jinghongzhishui.png');
-        expect(getHeroFullBodyUrl('jinghong')).toBe('/hero-images/full-body/jinghongzhishui.png');
-        expect(getHeroAvatarUrl('jinghua-player2-1785423305834')).toBe('/hero-images/avatars/jinghuashuiyue.png');
-        expect(getHeroFullBodyUrl('jinghua')).toBe('/hero-images/full-body/jinghuashuiyue.png');
+        expect(getHeroAvatarUrl('jinghong-player1-1785423305834')).toBe('/hero-images/avatars/惊鸿·止水.png');
+        expect(getHeroFullBodyUrl('jinghong')).toBe('/hero-images/full-body/惊鸿·止水.png');
+        expect(getHeroAvatarUrl('jinghua-player2-1785423305834')).toBe('/hero-images/avatars/镜花·水月.png');
+        expect(getHeroFullBodyUrl('jinghua')).toBe('/hero-images/full-body/镜花·水月.png');
     });
 
     it('returns no image for heroes whose artwork has not been supplied', () => {

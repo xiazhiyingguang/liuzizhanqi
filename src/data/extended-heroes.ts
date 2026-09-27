@@ -1,3 +1,4 @@
+import { nextBattleLogId } from '../core/battle-log-id';
 import { EffectManager } from '../core/effect-manager';
 import { MovementSystem } from '../core/movement-system';
 import {
@@ -54,6 +55,7 @@ export const EXTENDED_HERO_IDS = [
     'yunying',
     'jinghong',
     'jinghua',
+    'huanongying',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -294,13 +296,13 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'youjun_skill1',
         skill2Id: 'youjun_skill2',
         passiveId: 'youjun_passive',
-        // 天威：无
+        tianweiId: 'youjun_tianwei',
     },
     chenyuan: {
         name: '沉渊·镇岳',
         class: '霸魁',
         maxHp: 60,
-        moveRange: 1,
+        moveRange: 2,
         baseAttack: 0,
         skill1Id: 'chenyuan_skill1',
         skill2Id: 'chenyuan_skill2',
@@ -360,6 +362,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'yunying_skill1',
         skill2Id: 'yunying_skill2',
         passiveId: 'yunying_passive',
+        tianweiId: 'yunying_tianwei',
     },
     jinghong: {
         name: '惊鸿·止水',
@@ -382,6 +385,17 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill2Id: 'jinghua_skill2',
         passiveId: 'jinghua_passive',
         tianweiId: 'jinghua_tianwei',
+    },
+    huanongying: {
+        name: '花弄影',
+        class: '武曲',
+        maxHp: 44,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'huanongying_skill1',
+        skill2Id: 'huanongying_skill2',
+        passiveId: 'huanongying_passive',
+        tianweiId: 'huanongying_tianwei',
     },
 };
 
@@ -408,14 +422,15 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     nanfeng: { name: '南风', class: '化识', description: '旋风吹散敌人、铺设风道让友方免费滑行并强化自身闪避。生命48，移动力3' },
     shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段笔走龙蛇与墨意闪避。生命42，移动力3' },
     youjun: { name: '游隼', class: '猎户', description: '路径冲刺、爆发伤害的猎手。借风道延展冲刺并沿直线穿透敌阵，在周身四格布下风刃陷阱，收回风刃可刷新疾掠再冲锋。生命44，移动力3' },
-    chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力1' },
+    chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力2' },
     dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯复活与状态还原、时空置换换位换血。生命45，移动力3' },
     xubai: { name: '叙白', class: '素问', description: '单体净化治疗，黑白球在队友残血时自动回血，首次登场抚育周围友军。生命55，移动力2' },
     lingxi: { name: '泠汐', class: '天师', description: '多段潮汐攻击：本回合命中留下延迟段，下一回合自动补击并叠加潮汐，攻防兼备。生命46，移动力2' },
     xueqi: { name: '血契', class: '霸魁', description: '周身血誓横扫、以血还血，强锁敌人钉在身边替全队挨打。生命58，移动力2' },
-    yunying: { name: '云缨', class: '武曲', description: '攻击为敌人叠祥瑞，满3层引燃烈火燎原；范围星火按敌人已有祥瑞增伤，长驱一记为下一次攻击附加吸血。生命45，移动力2' },
+    yunying: { name: '云缨', class: '武曲', description: '攻击为敌人叠祥瑞，满3层引燃烈火燎原；范围星火按敌人已有祥瑞增伤，长驱一记为下一次攻击附加吸血；击杀触发天威·燎原百斩，沿同行/同列/同对角线斩到一处空格并在落点炸开火圈。生命45，移动力2' },
     jinghong: { name: '惊鸿·止水', class: '武曲', description: '掠水一击后落到敌人身后并攒惊鸿；消耗全部惊鸿蓄力止水，下一回合放弃移动换来决渊外环爆发。满血时更锋利，残血时更硬。生命48，移动力2' },
     jinghua: { name: '镜花·水月', class: '通灵', description: '与友方换位并在水月格留影，被换上的队友落地即得5点护盾，此后友方可反复踏月换影；每次交换为镜花叠一层镜影（攻防提升，上限5层）。必要时把镜影印给候补替身登场、自己退坐月座，有人踏月即归场、替身退回候补席。登场刹那天威照向最近的敌人。生命48，移动力3' },
+    huanongying: { name: '花弄影', class: '武曲', description: '身前扇形挥斩并把影子甩到命中处；身体可与影子互换，落地再斩一圈。她每次出手后，影子都会在行动末重演一遍这一击；击杀还会立刻追加一次重演。生命44，移动力2' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {
@@ -499,6 +514,11 @@ export function initializeExtendedHero(hero: Hero): void {
             hero.counters['__jinghua_offboard'] = 0;   // 1=退入月座下场中
             hero.counters['__jinghua_return_hp'] = hero.currentHp;
             break;
+        case 'huanongying_passive':
+            hero.counters['__hny_last_attack'] = 0;  // 本动作最后一次攻击：1=花间辞 2=弄影（行动末重演后清零）
+            hero.counters['__hny_last_dir'] = -1;    // 花间辞的挥斩方向（0上1下2左3右），重演沿用
+            hero.counters['__hny_in_replay'] = 0;    // 1=重演结算中：重演击杀不再触发天威追加
+            break;
     }
 }
 
@@ -533,6 +553,46 @@ export function findMoonSeat(gameState: GameState, owner: Player) {
 /** 镜花是否正退入月座、等待归场 */
 export function isJinghuaOffboard(hero: Hero): boolean {
     return (hero.counters['__jinghua_offboard'] ?? 0) === 1;
+}
+
+/** 找某方的花弄影本体 */
+export function findHuanongying(gameState: GameState, owner: Player): Hero | null {
+    const pool = owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+    return pool.find(hero => hero.passiveId === 'huanongying_passive') ?? null;
+}
+
+/**
+ * 某方当前的「影子」标记（花弄影重演的落点）。
+ * 影子是标记不是单位：可穿可站、不可被攻击，场上永远至多一朵。
+ */
+export function findHnyShadow(gameState: GameState, owner: Player): BoardEffect | null {
+    return (gameState.boardEffects ?? []).find(
+        effect => effect.type === 'shadow-mark' && effect.owner === owner
+    ) ?? null;
+}
+
+/** 花弄影扇形三格：正前 + 左右前侧（dirCode 0上1下2左3右），越界的格子自动剔除 */
+export function getHnyFanPositions(position: Position, dirCode: number): Position[] {
+    const [row, col] = position;
+    const cells: Position[] = [];
+    const push = (r: number, c: number) => {
+        if (r >= 0 && r < 6 && c >= 0 && c < 6) cells.push([r, c]);
+    };
+    switch (dirCode) {
+        case 0: // 上：左前→正前→右前
+            push(row - 1, col - 1); push(row - 1, col); push(row - 1, col + 1);
+            break;
+        case 1: // 下
+            push(row + 1, col - 1); push(row + 1, col); push(row + 1, col + 1);
+            break;
+        case 2: // 左：上侧→正左→下侧
+            push(row - 1, col - 1); push(row, col - 1); push(row + 1, col - 1);
+            break;
+        case 3: // 右
+            push(row - 1, col + 1); push(row, col + 1); push(row + 1, col + 1);
+            break;
+    }
+    return cells;
 }
 
 /** 「惊鸿」层数上限：技能1 的所有获取途径都受此约束 */
@@ -781,26 +841,40 @@ export function findSoulLampBeneficiary(lamp: Hero, gameState: GameState): Hero 
 }
 
 /**
- * 赏金猎人被动：向敌方所有存活单位随机发布悬赏（每局触发一次）。
+ * 赏金猎人被动：向敌方所有存活单位发布悬赏（每局触发一次）。
+ * 四种赏金按不重复的顺序发放——4v4 开局正好一人一枚，因此"每个敌人的赏金都不一样"。
  */
+export const BOUNTY_REWARDS = ['天威再临', '半血回生', '永久暴击', '永久吸血'] as const;
+
+function shuffledRewards(): number[] {
+    const order = BOUNTY_REWARDS.map((_, index) => index);
+    for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+    }
+    return order;
+}
+
 export function placeBounties(hunter: Hero, gameState: GameState): string[] {
     const enemies = getLivingHeroes(getEnemies(hunter, gameState));
-    const rewardNames = ['天威再临', '半血回生', '永久暴击', '永久吸血'];
     const assignments: string[] = [];
+    let deck: number[] = [];
     for (const enemy of enemies) {
-        const reward = Math.floor(Math.random() * rewardNames.length);
+        // 敌人多于赏金种类时（替身/召唤物在场）才允许第二轮重复
+        if (deck.length === 0) deck = shuffledRewards();
+        const reward = deck.shift()!;
         enemy.effects = enemy.effects.filter(effect =>
             !(effect.name.startsWith('悬赏·') && effect.sourceHeroId === hunter.id)
         );
         EffectManager.addEffect(enemy, {
             type: 'debuff',
-            name: `悬赏·${rewardNames[reward]}`,
+            name: `悬赏·${BOUNTY_REWARDS[reward]}`,
             duration: -1,
             value: reward,
             sourceHeroId: hunter.id,
             description: '被击杀时，实际击杀者获得对应赏金奖励',
         });
-        assignments.push(`${enemy.name}（${rewardNames[reward]}）`);
+        assignments.push(`${enemy.name}（${BOUNTY_REWARDS[reward]}）`);
     }
     return assignments;
 }
@@ -827,7 +901,7 @@ export function checkYinyangLinks(hero: Hero, gameState: GameState): boolean {
             if (hasYang) yangBroken = true;
             if (hasYin) yinBroken = true;
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 timestamp: Date.now(),
                 type: 'system',
                 player: hero.owner,
@@ -879,7 +953,7 @@ export function purgeYinyangLinksOf(
         hero.counters['yinyang_yin_rate'] = 0.2;
         hero.counters['yinyang_yin_repeat'] = 0.2;
         gameState.battleLog.push({
-            id: `log-${Date.now()}-${Math.random()}`,
+            id: nextBattleLogId(),
             timestamp: Date.now(),
             type: 'system',
             player: hero.owner,

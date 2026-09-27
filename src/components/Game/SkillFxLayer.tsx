@@ -157,6 +157,14 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
         case 'liehuo-blaze':
             // 烈火燎原起手：火种在云缨脚下炸开，火线由她向外逐格烧出去
             return <LiehuoIgniteHubFx />;
+        case 'liehuo-wheel':
+            // 燎原百斩起手：她拖着一条火线冲出去，旋斩本体画在落点那一格
+            return (
+                <span className="fx-anchor" style={fxStyleVars(event)}>
+                    <i className="fxp-trail" />
+                    <i className="fxp-hitflash" />
+                </span>
+            );
         case 'feixue-blade':
         case 'feixue-stomp':
         case 'feixue-shatter':
@@ -524,18 +532,8 @@ function YunyingSweepFx() {
     );
 }
 
-/** 一记火斩的刀身：中间厚、两端收尖的月牙带，叠一道白热内芯当锋口 */
-function YunyingSlashGlyph() {
-    return (
-        <svg className="fx-yas-glyph" viewBox="0 0 120 60" preserveAspectRatio="none" aria-hidden="true">
-            <path className="fx-yas-blade" d="M4 48 Q60 -26 116 42 Q60 18 4 48 Z" />
-            <path className="fx-yas-core" d="M14 44 Q60 -8 106 38 Q60 14 14 44 Z" />
-        </svg>
-    );
-}
-
 /** 云缨·踏火长驱（命中格）：这一格只负责"被扫到"的反应——火气腾起 + 爆闪 + 余烬。
- *  刀光本体是区域层那一柄横扫整排格子的巨刃（AreaBladeSweepFx），逐格刻刀痕会看成三刀。
+ *  刀光本体是区域层那道 120° 红色圆弧挥斩（AreaBladeSweepFx），逐格刻刀痕会看成三刀。
  *  --yas-fwd 让这团的亮起来的那一刻跟上刀锋扫到本格的时机。 */
 function YunyingArcSlashFx() {
     return (
@@ -1151,6 +1149,53 @@ function ZuizhenBladeWheelFx() {
     );
 }
 
+/* ============================================================
+   云缨·燎原百斩（天威落点）：一柄红焰枪刃绕落点格心旋满一周
+   ============================================================ */
+
+/** 焰缨枪：柄尾钉在格心、双刃枪头沿 +x 径向伸出，红缨在枪头后飘两缕
+ *  （随容器顺时针旋满一周时，枪尖画出的就是"周身一圈"的火线） */
+function FlameSpearGlyph() {
+    return (
+        <svg className="fx-lw-glyph" viewBox="0 0 170 60" aria-hidden="true">
+            <path className="lw-shaft" d="M8 33 L93 31" />
+            <path className="lw-tassel" d="M92 26 q-10 -6 -21 -6 M93 36 q-12 5 -23 10" />
+            <path className="lw-blade" d="M93 31 Q112 12 138 16 Q157 20 165 30 Q146 42 121 44 Q101 42 93 31 Z" />
+            <path className="lw-core" d="M104 30 Q117 19 135 21 Q149 24 156 30 Q141 37 124 38 Q110 36 104 30 Z" />
+            <path className="lw-edge" d="M93 31 Q112 12 138 16 Q157 20 165 30" />
+        </svg>
+    );
+}
+
+/** 燎原旋斩（落点格）：焰色枪刃绕格心旋满一周，主副两道火焰扫弧 + 一道迟半拍的余痕，
+ *  周身八簇火舌按被扫过的次序窜起，收势时荡开一圈灼地火环标出 3×3 炸开的界 */
+function LiehuoSpearWheelFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-lw-heat" />
+            <i className="fx-lw-orbit">
+                <i className="fx-lw-trail" />
+                <i className="fx-lw-trail fx-lw-trail-b" />
+                <i className="fx-lw-spear"><FlameSpearGlyph /></i>
+            </i>
+            <i className="fx-lw-orbit fx-lw-orbit-echo">
+                <i className="fx-lw-trail fx-lw-trail-echo" />
+            </i>
+            {WHEEL_TICK_ANGLES.map((angle, index) => (
+                <i
+                    key={angle}
+                    className="fx-lw-tick"
+                    style={{ '--lw-a': `${angle}deg`, '--lw-i': index } as CSSProperties}
+                />
+            ))}
+            <i className="fx-lw-hub" />
+            <i className="fx-lw-ring" />
+            <i className="fxp-hitflash fxp-hitflash-big" />
+            <Sparks count={5} className="fxp-spark-fast" />
+        </span>
+    );
+}
+
 /** 旋风：对旋涡环 + 中心闪核 + 风纹光点 */
 function GaleVortexFx() {
     return (
@@ -1400,6 +1445,9 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
         case 'liehuo-blaze':
             // 烈火燎原首格：这道火线的第一格烧得最高
             return <LiehuoBlazeCellFx tall />;
+        case 'liehuo-wheel':
+            // 燎原百斩（落点格）：一柄红焰枪刃绕格心旋满一周
+            return <LiehuoSpearWheelFx />;
         case 'storm-bolt':
             return <StormBoltFx />;
         case 'gale-vortex':
@@ -1691,14 +1739,44 @@ function AreaFirewallFx() {
     );
 }
 
-/** 踏火长驱的区域巨刃：一柄红刃沿整片命中面横扫一趟，收势后再从另一侧扫回来。
- *  横扫轴是攻击方向的垂直轴（--fx-travel-x/y 给出攻击单位向量），位移按格宽换算，
- *  所以横排/竖排的命中面共用同一套关键帧，刀身始终横在扫掠方向上。 */
+/** 踏火长驱的区域刀光：以云缨为圆心、罩住正前方三格命中面的一道 120° 红色圆弧挥斩。
+ *  去程沿弧从左→右扫过（亮段行刀 + 身后渐显的斩痕轨迹），回程反着再扫一次右→左、更宽更亮。
+ *  圆心用 --fx-travel-x/y 从命中面中心反推一格回到云缨脚下，整组再按 --fx-rot 旋到攻击轴上，
+ *  所以四个朝向共用同一段弧。伤害只结算一次，回程是纯特效。 */
+const YUNYING_ARC_FWD = 'M -18.19 -10.5 A 21 21 0 0 1 18.19 -10.5';
+const YUNYING_ARC_BACK = 'M 18.19 -10.5 A 21 21 0 0 0 -18.19 -10.5';
+
 function AreaBladeSweepFx() {
     return (
+        <span className="saf-yas-fan">
+            <svg className="saf-yas-arc" viewBox="-50 -50 100 100" aria-hidden="true">
+                <path className="saf-yas-trail" d={YUNYING_ARC_FWD} pathLength={100} />
+                <path className="saf-yas-edge" d={YUNYING_ARC_FWD} pathLength={100} />
+                <path className="saf-yas-trail saf-yas-trail-b" d={YUNYING_ARC_BACK} pathLength={100} />
+                <path className="saf-yas-edge saf-yas-edge-b" d={YUNYING_ARC_BACK} pathLength={100} />
+            </svg>
+        </span>
+    );
+}
+
+/** 青莲剑阵（谪仙醉斩）：范围先行——剑阵边框钉住 2×3 命中矩形、四角括线收拢，
+ *  随后四道对角剑光依次穿阵（两道大对角 + 两道偏置补斩），末了剑阵整体 bloom 收势。
+ *  玩家先看清"斩哪几格"，再看清"怎么斩"，对齐王者李白大招的读法。 */
+function AreaSwordZoneFx() {
+    return (
         <>
-            <i className="saf-blade saf-blade-a"><YunyingSlashGlyph /></i>
-            <i className="saf-blade saf-blade-b"><YunyingSlashGlyph /></i>
+            <i className="saf-sz-frame" />
+            <i className="saf-sz-corner saf-sz-corner-tl" />
+            <i className="saf-sz-corner saf-sz-corner-tr" />
+            <i className="saf-sz-corner saf-sz-corner-bl" />
+            <i className="saf-sz-corner saf-sz-corner-br" />
+            <svg className="saf-sz-beams" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <path className="saf-sz-beam saf-sz-beam-1" d="M -4 104 L 104 -4" pathLength={100} vectorEffect="non-scaling-stroke" />
+                <path className="saf-sz-beam saf-sz-beam-2" d="M -4 -4 L 104 104" pathLength={100} vectorEffect="non-scaling-stroke" />
+                <path className="saf-sz-beam saf-sz-beam-3" d="M -4 60 L 104 6" pathLength={100} vectorEffect="non-scaling-stroke" />
+                <path className="saf-sz-beam saf-sz-beam-4" d="M -4 94 L 104 40" pathLength={100} vectorEffect="non-scaling-stroke" />
+            </svg>
+            <i className="saf-sz-flash" />
         </>
     );
 }
@@ -1868,6 +1946,7 @@ export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
             {archetype === 'firestorm' && <AreaFirestormFx />}
             {archetype === 'firewall' && <AreaFirewallFx />}
             {archetype === 'bladesweep' && <AreaBladeSweepFx />}
+            {archetype === 'swordzone' && <AreaSwordZoneFx />}
             {archetype === 'thunderstorm' && <AreaThunderstormFx />}
             {archetype === 'cage' && <AreaCageFx />}
             {archetype === 'runearray' && <AreaRuneArrayFx />}

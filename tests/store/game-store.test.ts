@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSkill } from '../../src/data/skills';
 import { createWukongClone } from '../../src/data/heroes';
-import { useGameStore } from '../../src/store/game-store';
+import { getPendingActionCells, useGameStore } from '../../src/store/game-store';
 import { EffectManager } from '../../src/core/effect-manager';
 import { HeroState, Position } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
@@ -235,8 +235,64 @@ describe('game store battle interactions', () => {
         expect(useGameStore.getState().selectedHero).toBe(hero);
     });
 
-    it('refuses to undo a move after the hero has already acted', () => {
+    it('refunds feather movement damage taken by the move when it is undone', () => {
         const state = loadBattleState();
+        const hero = addHero(state, 'moran', 'player1', [0, 0]);
+        const dilan = addHero(state, 'dilan', 'player2', [0, 5]);
+        EffectManager.addEffect(hero, {
+            type: 'debuff', name: '羽化', duration: -1, stackCount: 2, sourceHeroId: dilan.id,
+        });
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: hero,
+        });
+
+        const hpBefore = hero.currentHp;
+        useGameStore.getState().moveHero([0, 2]);
+        expect(hero.currentHp, '走过两段羽化地带应掉血').toBe(hpBefore - 2);
+
+        useGameStore.getState().undoMove();
+
+        expect(hero.currentHp, '撤回移动必须退还这次移动吃掉的羽化伤害').toBe(hpBefore);
+        expect(hero.position).toEqual([0, 0]);
+        expect(hero.counters['__move_damage_hp']).toBeUndefined();
+    });
+
+    it('re-books the movement damage ledger on each move, so repeated undo cannot refund twice', () => {
+        const state = loadBattleState();
+        const hero = addHero(state, 'moran', 'player1', [0, 0]);
+        const dilan = addHero(state, 'dilan', 'player2', [0, 5]);
+        EffectManager.addEffect(hero, {
+            type: 'debuff', name: '羽化', duration: -1, stackCount: 3, sourceHeroId: dilan.id,
+        });
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: hero,
+        });
+
+        const hpBefore = hero.currentHp;
+
+        useGameStore.getState().moveHero([0, 2]);
+        expect(hero.currentHp).toBe(hpBefore - 2);
+        useGameStore.getState().undoMove();
+        expect(hero.currentHp).toBe(hpBefore);
+
+        // 账本每次移动都重写：只退这一次吃的那 1 点，不会与上一次累计
+        useGameStore.getState().moveHero([0, 1]);
+        expect(hero.currentHp).toBe(hpBefore - 1);
+        useGameStore.getState().undoMove();
+        expect(hero.currentHp, '反复移动+撤回不得凭空回血').toBe(hpBefore);
+
+        // 没有可撤回记录时再点撤回，也不会再退一次
+        useGameStore.getState().undoMove();
+        expect(hero.currentHp).toBe(hpBefore);
+    });
+
+    it('refuses to undo a move after the hero has already acted', () => {        const state = loadBattleState();
         const hero = addHero(state, 'moran', 'player1', [0, 0]);
         addHero(state, 'baize', 'player2', [0, 5]);
         useGameStore.setState({
@@ -645,5 +701,83 @@ describe('game store 大圣合击跳过', () => {
         expect(useGameStore.getState().selectedSkill).toBeNull();
         expect(wukong.hasActedThisTurn).toBe(false);
         expect(enemy.currentHp).toBe(enemy.maxHp);
+    });
+
+    it('待选格集合只由挂起推导：没有挂起就是空，跃落类也不涂别人脚下', () => {
+        const state = makeGameState();
+        const xueqi = addHero(state, 'xueqi', 'player1', [2, 3]);
+        addHero(state, 'moran', 'player1', [0, 0]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            phase: 'battle',
+            isAiMode: true,
+            isOnlineMode: false,
+            currentPlayer: 'player1',
+            pendingBoardAction: undefined,
+        });
+
+        // 无挂起时那条"任意空格"兜底一旦漏进来，整盘 36 格都会被涂成可攻击红格，
+        // Board 又会把每格点击都吞成 executeSkill，玩家连英雄都点不动
+        expect(getPendingActionCells(useGameStore.getState()), '没有挂起就没有待选格').toHaveLength(0);
+
+        useGameStore.setState({ pendingBoardAction: { type: 'xueqi-tianwei', heroId: xueqi.id } });
+        const cells = getPendingActionCells(useGameStore.getState()).map(String);
+        expect(cells, '站着别人的格子不是合法落点，不该高亮').not.toContain('0,0');
+        expect(cells, '自己所在格允许原地起跳').toContain('2,3');
+        expect(cells).toHaveLength(35);
+    });
+
+    it('对手那侧的挂起选格：玩家点不动，也不会被高亮成"轮到我选"', () => {
+        const state = makeGameState();
+        const enemy = addHero(state, 'xueqi', 'player2', [2, 3]);
+        addHero(state, 'moran', 'player1', [0, 0]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            phase: 'battle',
+            currentPlayer: 'player2',
+            isAiMode: true,
+            isOnlineMode: false,
+            pendingBoardAction: { type: 'xueqi-tianwei', heroId: enemy.id },
+        });
+
+        expect(getPendingActionCells(useGameStore.getState())).toHaveLength(0);
+
+        useGameStore.getState().resolvePendingBoardAction([0, 1]);
+
+        expect(useGameStore.getState().pendingBoardAction)
+            .toMatchObject({ type: 'xueqi-tianwei', heroId: enemy.id });
+    });
+
+    it('电脑那侧的天威挂起不会漂到玩家回合：扣住交接，直到电脑自己答完', () => {
+        const state = makeGameState();
+        const enemyXueqi = addHero(state, 'xueqi', 'player2', [2, 3]);
+        addHero(state, 'moran', 'player1', [0, 0]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            phase: 'battle',
+            currentPlayer: 'player2',
+            isAiMode: true,
+            isOnlineMode: false,
+            selectedHero: enemyXueqi,
+            activeHero: enemyXueqi,
+            pendingBoardAction: { type: 'xueqi-tianwei', heroId: enemyXueqi.id },
+        });
+
+        // 电脑这一步想收尾：挂起没答完就不许把控制权交出去
+        useGameStore.getState().endHeroAction();
+        expect(useGameStore.getState().pendingBoardAction).toMatchObject({ type: 'xueqi-tianwei' });
+        expect(useGameStore.getState().currentPlayer).toBe('player2');
+
+        // 电脑自己把落点点掉，控制权这才换手
+        useGameStore.getState().resolvePendingBoardAction([2, 4], { byComputer: true });
+        expect(useGameStore.getState().pendingBoardAction).toBeUndefined();
+        expect(enemyXueqi.position).toEqual([2, 4]);
+        expect(useGameStore.getState().currentPlayer).toBe('player1');
     });
 });

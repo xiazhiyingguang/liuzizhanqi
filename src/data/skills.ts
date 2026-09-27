@@ -2,7 +2,7 @@ import { Skill, Hero, GameState, SkillExecuteResult, HeroState, Position } from 
 import { DamageCalculator } from '../core/damage-calculator';
 import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
-import { createMirrorClone, getMirrorOwnerIdFromCloneId } from '../data/heroes';
+import { createMirrorClone, getMirrorOwnerIdFromCloneId, GUYING_DUANXUE } from '../data/heroes';
 import { MovementSystem } from '../core/movement-system';
 import { EXTENDED_SKILLS } from './extended-skills';
 import { createHuifengStrikeContext, executeHuifengCombo, huifengMarkStrike, pickHuifengMarkTargets, HUIFENG_COMBO_BASE, HUIFENG_MARK_BASE, type HuifengStrikeContext } from '../core/huifeng-marks';
@@ -333,11 +333,20 @@ export const xuanxiaoSkill2: Skill = {
     }
 };
 
+/** 暗夜星火层数上限：不封顶的话技能二的增伤项会随全场命中无限膨胀 */
+export const CHANGLI_STARFIRE_MAX = 8;
+
+/** 长离攒星火统一走这里，保证任何来源（技能一、后续可能的 buff）都撞不破上限 */
+export function addChangliStarfire(hero: Hero, amount: number): void {
+    const next = EffectManager.getCounter(hero, '暗夜星火') + amount;
+    EffectManager.setCounter(hero, '暗夜星火', Math.min(CHANGLI_STARFIRE_MAX, Math.max(0, next)));
+}
+
 export const changliSkill1: Skill = {
     id: 'changli_skill1',
     name: '暗夜燎原',
     type: 'damage',
-    description: '对敌方所有单位造成3点伤害，每命中一人获得1层暗夜星火',
+    description: '对敌方所有单位造成3点伤害，每命中一人获得1层暗夜星火（上限8层）',
     rangeType: '全场',
     range: 6,
     targetType: 'enemy',
@@ -358,7 +367,7 @@ export const changliSkill1: Skill = {
                 result.damageDealt?.push(damage.finalDamage);
             }
         });
-        EffectManager.addCounter(caster, '暗夜星火', enemies.length);
+        addChangliStarfire(caster, enemies.length);
         result.log.push(`${caster.name}攻击${enemies.length}名敌人，获得${enemies.length}层暗夜星火`);
         return result;
     }
@@ -368,7 +377,7 @@ export const changliSkill2: Skill = {
     id: 'changli_skill2',
     name: '星火贯日',
     type: 'damage',
-    description: '攻击同行或同列敌人，基础8伤害，每层暗夜星火+10%、每格距离+10%；可消耗2层尝试眩晕',
+    description: '攻击同行或同列的一名敌人，造成 8×(1+每层暗夜星火10%)×(1+每格距离10%) 的伤害，释放后消耗当前一半暗夜星火',
     rangeType: 'line',
     range: 5,
     targetType: 'enemy',
@@ -384,32 +393,18 @@ export const changliSkill2: Skill = {
             caster.position[1] === target.position[1];
         if (!sameLine) return { success: false, log: ['目标必须与长离处于同行或同列'] };
         const starfire = EffectManager.getCounter(caster, '暗夜星火');
-        if (starfire <= 0) return { success: false, log: ['暗夜星火不足，无法造成伤害'] };
         const distance = MovementSystem.getManhattanDistance(caster.position, target.position);
-        // 每层暗夜星火 +10% 伤害，每格距离 +10% 伤害
+        // 每层暗夜星火 +10% 伤害，每格距离 +10% 伤害；0 层也能放，此时只吃距离加成
         const baseDamage = Math.floor(8 * (1 + starfire * 0.1) * (1 + distance * 0.1));
         const damage = DamageCalculator.calculate(caster, target, baseDamage, false);
         DamageCalculator.applyDamage(target, damage, caster, gameState);
-
-        let stunText = '';
-        if (caster.counters['__changli_empowered'] === 1 && starfire >= 2) {
-            EffectManager.addCounter(caster, '暗夜星火', -2);
-            if (Math.random() < 0.5 && target.state === HeroState.ALIVE) {
-                EffectManager.addEffect(target, {
-                    type: 'stun',
-                    name: '眩晕',
-                    // 行动中施加：已行动的目标剥夺下回合（2），未行动的目标剥夺本回合（1），恰好1次行动
-                    duration: target.hasActedThisTurn ? 2 : 1,
-                    sourceHeroId: caster.id,
-                    description: '停止行动一回合'
-                });
-                stunText = '并造成眩晕';
-            }
-        }
+        // 消耗一半：奇数层向下取整，多出来的那一层留给下一发
+        const consumed = Math.floor(starfire / 2);
+        if (consumed > 0) EffectManager.addCounter(caster, '暗夜星火', -consumed);
         return {
             success: true,
             damageDealt: [damage.finalDamage],
-            log: [`${caster.name}对${target.name}造成${damage.finalDamage}点伤害${stunText}`]
+            log: [`${caster.name}对${target.name}造成${damage.finalDamage}点伤害，消耗${consumed}层暗夜星火`]
         };
     }
 };
@@ -1241,11 +1236,55 @@ export const mowenSkill2: Skill = {
     }
 };
 
+/**
+ * 孤影的技能伤害结算：寒星每层 +10%（致知2 提升为 15%）。
+ * 「脆伤」（目标带寒天时她自己的伤害 +20%）**不在这里算** ——
+ * 它已经收在 `DamageCalculator.calculate` 里按攻击者判定，普攻与技能共用一条规则，
+ * 在这里再乘一次会变成 +44%。
+ * frozenBonus 只给技能二：目标处于冰冻时伤害再 +50%，并**破冰**（解除冰冻）。
+ * 寒天不必跟着清——满 3 层转冰冻时寒天已被消耗掉了。
+ */
+function guyingStrikeDamage(
+    caster: Hero,
+    target: Hero,
+    base: number,
+    options: { frozenBonus?: boolean } = {}
+): number {
+    const hanxingStacks = Math.min(5, caster.counters['寒星'] ?? 0);
+    const hanxingRate = caster.counters['talent_2'] ? 0.15 : 0.1;
+    let raw = base * (1 + hanxingStacks * hanxingRate);
+    if (options.frozenBonus && EffectManager.hasEffect(target, '冰冻')) {
+        raw *= 1.5;
+        EffectManager.removeEffectByName(target, '冰冻');
+    }
+    return Math.floor(raw);
+}
+
+/**
+ * 寒星的两条来源：命中带寒天的目标（被动「寒星」）、断雪期间使用技能（天威）。
+ * 每次出手各只 +1，5 层封顶，满了不再叠。
+ */
+function grantGuyingHanxing(
+    caster: Hero,
+    result: SkillExecuteResult,
+    markedTarget: boolean,
+    duanxue: boolean
+): void {
+    const gained = (markedTarget ? 1 : 0) + (duanxue ? 1 : 0);
+    if (gained === 0) return;
+    const current = caster.counters['寒星'] ?? 0;
+    const next = Math.min(5, current + gained);
+    caster.counters['寒星'] = next;
+    if (next !== current) {
+        result.log.push(`${caster.name}获得寒星+${next - current}（当前${next}层）`);
+    }
+}
+
 export const guyingSkill1: Skill = {
     id: 'guying_skill1',
     name: '踏雪留影',
     type: 'damage',
-    description: '选择一个直线方向，攻击路径上第一个敌人并移动到其身后，造成8点伤害并附加寒天',
+    description: '选择一个直线方向，攻击路径上第一个敌人并移动到其身后，造成8点伤害并附加寒天；断雪期间剑光贯穿整条路径上的所有敌人',
     rangeType: 'line',
     range: 5,
     targetType: 'enemy',
@@ -1327,14 +1366,34 @@ export const guyingSkill1: Skill = {
             return result;
         }
 
-        const hadHantianBefore = firstEnemy.effects.some(e => e.name === '寒天');
+        // 断雪：剑光贯穿整条射线；平时只斩路径上的第一个敌人
+        const duanxue = EffectManager.hasEffect(caster, GUYING_DUANXUE);
+        const struck: Hero[] = [firstEnemy];
+        if (duanxue) {
+            for (let dist = 1; dist <= 5; dist++) {
+                const r = cr + step[0] * dist;
+                const c = cc + step[1] * dist;
+                if (r < 0 || r >= 6 || c < 0 || c >= 6) break;
+                const h = gameState.board[r][c];
+                if (h && h.state === HeroState.ALIVE && h.owner !== caster.owner && !struck.includes(h)) {
+                    struck.push(h);
+                }
+            }
+        }
 
-        const hanxingStacks = Math.min(5, caster.counters['寒星'] ?? 0);
-        const hanxingRate = caster.counters['talent_2'] ? 0.15 : 0.1;
-        const rawDamage = 8 * (1 + hanxingStacks * hanxingRate);
-        const damageResult = DamageCalculator.calculate(caster, firstEnemy, Math.floor(rawDamage), false);
-        DamageCalculator.applyDamage(firstEnemy, damageResult, caster, gameState);
-        result.damageDealt?.push(damageResult.finalDamage);
+        // 寒星看的是"命中前谁带着寒天"，先记下来再结算，避免本手刚叠上的那层也算进被动
+        const markedBefore = struck.some(enemy => enemy.effects.some(e => e.name === '寒天'));
+
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of struck) {
+                const damageResult = DamageCalculator.calculate(
+                    caster, enemy, guyingStrikeDamage(caster, enemy, 8), false
+                );
+                DamageCalculator.applyDamage(enemy, damageResult, caster, gameState);
+                result.damageDealt?.push(damageResult.finalDamage);
+            }
+        });
+        const totalDamage = result.damageDealt?.reduce((sum, amount) => sum + amount, 0) ?? 0;
 
         const stacksToAdd = caster.counters['talent_3'] && Math.random() < 0.5 ? 2 : 1;
         DamageCalculator.applyHantianStacks(firstEnemy, stacksToAdd, caster.id, gameState);
@@ -1346,25 +1405,10 @@ export const guyingSkill1: Skill = {
             );
         }
 
-        if (hadHantianBefore) {
-            const current = caster.counters['寒星'] ?? 0;
-            const next = Math.min(5, current + 1);
-            caster.counters['寒星'] = next;
-            if (next !== current) {
-                result.log.push(`${caster.name}获得寒星+1（当前${next}层）`);
-            }
-        }
+        grantGuyingHanxing(caster, result, markedBefore, duanxue);
 
-        const fromPos = caster.position;
-        const [fr, fc] = fromPos;
-        const idx = fr * 6 + fc;
-        const bit = Math.pow(2, idx);
-        const current = caster.counters['guying_sword_shadow_mask'] || 0;
-        const hasBit = Math.floor(current / bit) % 2 === 1;
-        if (!hasBit) {
-            caster.counters['guying_sword_shadow_mask'] = current + bit;
-        }
-        gameState.board[fr][fc] = null;
+        const fromPos: Position = [cr, cc];
+        gameState.board[cr][cc] = null;
         gameState.board[landingPos[0]][landingPos[1]] = caster;
         caster.position = landingPos;
         caster.hasMovedThisTurn = true;
@@ -1374,7 +1418,9 @@ export const guyingSkill1: Skill = {
             gameState
         );
 
-        result.log.unshift(`${caster.name}使用技能1对${firstEnemy.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}，并移动到(${landingPos[0] + 1},${landingPos[1] + 1})`);
+        result.log.unshift(
+            `${caster.name}${duanxue ? '断雪·穿透斩' : '使用技能1'}命中${struck.length}名敌人，共造成${totalDamage}点伤害，并移动到(${landingPos[0] + 1},${landingPos[1] + 1})`
+        );
 
         return result;
     }
@@ -1384,7 +1430,7 @@ export const guyingSkill2: Skill = {
     id: 'guying_skill2',
     name: '寒星碎',
     type: 'damage',
-    description: '对周围一格范围内单体目标造成伤害，若目标处于冰冻则伤害提升50%',
+    description: '对周围一格范围内单体目标造成10点伤害，目标处于冰冻时伤害提升50%并击碎其冰冻；断雪期间基础伤害提升到12',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
@@ -1410,30 +1456,22 @@ export const guyingSkill2: Skill = {
         }
 
         const target = targets[0];
+        const duanxue = EffectManager.hasEffect(caster, GUYING_DUANXUE);
         const hadHantianBefore = target.effects.some(e => e.name === '寒天');
+        const wasFrozen = EffectManager.hasEffect(target, '冰冻');
 
-        const base = caster.counters['talent_1'] ? 12 : 10;
-        const hanxingStacks = Math.min(5, caster.counters['寒星'] ?? 0);
-        const hanxingRate = caster.counters['talent_2'] ? 0.15 : 0.1;
-        let rawDamage = base * (1 + hanxingStacks * hanxingRate);
-        if (EffectManager.hasEffect(target, '冰冻')) {
-            rawDamage *= 1.5;
-        }
-
-        const damageResult = DamageCalculator.calculate(caster, target, Math.floor(rawDamage), false);
+        const base = duanxue || caster.counters['talent_1'] ? 12 : 10;
+        const damageResult = DamageCalculator.calculate(
+            caster, target, guyingStrikeDamage(caster, target, base, { frozenBonus: true }), false
+        );
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
         result.damageDealt?.push(damageResult.finalDamage);
 
-        result.log.push(`${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}`);
+        result.log.push(
+            `${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}${wasFrozen ? '，击碎其冰冻' : ''}`
+        );
 
-        if (hadHantianBefore) {
-            const current = caster.counters['寒星'] ?? 0;
-            const next = Math.min(5, current + 1);
-            caster.counters['寒星'] = next;
-            if (next !== current) {
-                result.log.push(`${caster.name}获得寒星+1（当前${next}层）`);
-            }
-        }
+        grantGuyingHanxing(caster, result, hadHantianBefore, duanxue);
 
         if (damageResult.killed) {
             result.log.push(`${target.name}被击杀！`);

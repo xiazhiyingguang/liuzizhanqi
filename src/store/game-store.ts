@@ -1,4 +1,5 @@
 ﻿import { create } from 'zustand';
+import { nextBattleLogId } from '../core/battle-log-id';
 import { BOARD_SIZE, GameState, Hero, Position, BattleLogEntry, HeroState, Player } from '../types/game';
 import { AVAILABLE_HERO_IDS, createHero, createWukongClone, getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { getSkill } from '../data/skills';
@@ -9,8 +10,31 @@ import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { sendPlayerAction, syncGameState } from '../services/socket-service';
 import { noteReplayStep } from '../services/battle-replay';
-import { checkYinyangLinks, isJinghongReleaseWindow, syncPositionAnchoredEffects, takeBenchHeroHp } from '../data/extended-heroes';
-import { castBloodSweep, castLiehuoBurn, drainPendingSkillFxRequests, getDilanFrontRect, getDilanSkill1Cells, getJinghuaSwapDestinations, getYunyingChargeCells, getLibaiFrontRect, grantLingxiAssist, hasShangguanDashOption, jinghuaSwapLocked, performShangguanDashSegment, resolveJinghuaSwapMove, settleXubaiOrbs, triggerXubaiEntrance, ZUIYI_MAX } from '../data/extended-skills';
+import { checkYinyangLinks, isJinghongReleaseWindow, syncPositionAnchoredEffects, takeBenchHeroHp, getHnyFanPositions } from '../data/extended-heroes';
+import {
+    castBloodSweep,
+    castLiaoyuanHundredSlash,
+    castLiehuoBurn,
+    drainPendingSkillFxRequests,
+    getDilanFrontRect,
+    getDilanSkill1Cells,
+    getJinghuaSwapDestinations,
+    getLibaiFrontRect,
+    getYunyingChargeCells,
+    getYunyingTianweiLandings,
+    grantLingxiAssist,
+    hasShangguanDashOption,
+    jinghuaSwapLocked,
+    performShangguanDashSegment,
+    pickYunyingTianweiLanding,
+    requestYunyingTianweiLanding,
+    resolveJinghuaSwapMove,
+    settleXubaiOrbs,
+    takeYunyingQueuedLiehuo,
+    takeYunyingQueuedTianwei,
+    triggerXubaiEntrance,
+    ZUIYI_MAX,
+} from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
 import { soundManager } from '../core/sound-manager';
 import { audioManager } from '../audio/audio-manager';
@@ -312,6 +336,11 @@ function syncEngineFlowFields(state: GameState): Partial<GameStore> {
         pendingForcedActionHeroId: state.pendingForcedActionHeroId,
         performingForcedAction: state.performingForcedAction,
         forcedActionResumePlayer: state.forcedActionResumePlayer,
+        // 挂起选格也是引擎在本回合内写下的流程状态，必须一起提交：
+        // 一旦本次调用中途 set() 过（如云缨技能二先点方向格再结算），手里的 state
+        // 就和 store 脱钩了，只靠 set 的合并语义保不住它——表现是天威/燎原静默丢失。
+        // 需要显式清空的调用点都在展开之后另写 pendingBoardAction，优先级不受影响。
+        pendingBoardAction: state.pendingBoardAction,
     };
 }
 
@@ -336,26 +365,147 @@ function mergeEngineLogs(captured: GameState): Partial<GameStore> {
 
 /**
  * 待选棋盘动作允许点击的格子：
- * 烈火燎原只认云缨相邻的四个方向格（点哪格就往那条线烧），其余动作沿用全盘高亮。
- * 导出给 Board 直接推导高亮，避免某个 set() 忘了同步 highlightedPositions 时玩家看不见可点格。
+ * 烈火燎原只认云缨相邻的四个方向格（点哪格就往那条线烧），天威·燎原百斩只认与她
+ * 同行/同列/同对角线的空格，其余动作沿用全盘高亮。
+ * 导出给 Board 直接推导高亮，避免某个 set() 忘了同步 highlightedPositions 时玩家看不见可点格；
+ * 点击判定也走这同一份口径，才能保证"看见的就是能点的"。
  */
 export function getPendingActionCells(
-    state: Pick<GameState, 'pendingBoardAction' | 'player1Heroes' | 'player2Heroes'>
+    state: PendingChoiceContext
 ): Position[] {
     const pending = state.pendingBoardAction;
-    if (pending?.type === 'yunying-liehuo') {
-        const hero = [...state.player1Heroes, ...state.player2Heroes]
-            .find(item => item.id === pending.heroId);
-        if (hero?.position) {
-            const [row, col] = hero.position;
-            return ([[row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]] as Position[])
-                .filter(([r, c]) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE);
-        }
+    // 没有挂起就没有"待选格"。下面那条兜底是"跃向任意空格"类天威的口径，一旦被无挂起的
+    // 收尾路径（天威斩完放行）调到，就会把整盘 36 格铺成可攻击红格，而 Board 的点击路由
+    // 会把所有格子点击吞成 executeSkill——表现为"全屏红格 + 点不动英雄"的死局
+    if (!pending) return [];
+    if (!canLocalOperatePending(state, pending.heroId)) return [];
+    const hero = [...state.player1Heroes, ...state.player2Heroes]
+        .find(item => item.id === pending.heroId);
+    if (pending.type === 'yunying-liehuo' || pending.type === 'yunying-tianwei') {
+        if (!hero?.position) return [];
+        if (pending.type === 'yunying-tianwei') return getYunyingTianweiLandings(hero, state);
+        const [row, col] = hero.position;
+        return ([[row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]] as Position[])
+            .filter(([r, c]) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE);
     }
+    // 血契/薛定谔的落点只认空格（站着别人的格点了也只会被告知"只能跃向空格"），
+    // 高亮就得和点击判定同口径，别把友军脚下也涂成可选
     return Array.from(
         { length: BOARD_SIZE * BOARD_SIZE },
         (_, index) => [Math.floor(index / BOARD_SIZE), index % BOARD_SIZE] as Position
-    );
+    ).filter(([row, col]) => {
+        const occupant = state.board[row]?.[col];
+        return !occupant || occupant.id === pending.heroId;
+    });
+}
+
+/** 推导挂起选格所需的最小上下文：棋盘数据 + 本地身份相关的 store 字段 */
+type PendingChoiceContext = Pick<GameState, 'pendingBoardAction' | 'player1Heroes' | 'player2Heroes' | 'board'>
+    & Partial<Pick<GameStore, 'isOnlineMode' | 'isAiMode' | 'localPlayerNumber' | 'suppressOnlineBroadcast'>>;
+
+/**
+ * 挂起选格归谁操作：联机看本地玩家（应用对端状态时不设限），人机本地只有 player1，
+ * 本地双人两侧都是人。点击与高亮共用这一条判断，才不会"看得见却点不了"或反过来
+ * 让玩家替电脑挑天威的落点。
+ */
+function canLocalOperatePending(state: PendingChoiceContext, heroId: string, byComputer = false): boolean {
+    const hero = [...state.player1Heroes, ...state.player2Heroes].find(item => item.id === heroId);
+    if (!hero) return false;
+    if (state.isOnlineMode) {
+        if (state.suppressOnlineBroadcast) return true;
+        const localPlayerKey = state.localPlayerNumber === 1 ? 'player1' : state.localPlayerNumber === 2 ? 'player2' : null;
+        return !!localPlayerKey && localPlayerKey === hero.owner;
+    }
+    // 人机：玩家那侧的挂起归玩家点；电脑那侧由 useComputerOpponent 带 byComputer 来解，
+    // 否则电脑替自己的天威选落点都会被这道门挡死，回合就地卡住。
+    if (state.isAiMode) return byComputer || hero.owner === 'player1';
+    return true;
+}
+
+/**
+ * 烈火燎原作废：不烧、清掉挂起、放行被扣住的行动。
+ * 用于"收尾时挂起还挂着但没人点得出方向"这一条路（四条射线都烧不到人时电脑挑不出合法方向，
+ * 玩家也可能直接点结束行动）。没有这条出口，挂起会永远扣住控制权：引擎不认 pendingBoardAction。
+ * 返回 false 表示这次挂起并不扣着她的行动（例如被镜花回声代打触发），只清槽不替别人收尾。
+ */
+function abandonYunyingLiehuo(state: GameState, hero: Hero): boolean {
+    state.battleLog = useGameStore.getState().battleLog;
+    state.pendingBoardAction = undefined;
+    const heldAction = state.currentPlayer === hero.owner && state.selectedHero?.id === hero.id;
+    if (heldAction) GameEngine.endHeroAction(hero, state);
+    useGameStore.setState({
+        ...syncEngineFlowFields(state),
+        ...mergeEngineLogs(state),
+        pendingBoardAction: undefined,
+        board: state.board.map(row => [...row]),
+        player1Heroes: [...state.player1Heroes],
+        player2Heroes: [...state.player2Heroes],
+        highlightedPositions: [],
+        skillRange: [],
+        moveRange: [],
+        selectedHero: heldAction ? state.activeHero : state.selectedHero,
+        activeHero: state.activeHero,
+    });
+    sendOnlineStateIfNeeded(useGameStore.getState());
+    return heldAction;
+}
+
+/**
+ * 挂起选格一律要扣住"把它引出来的那次行动"的结束：game-engine 完全不认 pendingBoardAction，
+ * 不扣住控制权就交给对手，而这个提示只能由挂起的主人来答——于是对手被迫替血契/云缨选落点
+ * （血誓不熄、燎原百斩、薛定谔天威栽在同一条上）。
+ */
+function isPendingPickOfActor(pending: GameState['pendingBoardAction'], heroId: string): boolean {
+    return !!pending && pending.heroId === heroId;
+}
+
+/**
+ * 天威·燎原百斩的落点落定后统一收尾，三条出口共用这一份：
+ * 玩家点选、电脑点选、以及"她始终没点就走到行动收尾"的兜底放行（landing=null 即作废，只放行不斩）。
+ * 收尾顺序按策划口径"先天威、后燎原"：斩完之后才把排队的烈火燎原补挂上来，
+ * 因为 pendingBoardAction 一次只存得下一个挂起，两者同拍触发时必须排队而不是互相覆盖。
+ * 返回值表示"这次行动的结局已由本函数定下"，调用方不该再自己 endHeroAction。
+ */
+function finishYunyingTianweiPick(
+    state: GameState,
+    hero: Hero,
+    landing: Position | null
+): boolean {
+    state.battleLog = useGameStore.getState().battleLog;
+    if (landing) castLiaoyuanHundredSlash(hero, state, landing);
+    const holdLiehuo = takeYunyingQueuedLiehuo(hero) &&
+        hero.state === HeroState.ALIVE && !!hero.position;
+    // 天威的排队账在本次一并清掉：要么已兑现，要么随这次作废一起作废
+    takeYunyingQueuedTianwei(hero);
+    if (holdLiehuo) {
+        state.pendingBoardAction = { type: 'yunying-liehuo', heroId: hero.id };
+    } else {
+        state.pendingBoardAction = undefined;
+        // 只有这次挂起确实扣着她当前行动时才在此结束行动；
+        // 例如被镜花回声代打触发的天威，行动归属还在别人手里，不能替别人收尾
+        if (state.currentPlayer === hero.owner && state.selectedHero?.id === hero.id) {
+            GameEngine.endHeroAction(hero, state);
+        } else {
+            return false;
+        }
+    }
+    const cells = getPendingActionCells(state);
+    useGameStore.setState({
+        ...syncEngineFlowFields(state),
+        ...mergeEngineLogs(state),
+        pendingBoardAction: state.pendingBoardAction,
+        board: state.board.map(row => [...row]),
+        player1Heroes: [...state.player1Heroes],
+        player2Heroes: [...state.player2Heroes],
+        highlightedPositions: cells,
+        skillRange: cells,
+        moveRange: [],
+        ...(holdLiehuo
+            ? { selectedHero: hero, activeHero: hero }
+            : { selectedHero: state.activeHero, activeHero: state.activeHero }),
+    });
+    sendOnlineStateIfNeeded(useGameStore.getState());
+    return true;
 }
 
 interface GameStore extends GameState {
@@ -412,7 +562,6 @@ interface GameStore extends GameState {
     selectBaizeReviveTarget: (heroId: string) => void;
     /** 戴尔「时空回溯」第一段：点选处于时空停滞的阵亡友方，随后在棋盘空位选择复活落点 */
     selectDaiReviveTarget: (heroId: string) => void;
-    toggleChangliSkill2Empowered: () => void;
     toggleJetzmiSkill1Enhanced: () => void;
     /** 镜花「印月替身」：技能栏点选候补友方（写入英雄计数器，施法时消费） */
     selectJinghuaSummonHero: (templateId: string | null) => void;
@@ -422,7 +571,9 @@ interface GameStore extends GameState {
     executeSkill: (targetPos: Position) => void;
     /** @internal executeSkill 的原始实现；外层包装负责探测真实施法并派发技能特效 */
     executeSkillBase: (targetPos: Position) => void;
-    resolvePendingBoardAction: (targetPos: Position) => void;
+    resolvePendingBoardAction: (targetPos: Position, options?: { byComputer?: boolean }) => void;
+    /** 作废当前云缨挂起：只用于"挂起漂到别人回合"这类无人可解的局面 */
+    abandonPendingBoardAction: () => boolean;
     // 李太白被动链
     selectLibaiChainPosition: (position: Position) => void;
     skipLibaiChainAttack: () => void;
@@ -498,7 +649,6 @@ export function createOnlineStateSnapshot(state: GameStore) {
         wukongSkill2State: state.wukongSkill2State,
         baizeReviveTargetHeroId: state.baizeReviveTargetHeroId,
         daiReviveHeroId: state.daiReviveHeroId,
-        changliSkill2Empowered: state.changliSkill2Empowered,
         jetzmiSkill1Enhanced: state.jetzmiSkill1Enhanced,
         libaiChainState: state.libaiChainState,
         shangguanDashState: state.shangguanDashState
@@ -591,7 +741,6 @@ const createInitialState = (): GameState => ({
     forcedActionResumePlayer: undefined,
     baizeReviveTargetHeroId: undefined,
     daiReviveHeroId: undefined,
-    changliSkill2Empowered: false,
     jetzmiSkill1Enhanced: false,
     pendingSkillTargetPositions: [],
     skillOptionFlags: {},
@@ -1334,11 +1483,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
 
             const [toRow, toCol] = to;
-            get().addLog({
-                type: 'move',
-                player: hero.owner,
-                message: `${hero.name}移动到(${toRow + 1},${toCol + 1})`
-            });
+            // 踏座归场不写"移动到"：踏座者其实被让位安置到别处，
+            // 真正的故事由「携月之倒影归场」那条日志讲
+            if (jinghuaSwap !== 'moonseat') {
+                get().addLog({
+                    type: 'move',
+                    player: hero.owner,
+                    message: `${hero.name}移动到(${toRow + 1},${toCol + 1})`
+                });
+            }
 
             // 位置一变即重算"以单位为中心/为半径"的持续效果：
             // 阴阳线超出两格当场断开，血契的禁足圈跟着本体重铺
@@ -1351,6 +1504,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
 
             if (hero.state !== HeroState.ALIVE) {
+                GameEngine.endHeroAction(hero, state);
+                set({
+                    ...syncEngineFlowFields(state),
+                    ...mergeEngineLogs(state),
+                    board: state.board.map(row => [...row]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                    selectedHero: state.activeHero,
+                    activeHero: state.activeHero,
+                    highlightedPositions: [],
+                    moveRange: [],
+                    skillRange: [],
+                });
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
+
+            // 踏月座召还是整份交付：队友让位的一刻这手棋就用完了，
+            // 行动当场收尾，不留"已移动、干等手动结束"的悬空状态
+            if (jinghuaSwap === 'moonseat') {
                 GameEngine.endHeroAction(hero, state);
                 set({
                     ...syncEngineFlowFields(state),
@@ -1457,7 +1630,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
-        // 纯粹归位：撤回是"取消移动"，不结算羽化伤害、不拾取冰晶、不触发刃痕联动
+        // 归位本身是"纯移动"：不再结算羽化、不拾取冰晶、不触发刃痕联动；
+        // 但正向移动已经吃掉的羽化/风刃伤害要一并退还（见 MovementSystem.moveHero 的记账）
         const [curRow, curCol] = hero.position;
         if (state.board[curRow][curCol] === hero) state.board[curRow][curCol] = null;
         state.board[fromRow][fromCol] = hero;
@@ -1465,11 +1639,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
         delete hero.counters['__move_from'];
         hero.hasMovedThisTurn = false;
 
+        const refundHp = hero.counters['__move_damage_hp'] ?? 0;
+        delete hero.counters['__move_damage_hp'];
+        if (refundHp > 0) hero.currentHp = Math.min(hero.maxHp, hero.currentHp + refundHp);
+
         if (mirrorPartner && mirrorTo && mirrorPartner.position) {
             const [pr, pc] = mirrorPartner.position;
             if (state.board[pr][pc] === mirrorPartner) state.board[pr][pc] = null;
             state.board[mirrorTo[0]][mirrorTo[1]] = mirrorPartner;
             mirrorPartner.position = mirrorTo;
+            // 镜像那侧的对称移动伤害一并退还
+            const partnerRefund = mirrorPartner.counters['__move_damage_hp'] ?? 0;
+            delete mirrorPartner.counters['__move_damage_hp'];
+            if (partnerRefund > 0) {
+                mirrorPartner.currentHp = Math.min(mirrorPartner.maxHp, mirrorPartner.currentHp + partnerRefund);
+            }
         }
 
         // 撤回即回到移动前的状态：清掉进行中的技能选择痕迹，重新选择技能时从第一步开始
@@ -1479,6 +1663,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         delete hero.counters['__nanfeng_skill2_dir'];
         delete hero.counters['__libai_skill2_dir'];
         delete hero.counters['__lingxi_skill2_dir'];
+        delete hero.counters['__hny_dir'];
 
         // 游隼：回退这次移动计入的路径位移；移动途中若收回过风刃，
         // 对应的疾掠刷新一并撤销（风刃本身不恢复，刷新次数保留已消耗状态）
@@ -1493,7 +1678,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         get().addLog({
             type: 'move',
             player: hero.owner,
-            message: `${hero.name}撤回移动，返回原位`
+            message: refundHp > 0
+                ? `${hero.name}撤回移动，返回原位并退还${refundHp}点移动伤害`
+                : `${hero.name}撤回移动，返回原位`
         });
 
         set({
@@ -1504,7 +1691,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             selectedSkill: null,
             pendingSkillTargetPositions: [],
             baizeReviveTargetHeroId: undefined,
-            changliSkill2Empowered: false,
             jetzmiSkill1Enhanced: false,
             activeHero: hero
         });
@@ -1609,7 +1795,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
                 set({
                     selectedSkill: skill,
-                    changliSkill2Empowered: false,
                     jetzmiSkill1Enhanced: false,
                     baizeReviveTargetHeroId: undefined,
                     highlightedPositions: [],
@@ -1784,7 +1969,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         set({
             selectedSkill: skill,
             baizeReviveTargetHeroId: undefined,
-            changliSkill2Empowered: false,
             jetzmiSkill1Enhanced: false,
             pendingSkillTargetPositions: [],
             highlightedPositions: rangePositions,
@@ -1797,6 +1981,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 type: 'system',
                 player: hero.owner,
                 message: '请选择疾掠的落点（上下左右直线；身处同轴友方风道时可冲刺整行/整列）'
+            });
+        }
+
+        if (skill.id === 'huanongying_skill1') {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: '请点击她身旁的方向格定住花间辞的挥斩朝向（一次点击即展开扇形并释放）'
+            });
+        }
+
+        if (skill.id === 'huanongying_skill2') {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: '请点击场上的影子：她与影子互换位置，落地环斩（影子会留在她出发的格子）'
             });
         }
     },
@@ -1891,13 +2091,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             player: caster.owner,
             message: `已锚定${target.name}的时间线，请选择复活落点`
         });
-    },
-
-    toggleChangliSkill2Empowered: () => {
-        const state = get();
-        if (state.selectedSkill?.id !== 'changli_skill2' || state.selectedHero?.name !== '长离') return;
-        if (EffectManager.getCounter(state.selectedHero, '暗夜星火') < 2) return;
-        set({ changliSkill2Empowered: !state.changliSkill2Empowered });
     },
 
     toggleJetzmiSkill1Enhanced: () => {
@@ -2624,6 +2817,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             // 处于笔走龙蛇中则延续已命中列表；否则这是第一段
             const activeDash =
                 state.shangguanDashState?.heroId === hero.id ? state.shangguanDashState : undefined;
+            // 笔走龙蛇走的是本 store 专属分支、不经过 SkillSystem.executeSkill，
+            // 不在这里补一笔，"施放次数"（战后统计面板与平衡仿真）就会对这道技能永远记 0。
+            if (!activeDash) recordBattleSkillUse(state, hero, skill.id);
             const hitTargets: string[] = activeDash ? [...activeDash.hitTargets] : [];
 
             const outcome = performShangguanDashSegment(hero, dirR, dirC, hitTargets, state);
@@ -2755,6 +2951,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
             set({
                 highlightedPositions: rect,
                 skillRange: rect,
+                moveRange: []
+            });
+        }
+
+        // 花弄影技能1「花间辞」：点击相邻方向格定住挥斩朝向，同一次点击立即展开扇形并释放
+        if (skill.id === 'huanongying_skill1' && hero.counters['__hny_dir'] === undefined) {
+            if (!hero.position) return;
+            const [cr, cc] = hero.position;
+            const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
+            const isDirDown = targetPos[0] === cr + 1 && targetPos[1] === cc;
+            const isDirLeft = targetPos[1] === cc - 1 && targetPos[0] === cr;
+            const isDirRight = targetPos[1] === cc + 1 && targetPos[0] === cr;
+            if (!isDirUp && !isDirDown && !isDirLeft && !isDirRight) {
+                get().addLog({ type: 'system', player: hero.owner, message: '请先点击她身旁的方向格决定花间辞的挥斩朝向' });
+                return;
+            }
+            hero.counters['__hny_dir'] = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
+            const fan = getHnyFanPositions(hero.position, hero.counters['__hny_dir']);
+            set({
+                highlightedPositions: fan,
+                skillRange: fan,
                 moveRange: []
             });
         }
@@ -2914,9 +3131,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
 
         // 执行技能
-        if (skill.id === 'changli_skill2') {
-            hero.counters['__changli_empowered'] = state.changliSkill2Empowered ? 1 : 0;
-        }
         if (skill.id === 'jetzmi_skill1') {
             hero.counters['__jetzmi_enhanced'] = state.jetzmiSkill1Enhanced ? 1 : 0;
         }
@@ -2925,7 +3139,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 不重新绑定本次伤害结算日志就会连同飘字一起丢失。
         state.battleLog = get().battleLog;
         const result = SkillSystem.executeSkill(hero, skill, targetPositions, state);
-        delete hero.counters['__changli_empowered'];
         delete hero.counters['__jetzmi_enhanced'];
 
         // 如果技能执行失败，添加日志并返回，不消耗行动次数
@@ -2974,6 +3187,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
         if (hero.passiveId === 'yunying_passive') {
             delete hero.counters['__yunying_skill2_dir'];
+        }
+        if (hero.passiveId === 'huanongying_passive') {
+            delete hero.counters['__hny_dir'];
         }
 
         // 李太白被动链：技能成功后瞬移到历史位置继续攻击，全部用完自动归位
@@ -3060,6 +3276,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 标记已行动
         hero.hasActedThisTurn = true;
 
+        // 云缨「烈火燎原」是在这次攻击的伤害结算里被引燃的：方向没定之前不结束行动，
+        // 否则控制权立刻交给对手，表现为"对手先行动一轮，她再补放燎原"。
+        // 天威落点、血誓横扫中心等同类扣住：挂起槽一次只存一个。
+        if (isPendingPickOfActor(state.pendingBoardAction, hero.id)) {
+            const pendingCells = getPendingActionCells(state);
+            set({
+                ...syncEngineFlowFields(state),
+                board: state.board.map(row => [...row]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                selectedHero: hero,
+                activeHero: hero,
+                selectedSkill: null,
+                skillRange: pendingCells,
+                highlightedPositions: pendingCells,
+                moveRange: []
+            });
+            sendOnlineStateIfNeeded(get());
+            return;
+        }
+
         // 使用GameEngine结束英雄行动（切换玩家）
         GameEngine.endHeroAction(hero, state);
 
@@ -3076,7 +3313,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             selectedSkill: null,
             baizeReviveTargetHeroId: undefined,
             daiReviveHeroId: undefined,
-            changliSkill2Empowered: false,
             jetzmiSkill1Enhanced: false,
             pendingSkillTargetPositions: [],
             skillRange: state.pendingBoardAction ? getPendingActionCells(state) : [],
@@ -3092,27 +3328,67 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 heroId: hero.id,
                 skillId: skill.id,
                 targetPos,
-                changliEmpowered: skill.id === 'changli_skill2' && state.changliSkill2Empowered,
                 jetzmiEnhanced: skill.id === 'jetzmi_skill1' && state.jetzmiSkill1Enhanced
             },
             meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
         });
     },
 
-    resolvePendingBoardAction: (targetPos: Position) => {
+    /**
+     * 作废当前云缨挂起（不烧、不斩），只用于"挂起漂到了别人回合"这一类无人可解的局面：
+     * 此时按正常解析去结算会替她走一遍 endHeroAction，把行动序号/效果过期时间提前扣掉，
+     * 所以这里只清槽；若挂起确实扣着她当前这次行动，才顺带放行。
+     */
+    abandonPendingBoardAction: () => {
+        const state = get();
+        const pending = state.pendingBoardAction;
+        if (!pending) return false;
+        const hero = [...state.player1Heroes, ...state.player2Heroes]
+            .find(item => item.id === pending.heroId);
+        if (!hero) {
+            set({ pendingBoardAction: undefined, highlightedPositions: [], skillRange: [] });
+            return true;
+        }
+        if (pending.type === 'yunying-liehuo') abandonYunyingLiehuo(state, hero);
+        else if (pending.type === 'yunying-tianwei') finishYunyingTianweiPick(state, hero, null);
+        else return false;
+        return !get().pendingBoardAction;
+    },
+
+    resolvePendingBoardAction: (targetPos: Position, options?: { byComputer?: boolean }) => {
         const state = get();
         const pending = state.pendingBoardAction;
         if (!pending || !isValidBoardPosition(targetPos)) return;
         const hero = [...state.player1Heroes, ...state.player2Heroes].find(item => item.id === pending.heroId);
-        if (!hero || hero.state !== HeroState.ALIVE || !hero.position) return;
+        if (!hero) return;
+        if (hero.state !== HeroState.ALIVE || !hero.position) {
+            // 主人在选向前就已不在场上：作废这次挂起并放行被扣住的行动，否则控制权永远交不出去
+            if (pending.type !== 'yunying-tianwei') {
+                state.pendingBoardAction = undefined;
+                GameEngine.endHeroAction(hero, state);
+                set({
+                    ...syncEngineFlowFields(state),
+                    pendingBoardAction: undefined,
+                    board: state.board.map(row => [...row]),
+                    player1Heroes: [...state.player1Heroes],
+                    player2Heroes: [...state.player2Heroes],
+                    highlightedPositions: [],
+                    skillRange: [],
+                    selectedHero: null,
+                    activeHero: null,
+                });
+                sendOnlineStateIfNeeded(get());
+            } else {
+                // 天威版：不斩、作废、放行
+                finishYunyingTianweiPick(state, hero, null);
+            }
+            return;
+        }
         // 联机归属守卫：挂起选格的高亮会随权威快照同步到对端，
         // 只有该英雄所属方能点，否则对手点击同步高亮会在本地操纵别人的天威、两端分叉卡死
-        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
-            const localPlayerKey = getLocalPlayerKey(state);
-            if (!localPlayerKey || hero.owner !== localPlayerKey) {
-                get().addLog({ type: 'system', player: localPlayerKey ?? hero.owner, message: '当前无法操作' });
-                return;
-            }
+        if (!canLocalOperatePending(state, pending.heroId, options?.byComputer)) {
+            get().addLog({ type: 'system', player: hero.owner, message: '当前无法操作' });
+            return;
         }
 
         if (pending.type === 'yunying-liehuo') {
@@ -3133,17 +3409,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
             const dirCode = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
             const ray = getDilanSkill1Cells(hero, dirCode);
             const burn = castLiehuoBurn(hero, state, dirCode);
-            state.pendingBoardAction = undefined;
+            // 燎原烧穿敌人时天威嵌在这次燃烧里触发，但挂起槽要到此刻才空得出来：
+            // 按"先天威、后燎原"排不下的那一半改为烧完再挂落点选择，有落点就继续扣住行动
+            let holdForTianwei = false;
+            if (takeYunyingQueuedTianwei(hero)) {
+                state.battleLog = get().battleLog;
+                // 这次燃烧已经结算完：先把槽位交还，才轮得到天威去挂起（否则天威会以为燎原还没点）
+                state.pendingBoardAction = undefined;
+                holdForTianwei = requestYunyingTianweiLanding(hero, state);
+            }
+            if (!holdForTianwei) {
+                // 引燃时在 executeSkillBase 里扣下了这次行动的结束，方向落定后在此收尾
+                GameEngine.endHeroAction(hero, state);
+                state.pendingBoardAction = undefined;
+            }
+            const heldCells = holdForTianwei ? getPendingActionCells(state) : [];
             set({
                 ...syncEngineFlowFields(state),   // 燎原可能击杀：补员挂起/额外行动必须同步
-                pendingBoardAction: undefined,
+                pendingBoardAction: state.pendingBoardAction,
                 board: state.board.map(row => [...row]),
                 player1Heroes: [...state.player1Heroes],
                 player2Heroes: [...state.player2Heroes],
                 ...mergeEngineLogs(state),
-                highlightedPositions: [],
-                skillRange: [],
+                highlightedPositions: heldCells,
+                skillRange: heldCells,
                 moveRange: [],
+                ...(holdForTianwei ? { selectedHero: hero, activeHero: hero } : {}),
             });
             for (const line of burn.log) {
                 get().addLog({ type: 'skill', player: hero.owner, message: line });
@@ -3161,6 +3452,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 areaBounds: boundsFromCells(ray) ?? undefined,
             });
             sendOnlineStateIfNeeded(get());
+            return;
+        }
+
+        if (pending.type === 'yunying-tianwei') {
+            const landings = getYunyingTianweiLandings(hero, state);
+            if (landings.length === 0) {
+                // 挂起之后共线格被补员占满：作废这次天威并放行行动，不许留下无人可解的挂起
+                finishYunyingTianweiPick(state, hero, null);
+                return;
+            }
+            if (!landings.some(([row, col]) => row === targetPos[0] && col === targetPos[1])) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '请点击高亮空格：燎原百斩只斩向她同行、同列或同对角线的那一格',
+                });
+                return;
+            }
+            finishYunyingTianweiPick(state, hero, targetPos);
             return;
         }
 
@@ -3215,6 +3525,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
             // 横扫以落点为中心：血契人在哪里，血誓就扫哪里
             const sweep = castBloodSweep(hero, hero.position!, state, { withRage: true });
             // 位移改变了阵型：阴阳线距离与血契禁足圈当场重算（原地改写，下面换数组引用即可上屏）
+            // 这次天威是血契在自己行动里引出来的，行动被扣住过：落点答完才轮到收尾交接
+            if (!hero.hasActedThisTurn) GameEngine.endHeroAction(hero, state);
             syncPositionAnchoredEffects(state);
             state.pendingBoardAction = undefined;
             set({
@@ -3547,6 +3859,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     endHeroAction: () => {
         const state = get();
+        // 兜底放行：她始终没点天威落点就要结束行动时，按盘面自动挑一格斩下去（挑不出就作废），
+        // 绝不允许挂起漂到对手回合——引擎不认 pendingBoardAction，没人会替她清掉这个状态
+        const hang = state.pendingBoardAction;
+        if (hang?.type === 'yunying-tianwei') {
+            const hungHero = [...state.player1Heroes, ...state.player2Heroes]
+                .find(item => item.id === hang.heroId);
+            if (hungHero && finishYunyingTianweiPick(state, hungHero, pickYunyingTianweiLanding(hungHero, state))) {
+                return;
+            }
+        }
+        // 燎原同理：收尾时挂起还没点掉，就说明这条射线烧不到任何人，作废放行而不是把控制权扣死
+        if (hang?.type === 'yunying-liehuo') {
+            const hungHero = [...state.player1Heroes, ...state.player2Heroes]
+                .find(item => item.id === hang.heroId);
+            if (hungHero) {
+                abandonYunyingLiehuo(state, hungHero);
+                return;
+            }
+        }
         if (!state.selectedHero) {
             // 没有选中英雄时：若当前玩家无可行动英雄（全员眩晕/已行动），自动跳过该玩家
             // 替补制：存在待补员方时不自动跳过，等待其完成上场交互
@@ -3566,6 +3897,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     skillRange: []
                 });
             }
+            return;
+        }
+
+        // 自己引出来的挂起还没答，就不算这次行动结束（否则血契/薛定谔的天威落点会漂到对手回合）
+        const held = state.pendingBoardAction;
+        if (held && state.selectedHero && state.selectedHero.state === HeroState.ALIVE
+            && isPendingPickOfActor(held, state.selectedHero.id)) {
+            const cells = getPendingActionCells(state);
+            set({ highlightedPositions: cells, skillRange: cells, moveRange: [] });
+            get().addLog({ type: 'system', player: state.currentPlayer, message: '请先完成天威选格，这一手还没结束' });
             return;
         }
 
@@ -3821,7 +4162,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const state = get();
         const newEntry: BattleLogEntry = {
             ...entry,
-            id: `log-${Date.now()}-${Math.random()}`,
+            id: nextBattleLogId(),
             timestamp: Date.now()
         };
 

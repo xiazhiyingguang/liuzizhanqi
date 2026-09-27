@@ -54,6 +54,8 @@ export const DIRECTIONAL_FX_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKin
     'jinghua-moonblade',
     'zuizhen-throw',
     'zuizhen-wheel',
+    // 天威旋斩本体在落点格，但起手格的冲刺拖尾要吃 --fx-dist
+    'liehuo-wheel',
 ]);
 
 export function isDirectionalFxKind(kind: SkillFxKind): boolean {

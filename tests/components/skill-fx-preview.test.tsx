@@ -38,7 +38,7 @@ function makeChargeEvent(): SkillFxEvent {
         angleDeg,
         direction: computeFxDirection(angleDeg),
         coveredPositions: [[1, 3], [2, 3], [3, 3]],
-        // 巨刃由区域层画在整片命中面上，没有包围盒就什么都不会出现
+        // 圆弧刀光由区域层画在整片命中面上，没有包围盒就什么都不会出现
         areaBounds: { r0: 1, c0: 3, rows: 3, cols: 1 },
     };
 }
@@ -125,6 +125,19 @@ describe('SkillFxStage 特效演示舞台', () => {
         expect(wheel.split('class="fx-zw-tick"').length - 1).toBe(8);
     });
 
+    it('云缨天威·燎原百斩：起手格火线拖尾，落点格焰缨枪旋一周带火舌圈', () => {
+        const wheel = renderStage('yunying_tianwei');
+        expect(wheel).toContain('skill-fx skill-fx-kind-liehuo-wheel skill-fx-caster');
+        expect(wheel).toContain('skill-fx skill-fx-kind-liehuo-wheel skill-fx-target');
+        expect(wheel).toContain('fxp-trail');
+        expect(wheel).toContain('class="fx-lw-orbit"');
+        expect(wheel).toContain('class="fx-lw-orbit fx-lw-orbit-echo"');
+        expect(wheel).toContain('fx-lw-spear');
+        expect(wheel).toContain('lw-blade');
+        expect(wheel).toContain('fx-lw-ring');
+        expect(wheel.split('class="fx-lw-tick"').length - 1).toBe(8);
+    });
+
     it('云缨星火照野：起手格甩出四道凌乱弧刃与一记枪杆抽打', () => {
         const html = renderStage('yunying_skill1');
         expect(html).toContain('skill-fx skill-fx-kind-yunying-sweep skill-fx-caster');
@@ -132,7 +145,7 @@ describe('SkillFxStage 特效演示舞台', () => {
         expect(html).toContain('fx-yys-shaft');
     });
 
-    it('云缨踏火长驱：逐格只起火气不刻刀痕，刀光是区域层那一柄来回扫的巨刃', () => {
+    it('云缨踏火长驱：逐格只起火气不刻刀痕，刀光是区域层那道120°圆弧两扫', () => {
         const html = renderStage('yunying_skill2');
         expect(html).toContain('skill-fx skill-fx-kind-yunying-arc-slash skill-fx-target');
         expect(html).toContain('fx-yas-glow');
@@ -142,8 +155,13 @@ describe('SkillFxStage 特效演示舞台', () => {
 
         const area = renderToStaticMarkup(<SkillAreaFx event={makeChargeEvent()} />);
         expect(area).toContain('skill-area-fx-bladesweep');
-        expect(area.split('saf-blade saf-blade-').length - 1).toBe(2);
-        expect((area.match(/fx-yas-blade/g) ?? []).length).toBe(2);
+        expect(area).toContain('saf-yas-arc');
+        // 去程/回程各一对：渐显的斩痕轨迹 + 沿弧递进的白热刃头
+        expect((area.match(/class="saf-yas-trail/g) ?? []).length).toBe(2);
+        expect((area.match(/class="saf-yas-edge/g) ?? []).length).toBe(2);
+        // 旧的平移巨刃图元必须彻底退场，不许残留第三种读法
+        expect(area).not.toContain('saf-blade');
+        expect(area).not.toContain('fx-yas-blade');
     });
 
     it('踏火长驱逐格的火气跟上刀锋扫到本格的时刻', () => {
@@ -152,6 +170,32 @@ describe('SkillFxStage 特效演示舞台', () => {
         const last = renderToStaticMarkup(<SkillFxVisual event={event} variant="area" atPos={[3, 3]} />);
         expect(first).toContain('--yas-fwd:0ms');
         expect(last).toContain('--yas-fwd:300ms');
+    });
+
+    it('李太白谪仙醉斩：剑阵边框钉住命中矩形，四道剑光穿阵', () => {
+        const fromPos: [number, number] = [2, 1];
+        const targetPos: [number, number] = [2, 2];
+        const angleDeg = computeFxAngleDeg(fromPos, targetPos);
+        const event: SkillFxEvent = {
+            id: 3,
+            bornAt: 0,
+            profile: resolveSkillFx('libai_skill2'),
+            owner: 'player1',
+            fromPos,
+            targetPos,
+            angleDeg,
+            direction: computeFxDirection(angleDeg),
+            coveredPositions: [[1, 2], [1, 3], [2, 2], [2, 3], [3, 2], [3, 3]],
+            impactPositions: [[2, 2], [2, 3]],
+            // 谪仙醉斩的命中面是身前 3×2 剑阵，范围必须先于剑光被看见
+            areaBounds: { r0: 1, c0: 2, rows: 3, cols: 2 },
+        };
+        const area = renderToStaticMarkup(<SkillAreaFx event={event} />);
+        expect(area).toContain('skill-area-fx-swordzone');
+        expect(area).toContain('saf-sz-frame');
+        expect((area.match(/saf-sz-corner saf-sz-corner-/g) ?? []).length).toBe(4);
+        expect((area.match(/saf-sz-beam saf-sz-beam-/g) ?? []).length).toBe(4);
+        expect(area).toContain('saf-sz-flash');
     });
 
     it('烈火燎原：起手格火种炸开，射线格各起三道火舌 + 灼地环与热浪', () => {

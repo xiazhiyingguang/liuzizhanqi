@@ -1,3 +1,4 @@
+import { nextBattleLogId } from './battle-log-id';
 import { BoardEffect, GameState, Hero, HeroState, Position } from '../types/game';
 import { DamageCalculator } from './damage-calculator';
 import { getWindLanes, windLaneAxis } from './wind-lane';
@@ -12,6 +13,26 @@ import { getWindLanes, windLaneAxis } from './wind-lane';
 
 export const WIND_BLADE_DAMAGE = 4;
 export const WIND_BLADE_DURATION = 3;
+
+/**
+ * 游隼天威「归翎」的飞刀账本：她每次停留过的格子都插着一柄看不见的飞刀，
+ * 击杀时沿直线/对角线收回。
+ * 飞刀刻意不落进 boardEffects —— 棋盘上已经有她的风刃，两种"刃"同屏玩家读不懂；
+ * 每格最多一柄，重复停留不叠加。
+ */
+export const YOUJUN_KNIFE_MASK = 'youjun_knife_mask';
+export const YOUJUN_KNIFE_DAMAGE = 4;
+
+export function markYoujunKnifeSpot(youjun: Hero): void {
+    if (youjun.passiveId !== 'youjun_passive' || youjun.state !== HeroState.ALIVE || !youjun.position) return;
+    const [row, col] = youjun.position;
+    // 36 格要放到 2^35，只能按算术读写：位运算会把 32 位以上的高位截掉
+    const bit = Math.pow(2, row * 6 + col);
+    const mask = youjun.counters[YOUJUN_KNIFE_MASK] ?? 0;
+    if (Math.floor(mask / bit) % 2 === 0) {
+        youjun.counters[YOUJUN_KNIFE_MASK] = mask + bit;
+    }
+}
 const NORMAL_DASH_DISTANCE = 3;
 const LANE_DASH_DISTANCE = 5;
 
@@ -84,7 +105,7 @@ export function retractWindBladesOnCells(youjun: Hero, cells: Position[], gameSt
         youjun.counters['youjun_skill1_refreshed'] = 1;
     }
     gameState.battleLog?.push({
-        id: `log-${Date.now()}-${Math.random()}`,
+        id: nextBattleLogId(),
         type: 'passive' as const,
         player: youjun.owner,
         message: canRefresh
@@ -131,7 +152,7 @@ export function processWindBladeEntry(mover: Hero, cell: Position, gameState: Ga
     DamageCalculator.applyDamage(mover, result, source, gameState);
     if (gameState.battleLog) {
         gameState.battleLog.push({
-            id: `log-${Date.now()}-${Math.random()}`,
+            id: nextBattleLogId(),
             type: 'damage' as const,
             player: source.owner,
             message: `${mover.name}踏入风刃，受到${result.finalDamage}点伤害`,

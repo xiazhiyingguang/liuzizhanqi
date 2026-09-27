@@ -56,6 +56,7 @@ const WIND_LANE_DIRECTION_LABELS: Record<'up' | 'down' | 'left' | 'right', strin
 /** 挂起选格时的提示语（天威/被动触发后必须在棋盘上说清楚"现在点哪"） */
 const PENDING_CHOICE_HINTS: Record<string, { title: string; detail: string }> = {
     'yunying-liehuo': { title: '烈火燎原', detail: '点选云缨相邻的方向格，决定这道火线烧向哪条线' },
+    'yunying-tianwei': { title: '云缨·天威', detail: '点选一处与她同行、同列或同对角线的空格，枪光斩向那里' },
     'xueqi-tianwei': { title: '血契·天威', detail: '点选一处空格跃落' },
     'schrodinger-tianwei': { title: '薛定谔·天威', detail: '点选一格确定观测落点' },
 };
@@ -74,6 +75,9 @@ export default function Board() {
         moveHero,
         executeSkill,
         pendingBoardAction,
+        isOnlineMode,
+        localPlayerNumber,
+        suppressOnlineBroadcast,
         resolvePendingBoardAction,
         isAiMode,
         aiPlayer,
@@ -99,9 +103,13 @@ export default function Board() {
         ? [...player1Heroes, ...player2Heroes].find(item => item.id === pendingBoardAction.heroId)
         : undefined;
     const pendingChoiceCells = pendingBoardAction
-        ? getPendingActionCells({ pendingBoardAction, player1Heroes, player2Heroes })
+        ? getPendingActionCells({
+            pendingBoardAction, player1Heroes, player2Heroes, board,
+            isOnlineMode, isAiMode, localPlayerNumber, suppressOnlineBroadcast,
+        })
         : [];
-    const pendingChoiceHint = pendingBoardAction
+    // 不是本地该操作的挂起（例如电脑的天威落点）就不给提示，免得看着像自己的回合
+    const pendingChoiceHint = pendingBoardAction && pendingChoiceCells.length > 0
         ? PENDING_CHOICE_HINTS[pendingBoardAction.type]
         : undefined;
     const isPendingChoice = (row: number, col: number): boolean =>
@@ -303,7 +311,9 @@ export default function Board() {
             return;
         }
 
-        if (skillRange.length > 0 && isHighlighted(row, col)) {
+        // 只有真的选好了技能才把点击交给 executeSkill：残留的 skillRange（例如挂起收尾时
+        // 把整盘涂成可攻击格）否则会把每一格点击都吞成一次空释放，表现为"满盘红格却点不动"
+        if (skillRange.length > 0 && selectedSkill && isHighlighted(row, col)) {
             executeSkill(targetPos);
             return;
         }
@@ -459,6 +469,13 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 花弄影甩在场上的影子：重演的落点，也是弄影的换身跳板
+                            const shadowMark = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'shadow-mark' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
                             // 时空停滞残影：本格空着、但躺着一个被戴尔凝固时间的阵亡单位
                             const stasisGhost = stasisGhostAt(rowIndex, colIndex);
                             const stasisAnchored = stasisGhost !== null && daiReviveHeroId === stasisGhost.id;
@@ -469,7 +486,8 @@ export default function Board() {
                             const reviveLanding = daiReviveHeroId !== undefined && skillTarget;
                             // 烈火燎原这类"只有几格可选"的挂起选择：给一套专属焰色脉冲标记，
                             // 不能和普通攻击高亮混为一谈，否则玩家不知道被动已经触发
-                            const pendingChoice = pendingBoardAction?.type === 'yunying-liehuo' &&
+                            const pendingChoice = (pendingBoardAction?.type === 'yunying-liehuo' ||
+                                pendingBoardAction?.type === 'yunying-tianwei') &&
                                 isPendingChoice(rowIndex, colIndex);
                             // 箭头朝向即这条火线烧过去的方向（云缨 → 本格）
                             const pendingChoiceRot = pendingChoice && pendingChoiceHero?.position
@@ -662,6 +680,20 @@ export default function Board() {
                                             <i className="bf-moon-seat-ring" aria-hidden="true" />
                                             <i className="bf-moon-seat-ring bf-moon-seat-ring-b" aria-hidden="true" />
                                             <i className="bf-moon-seat-dot" aria-hidden="true" />
+                                        </div>
+                                    )}
+
+                                    {shadowMark && (
+                                        <div
+                                            className={`bf-shadow-mark bf-shadow-mark-${shadowMark.owner === 'player1' ? 'p1' : 'p2'} absolute inset-1 pointer-events-none`}
+                                            title="残影：花弄影的影子留在此处，行动末会重演她最后一击；她可点击影子与身互换"
+                                        >
+                                            <i className="bf-shadow-pool" aria-hidden="true" />
+                                            <svg className="bf-shadow-figure" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M12 3.4c1.7 0 2.9 1.2 2.9 2.8 0 1.1-.6 1.9-1.3 2.5.9.5 1.6 1.4 1.9 2.6l.7 3.9c.1.6-.3 1-.8 1h-6.8c-.5 0-.9-.4-.8-1l.7-3.9c.3-1.2 1-2.1 1.9-2.6-.7-.6-1.3-1.4-1.3-2.5 0-1.6 1.2-2.8 2.9-2.8z" />
+                                            </svg>
+                                            <i className="bf-shadow-petal bf-shadow-petal-a" aria-hidden="true" />
+                                            <i className="bf-shadow-petal bf-shadow-petal-b" aria-hidden="true" />
                                         </div>
                                     )}
 

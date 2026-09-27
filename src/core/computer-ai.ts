@@ -9,7 +9,8 @@ import { SkillSystem } from './skill-system';
 import { DamageCalculator } from './damage-calculator';
 import { GameEngine } from './game-engine';
 import { windLaneAxis, windLaneCells, windLaneDirectionFromCode } from './wind-lane';
-import { isJinghongReleaseWindow } from '../data/extended-heroes';
+import { isJinghongReleaseWindow, findHnyShadow, findWaterMoon, findMoonSeat } from '../data/extended-heroes';
+import { getHnyReplayForm, getJinghuaSwapDestinations, pickYunyingTianweiLanding } from '../data/extended-skills';
 
 export interface ComputerDeployment {
     heroId: string;
@@ -139,6 +140,10 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position): n
             return 4;
         case 'jinghong_skill2':
             return 10;
+        case 'huanongying_skill1':
+            return 6;   // 花间辞扇形；影子的3点重演另算，不进威胁基线
+        case 'huanongying_skill2':
+            return 8;   // 弄影落点环斩
         default:
             return null;
     }
@@ -741,8 +746,17 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
     if (
         skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2'
         || skill.id === 'zuizhendao_skill1' || skill.id === 'yunying_skill2'
+        || skill.id === 'huanongying_skill1'
     ) {
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
+    }
+
+    // 花弄影「弄影」：点影子所在格与身互换；场上无影或影格被人占住时这一手不存在
+    // （execute 会当场拒绝，方案集必须提前拦下，否则 AI 会反复重试必败施法）
+    if (skill.id === 'huanongying_skill2') {
+        const shadow = findHnyShadow(state, caster.owner);
+        if (!shadow || state.board[shadow.position[0]][shadow.position[1]] !== null) return [];
+        return [[[shadow.position[0], shadow.position[1]]] as Position[]];
     }
 
     // 南风引风成道：两步点击（先定风向，再点行/列），枚举 4 个方向 × 该轴上 6 条线
@@ -886,6 +900,11 @@ function configureSimulationChoices(
         caster.counters['__zuizhendao_skill1_dir'] =
             direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
     }
+    if (skill.id === 'huanongying_skill1' && caster.position) {
+        const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
+        caster.counters['__hny_dir'] =
+            direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
+    }
     if (skill.id === 'yunying_skill2' && caster.position) {
         // 点相邻方向格即释放：把方向换算成技能结算读取的 0-3 编码
         const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
@@ -919,9 +938,6 @@ function configureSimulationChoices(
         if (dead[0]) {
             state.skillSelectedHeroIds = { ...(state.skillSelectedHeroIds ?? {}), [caster.id]: dead[0].id };
         }
-    }
-    if (skill.id === 'changli_skill2' && (caster.counters['暗夜星火'] ?? 0) >= 2) {
-        caster.counters['__changli_empowered'] = 1;
     }
 }
 
@@ -1068,6 +1084,49 @@ function simulateSkillPlan(
                 effect.type === 'wind-blade' && effect.sourceHeroId === caster.id
               ).length * 3
             : 0;
+        // 花弄影的「重演」在行动末才结算，execute 返回值里一分不显：从模拟盘面读回
+        // 影子与招式记忆，把影子的补刀计入本次施法收益；影格本身还是下一手「弄影」
+        // 的进场板，围着影子站几个敌人另外计分，否则 AI 只会把影子甩到无人区。
+        let replayBonus = 0;
+        if (simulatedCaster.passiveId === 'huanongying_passive') {
+            const shadow = findHnyShadow(simulated, simulatedCaster.owner);
+            const lastAttack = simulatedCaster.counters['__hny_last_attack'] ?? 0;
+            if (shadow && lastAttack > 0) {
+                const form = getHnyReplayForm(
+                    shadow.position, lastAttack, simulatedCaster.counters['__hny_last_dir'] ?? -1);
+                const isFoe = (row: number, col: number) => {
+                    const unit = simulated.board[row]?.[col];
+                    return !!unit && unit.owner !== simulatedCaster.owner && unit.state === HeroState.ALIVE;
+                };
+                const replayHits = form.cells.filter(([row, col]) => isFoe(row, col)).length;
+                const [shadowRow, shadowCol] = shadow.position;
+                const entryThreat = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+                    .filter(([dr, dc]) => isFoe(shadowRow + dr, shadowCol + dc)).length;
+                replayBonus = replayHits * form.damage * AGGRESSION.damageWeight + entryThreat * 2.5;
+            }
+        }
+        // 惊鸿是「决渊」的弹药，攒层本身就是收益；蓄力则是拿下一回合的移动权换
+        // 一圈大斩的投资——5×5 外环够得着的范围内没人就判负分，免得 AI 原地空转蓄力。
+        let jinghongBonus = 0;
+        if (simulatedCaster.passiveId === 'jinghong_passive' && result.success) {
+            if (skill.id === 'jinghong_skill1') {
+                const gained = (simulatedCaster.counters['惊鸿'] ?? 0) - (caster.counters['惊鸿'] ?? 0);
+                jinghongBonus = Math.max(0, gained) * 4;
+            } else if (skill.id === 'jinghong_skill2' &&
+                simulatedCaster.counters['jinghong_charge_round'] === simulated.roundNumber) {
+                // 蓄力用「下一回合不能移动」换一圈 5×5 外环大斩：外环此刻够不着任何人
+                // 就是白站一回合，直接不生成该方案（AI 想蓄力得先把自己送到人旁边）
+                const ringReach = enemiesFor(state, caster.owner).filter(enemy =>
+                    enemy.state === HeroState.ALIVE && enemy.position && caster.position &&
+                    Math.max(Math.abs(enemy.position[0] - caster.position[0]),
+                        Math.abs(enemy.position[1] - caster.position[1])) <= 2
+                ).length;
+                if (ringReach === 0) return null;
+                const spent = Math.max(0,
+                    (caster.counters['惊鸿'] ?? 0) - (simulatedCaster.counters['惊鸿'] ?? 0));
+                jinghongBonus = 6 + spent * 3;
+            }
+        }
         // 再动类技能（玄霄「惊鸿再舞」等）只往待行动队列里写一个 id：
         // 没有伤害、没有效果、棋盘分差也是 0，只能对比模拟前后的队列来计分。
         const pendingBefore = state.pendingExtraActionHeroIds;
@@ -1094,6 +1153,8 @@ function simulateSkillPlan(
             + cloneBonus
             + dashBonus
             + bladeBonus
+            + replayBonus
+            + jinghongBonus
             + extraActionBonus
             + (meaningfulResult ? skillTypeBias(skill) : 0)
             // 技能轮换：最近一次用过的技能减分，促使 AI 换着放技能
@@ -1186,20 +1247,119 @@ function maximumSkillReach(hero: Hero): number {
     }, 1);
 }
 
+interface PositionCoverage {
+    /** 站在这一格、选覆盖最多的那个技能时，能同时罩住的敌人 */
+    coveredEnemies: Hero[];
+    /** 能同时照应的友方数（治疗/增益技） */
+    allyCoverage: number;
+}
+
+const NO_COVERAGE: PositionCoverage = { coveredEnemies: [], allyCoverage: 0 };
+
+/**
+ * 该英雄的理想交击距离：按技能定位取，不能取"形状最远能伸到几格"。
+ * 后者会让 3x3 贴身技算出 2 格（对角那格），于是近战单位会悬在自己攻击面外一步不肯进场。
+ * 直线/单体射程技卡在射程末端风筝，十字与区域技必须走进去，全场技留一步余地即可。
+ */
+function preferredStandoff(hero: Hero): number {
+    let standoff = 1;
+    for (const skillId of [hero.skill1Id, hero.skill2Id]) {
+        const skill = getSkill(skillId);
+        if (!skill || skill.type !== 'damage' || isSkillOnCooldown(hero, skill)) continue;
+        const gap = skill.rangeType === 'single' || skill.rangeType === 'line'
+            ? Math.min(4, Math.max(1, skill.range))
+            : skill.rangeType === '全场'
+                ? 3
+                : 1;
+        standoff = Math.max(standoff, gap);
+    }
+    return standoff;
+}
+
+/** 取技能形状里真正会吃到结算的一侧：直线四向是一次选一条轴，按同行/同列分开数。 */
+function coverageGroups(
+    skill: Skill,
+    origin: Position,
+    cells: Position[]
+): Position[][] {
+    if (skill.rangeType === 'line') {
+        // 引擎一次返回四个方向的全部格子，真实施法只会选一条轴：同行与同列分别数，取较大的一侧
+        return [
+            cells.filter(([row]) => row === origin[0]),
+            cells.filter(([col]) => col === origin[1]),
+        ];
+    }
+    return [cells];
+}
+
+/**
+ * 站在 position 这一格，本回合就绪技能分别能同时罩住哪些敌人（或几名友方）。
+ * 形状取自 SkillSystem.getValidTargetPositions，与高亮、结算同源，避免另写一套几何口径
+ * 导致"AI 以为罩得住、真放技能只打到一个"。
+ * 只用于站位评分与候选排序，真实出手方案仍由 simulateSkillPlan 完整模拟后决定。
+ */
+function analyzePositionCoverage(
+    state: GameState,
+    hero: Hero,
+    position: Position
+): PositionCoverage {
+    if (hero.state !== HeroState.ALIVE) return NO_COVERAGE;
+    const probe = hero.position === position ? hero : { ...hero, position };
+    const enemies = enemiesFor(state, hero.owner).filter(enemy =>
+        enemy.state === HeroState.ALIVE && enemy.position
+    );
+    const allies = heroesFor(state, hero.owner).filter(ally =>
+        ally.state === HeroState.ALIVE && ally.position && ally.id !== hero.id
+    );
+    let bestEnemy: Hero[] = [];
+    let bestAlly = 0;
+    for (const skillId of [hero.skill1Id, hero.skill2Id]) {
+        const skill = getSkill(skillId);
+        if (!skill || isSkillOnCooldown(hero, skill)) continue;
+        const cells = SkillSystem.getValidTargetPositions(probe, skill, state).filter(isBoardPosition);
+        for (const group of coverageGroups(skill, position, cells)) {
+            const hitIds = new Set<string>();
+            for (const [row, col] of group) {
+                const occupant = state.board[row]?.[col];
+                if (occupant && occupant.state === HeroState.ALIVE) hitIds.add(occupant.id);
+            }
+            if (skill.targetType === 'enemy' || skill.targetType === 'any') {
+                const foes = enemies.filter(enemy => hitIds.has(enemy.id))
+                    // 可选目标数是几个就封顶几个：站在人堆里不等于一次打到三个人
+                    .slice(0, typeof skill.targetCount === 'number'
+                        ? Math.max(1, skill.targetCount)
+                        : Number.POSITIVE_INFINITY);
+                if (foes.length > bestEnemy.length) bestEnemy = foes;
+            }
+            if (skill.targetType === 'ally' || skill.targetType === 'any') {
+                bestAlly = Math.max(bestAlly, allies.filter(ally => hitIds.has(ally.id)).length);
+            }
+        }
+    }
+    return { coveredEnemies: bestEnemy, allyCoverage: bestAlly };
+}
+
 export function scoreComputerPosition(state: GameState, hero: Hero, position: Position): number {
     const ratings = ratingsForHero(hero);
     const hpRatio = hero.maxHp > 0 ? hero.currentHp / hero.maxHp : 0;
     const enemies = enemiesFor(state, hero.owner).filter(enemy => enemy.state === HeroState.ALIVE && enemy.position);
     const allies = heroesFor(state, hero.owner).filter(ally => ally.id !== hero.id && ally.state === HeroState.ALIVE && ally.position);
-    const reach = maximumSkillReach(hero);
+    const coverage = analyzePositionCoverage(state, hero, position);
+    const standoff = preferredStandoff(hero);
     let score = 0;
+
+    // 只有"这一格的技能形状真的罩得住"的敌人才给接战分，一次罩住几个就给几份，
+    // 这才是让 AI 去找"一杆扫三个"格子而不是"离三个人都近"的格子的动力。
+    for (const victim of coverage.coveredEnemies) {
+        score += ratings.输出 * 2.4 + ratings.控制 * 1.4 + (1 - effectiveHpRatio(victim)) * 20;
+    }
+    score += coverage.allyCoverage * ratings.支援 * 0.7;
 
     for (const enemy of enemies) {
         const distance = MovementSystem.getManhattanDistance(position, enemy.position!);
         const enemyReach = maximumSkillReach(enemy);
-        const enemyHpRatio = effectiveHpRatio(enemy);
-        if (distance <= reach) score += ratings.输出 * 3 + ratings.控制 * 1.4 + (1 - enemyHpRatio) * 20;
-        score += Math.max(0, 6 - distance) * ratings.输出 * 0.32;
+        // 接近梯度：按"离理想交击距离还差几格"给分，已经站进射程的英雄不再被继续往前拽
+        score += Math.max(0, 6 - Math.abs(distance - standoff)) * ratings.输出 * 0.32;
         if (!EffectManager.isStunned(enemy)) {
             if (distance <= enemyReach) {
                 // 直接威胁：敌人原地就能打到这个位置
@@ -1261,6 +1421,25 @@ export function chooseComputerMove(state: GameState, hero: Hero): Position | nul
     const candidates = positions
         .map(position => ({ position, score: scoreComputerPosition(state, hero, position) }))
         .filter(candidate => candidate.score > currentScore + 1.25);
+
+    // 镜花·水月的交换跳板（真身/水月/月座）不是普通移动落点，寻路永远不会枚举它们，
+    // AI 队友因此从不知道去踩白拿的护盾、更不会踏座接镜花归场：
+    // 这里把交换落点并入移动候选，按"踩上去值什么"给功能分。
+    const swapDests = getJinghuaSwapDestinations(hero, state);
+    if (swapDests.length > 0) {
+        const moon = findWaterMoon(state, hero.owner);
+        const seat = findMoonSeat(state, hero.owner);
+        const isSame = (a: Position, b: Position) => a[0] === b[0] && a[1] === b[1];
+        for (const pos of swapDests) {
+            if (positions.some(p => isSame(p, pos))) continue;
+            let bonus = 6;   // 免移动力换影：5点护盾 + 给镜花攒镜影的团队经济
+            if (moon && isSame(pos, moon.position)) bonus += 4; // 水月踏板另值一层盾
+            if (seat && isSame(pos, seat.position)) bonus = 24; // 踏座=整单位归场，值一次行动
+            const score = scoreComputerPosition(state, hero, pos) + bonus;
+            if (score > currentScore + 1.25) candidates.push({ position: pos, score });
+        }
+    }
+
     if (candidates.length === 0) return null;
 
     return pickWithBlunder(candidates, difficultyProfile().decisionTolerance)?.position ?? null;
@@ -1298,10 +1477,20 @@ export function chooseComputerPendingBoardPosition(state: GameState, hero: Hero)
         const sweepCenter = chooseXueqiSweepCenter(state, hero);
         if (sweepCenter) return sweepCenter;
     }
+    if (state.pendingBoardAction?.type === 'yunying-tianwei') {
+        // 天威·燎原百斩的落点只认共线空格：退回常规选位会点到非法格并把挂起原地卡死，
+        // 挑不出落点（无人可斩）时也返回 null，由调用方兜底放行
+        return pickYunyingTianweiLanding(hero, state);
+    }
     if (hero.passiveId === 'yunying_passive') {
         // 烈火燎原：点相邻方向格即沿那条线烧到棋盘边缘，优先烧最多、最残血的一边
         const liehuoDirection = chooseYunyingLiehuoDirection(state, hero);
         if (liehuoDirection) return liehuoDirection;
+        if (state.pendingBoardAction?.type === 'yunying-liehuo') {
+            // 四条射线都烧不到人：返回 null 交由收尾兜底作废放行。
+            // 绝不能退回下面的全盘选位——随便一格都不是合法方向，会被拒到永久卡住
+            return null;
+        }
     }
     const candidates: Position[] = [];
     for (let row = 0; row < BOARD_SIZE; row++) {
@@ -1487,10 +1676,16 @@ export function isSelfPropellingSkill(skillId: string | undefined): boolean {
 
 /**
  * 移动+技能联合规划：枚举若干高价值站位，模拟"先移动到该格再放技能"的总收益。
- * 只有当总分明显超过"原地放技能 + 原地站位"时才返回方案，控制计算开销并防止为动而动。
+ * 返回非 null 即代表"先挪一步再打"比"站在原地打"高出 JOINT_MOVE_MARGIN 以上，
+ * 调用方据此决定要不要移动，不需要自己再比一次分数。
  * 低难度档 jointMoveTopK=0 直接关闭该能力。
+ * @param baselinePlan 调用方已经算出的原地最优方案；省略时内部重算一次
  */
-export function planJointMoveForHero(state: GameState, caster: Hero): ComputerJointMovePlan | null {
+export function planJointMoveForHero(
+    state: GameState,
+    caster: Hero,
+    baselinePlan?: ComputerSkillPlan | null
+): ComputerJointMovePlan | null {
     if (!caster.position || caster.hasMovedThisTurn || caster.hasActedThisTurn) return null;
     if (caster.state !== HeroState.ALIVE) return null;
     const topK = difficultyProfile().jointMoveTopK;
@@ -1500,9 +1695,12 @@ export function planJointMoveForHero(state: GameState, caster: Hero): ComputerJo
     const movable = MovementSystem.getMovablePositions(caster, state);
     if (movable.length === 0) return null;
 
-    const baselinePlan = chooseComputerSkillPlan(state, caster);
+    const baseline = baselinePlan === undefined ? chooseComputerSkillPlan(state, caster) : baselinePlan;
+    // 自带位移的技能（游隼疾掠）把"这一步位移"本身就是伤害来源，先走一步会把冲刺额度
+    // 提前花光，贴脸后冲刺反而变成负收益，因此这类方案一律不换取位。
+    if (baseline && isSelfPropellingSkill(baseline.skillId)) return null;
     const baselineTotal =
-        (baselinePlan?.score ?? 0) + scoreComputerPosition(state, caster, currentPos) * 0.3;
+        (baseline?.score ?? 0) + scoreComputerPosition(state, caster, currentPos) * 0.3;
 
     // 按站位质量取前 topK 个候选格，避免全图模拟
     const ranked = movable

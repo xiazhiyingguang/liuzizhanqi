@@ -1,9 +1,10 @@
+import { nextBattleLogId } from './battle-log-id';
 import { BOARD_SIZE, Position, Hero, GameState, HeroState } from '../types/game';
 import { getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { isFreeWindLaneStep } from './wind-lane';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
-import { processWindBladeEntry } from './wind-blade';
+import { markYoujunKnifeSpot, processWindBladeEntry } from './wind-blade';
 
 /**
  * 移动范围计算选项。
@@ -573,20 +574,12 @@ export class MovementSystem {
              }
         }
 
-        if (hero.name === '孤影') {
-            const idx = fromRow * 6 + fromCol;
-            const bit = Math.pow(2, idx);
-            const current = hero.counters['guying_sword_shadow_mask'] || 0;
-            const hasBit = Math.floor(current / bit) % 2 === 1;
-            if (!hasBit) {
-                hero.counters['guying_sword_shadow_mask'] = current + bit;
-            }
-        }
-
         // 执行移动
         gameState.board[fromRow][fromCol] = null;
         gameState.board[toRow][toCol] = hero;
         hero.position = to;
+        // 游隼天威的飞刀只记"停留过的格子"：每落到一个新位置就插一柄（同格不叠加）
+        markYoujunKnifeSpot(hero);
 
         // 移动联动单位
         if (partner && partnerTo && partner.position) {
@@ -610,7 +603,7 @@ export class MovementSystem {
             const gained = EffectManager.addIceArmor(hero, crystal.sourceHeroId);
             if (gameState.battleLog) {
                 gameState.battleLog.push({
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'passive' as const,
                     player: hero.owner,
                     message: gained
@@ -620,6 +613,13 @@ export class MovementSystem {
                 });
             }
         }
+
+        // 这次移动吃掉的移动连带伤害（羽化逐格、风刃接触）必须能在"撤回移动"时退还：
+        // 撤回的语义是"这一步没走过"，只归位不退伤害等于白扣一层羽化。
+        // 两者都是不可规避、无视护盾的固定伤害，所以只需要记生命。
+        // （若伤害被琉璃/沉渊的援护改道，移动者自身生命不变，这部分不在退还范围内。）
+        const hpBeforeMoveDamage = hero.currentHp;
+        const hpBeforePartnerDamage = partner?.currentHp ?? 0;
 
         DamageCalculator.applyDilanMovementDamage(hero, movePath.length, gameState);
         if (partner && partnerFrom && partnerTo && partner.state === HeroState.ALIVE) {
@@ -640,6 +640,16 @@ export class MovementSystem {
                 processWindBladeEntry(hero, cell, gameState);
                 if (hero.state !== HeroState.ALIVE) break;
             }
+        }
+
+        const moveHpDamage = Math.max(0, hpBeforeMoveDamage - hero.currentHp);
+        if (moveHpDamage > 0) hero.counters['__move_damage_hp'] = moveHpDamage;
+        else delete hero.counters['__move_damage_hp'];
+        // 镜的对称移动同样被这次移动连带结算，镜像那侧也记账
+        if (partner && partnerFrom && partnerTo) {
+            const partnerDamage = Math.max(0, hpBeforePartnerDamage - partner.currentHp);
+            if (partnerDamage > 0) partner.counters['__move_damage_hp'] = partnerDamage;
+            else delete partner.counters['__move_damage_hp'];
         }
 
         return true;

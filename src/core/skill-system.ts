@@ -1,3 +1,4 @@
+import { nextBattleLogId } from './battle-log-id';
 import { BOARD_SIZE, Hero, Skill, Position, GameState, SkillExecuteResult, HeroState } from '../types/game';
 import { MovementSystem } from './movement-system';
 import { DamageCalculator } from './damage-calculator';
@@ -5,7 +6,7 @@ import { EffectManager } from './effect-manager';
 import { recordBattleSkillUse } from './battle-statistics';
 import { youjunDashMaxDistance } from './wind-blade';
 import { filterPositionsByRage, getRageBinder, rageBlocksCast } from './taunt';
-import { getJinghongOuterRing, isJinghongCharging, isJinghongReleaseWindow, isLingxiEchoPending } from '../data/extended-heroes';
+import { getJinghongOuterRing, isJinghongCharging, isJinghongReleaseWindow, isLingxiEchoPending, findHnyShadow, getHnyFanPositions } from '../data/extended-heroes';
 
 /**
  * 技能系统
@@ -43,6 +44,20 @@ export class SkillSystem {
         // 因此必须抢在 targetType==='self' 的统一收口之前——蓄力段仍走自指。
         if (skill.id === 'jinghong_skill2' && gameState && isJinghongReleaseWindow(caster, gameState)) {
             return [caster.position, ...getJinghongOuterRing(caster.position)];
+        }
+
+        // 花弄影技能1「花间辞」：先亮四个正交方向格，定向后展开该方向的扇形三格
+        if (skill.id === 'huanongying_skill1') {
+            const dirCode = caster.counters['__hny_dir'];
+            return dirCode === undefined || dirCode < 0
+                ? MovementSystem.getCrossPositions(caster.position)
+                : getHnyFanPositions(caster.position, dirCode);
+        }
+
+        // 花弄影技能2「弄影」：抢在 self 收口前指向影子格——点它即与影换身；无影子则不可用
+        if (skill.id === 'huanongying_skill2' && gameState) {
+            const shadow = findHnyShadow(gameState, caster.owner);
+            return shadow ? [shadow.position] : [];
         }
 
         if (skill.targetType === 'self') {
@@ -384,7 +399,7 @@ export class SkillSystem {
                 gameState.pendingExtraActionHeroIds ??= {};
                 gameState.pendingExtraActionHeroIds[caster.owner] = caster.id;
                 gameState.battleLog?.push({
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'passive' as const,
                     player: caster.owner,
                     message: `${caster.name}收势再起，还可以再移动一次`,
@@ -419,7 +434,7 @@ export class SkillSystem {
                 // 添加日志
                 if (gameState.battleLog) {
                     gameState.battleLog.push({
-                        id: `log-${Date.now()}-${Math.random()}`,
+                        id: nextBattleLogId(),
                         type: 'system' as const,
                         player: hero.owner,
                         message: `${hero.name}身上的援护效果消失了`,

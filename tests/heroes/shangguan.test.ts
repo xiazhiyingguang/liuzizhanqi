@@ -212,7 +212,7 @@ describe('上官婉儿笔走龙蛇：撞碎毛笔回收并刷新冲刺', () => {
         expect(shangguan.hasActedThisTurn).toBe(true);
     });
 
-    it('行动结束后毛笔朝婉儿移动：未被撞碎回收的毛笔继续生效', () => {
+    it('行动结束后毛笔朝婉儿移动：未被撞碎回收的毛笔继续生效（9点固定伤害）', () => {
         const state = makeGameState();
         const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
         const brush = makeBrush(state, [3, 0], 'player1', shangguan.id, 'brush-live');
@@ -220,8 +220,43 @@ describe('上官婉儿笔走龙蛇：撞碎毛笔回收并刷新冲刺', () => {
 
         GameEngine.endHeroAction(shangguan, state);
 
-        // 毛笔朝婉儿移动1格到 [3,1]，敌人被毛笔掠过受6点固定伤害
+        // 毛笔朝婉儿移动1格到 [3,1]，敌人被毛笔掠过受9点固定伤害
         expect(brush.position).toEqual([3, 1]);
-        expect(enemy.currentHp).toBe(enemy.maxHp - 6);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 9);
+    });
+
+    it('落笔直中敌人：立即9点固定伤害', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+        const enemy = addHero(state, 'baize', 'player2', [3, 5]);
+        shangguan.counters['__extended_target'] = 3 * 6 + 5;
+
+        const out = shangguanSkill1.execute!(shangguan, [], state);
+        expect(out.success).toBe(true);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 9);
+    });
+
+    it('毛笔落成的当回合不推进，下一回合起才朝婉儿移动', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+        const enemy = addHero(state, 'baize', 'player2', [3, 1]);
+        shangguan.counters['__extended_target'] = 3 * 6 + 0;   // 落笔 [3,0]，距敌人一格
+
+        const out = shangguanSkill1.execute!(shangguan, [], state);
+        expect(out.success).toBe(true);
+        const brush = (state.boardEffects ?? []).find(effect => effect.type === 'brush')!;
+        expect(brush.placedAtRound).toBe(state.roundNumber);
+
+        // 放笔这次行动结束：毛笔按兵不动，敌人毫发无伤
+        GameEngine.endHeroAction(shangguan, state);
+        expect(brush.position).toEqual([3, 0]);
+        expect(enemy.currentHp).toBe(enemy.maxHp);
+
+        // 下一回合行动结束：推进一格掠过敌人，吃9点
+        state.roundNumber += 1;
+        shangguan.hasActedThisTurn = false;
+        GameEngine.endHeroAction(shangguan, state);
+        expect(brush.position).toEqual([3, 1]);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 9);
     });
 });

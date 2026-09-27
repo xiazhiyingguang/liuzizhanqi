@@ -3,6 +3,7 @@ import { MovementSystem } from '../../src/core/movement-system';
 import { SkillSystem } from '../../src/core/skill-system';
 import { createWindLane } from '../../src/core/wind-lane';
 import { youjunSkill1, youjunSkill2 } from '../../src/data/extended-skills';
+import { youjunTianwei } from '../../src/data/heroes';
 import { addHero, makeGameState } from '../helpers/game-state';
 
 /** 场上所有游隼风刃的坐标集合，便于断言「落在哪几格」 */
@@ -13,11 +14,23 @@ function bladeKeys(state: ReturnType<typeof makeGameState>): string[] {
         .sort();
 }
 
+/** 把飞刀掩码还原成坐标列表，便于断言"她到底在哪些格子留下了刀" */
+function knifeCells(hero: { counters: Record<string, number> }): string[] {
+    const mask = hero.counters['youjun_knife_mask'] ?? 0;
+    const cells: string[] = [];
+    for (let index = 0; index < 36; index++) {
+        if (Math.floor(mask / Math.pow(2, index)) % 2 === 1) {
+            cells.push(`${Math.floor(index / 6)},${index % 6}`);
+        }
+    }
+    return cells.sort();
+}
+
 describe('游隼完整机制', () => {
     beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
     afterEach(() => vi.restoreAllMocks());
 
-    it('拥有44生命、3移动与完整技能注册（天威暂未实装）', () => {
+    it('拥有44生命、3移动与完整技能与天威注册', () => {
         const state = makeGameState();
         const youjun = addHero(state, 'youjun', 'player1', [2, 2]);
         expect(youjun.name).toBe('游隼');
@@ -26,7 +39,46 @@ describe('游隼完整机制', () => {
         expect(youjun.moveRange).toBe(3);
         expect(youjun.skill1Id).toBe('youjun_skill1');
         expect(youjun.skill2Id).toBe('youjun_skill2');
-        expect(youjun.tianweiId).toBeUndefined();
+        expect(youjun.tianweiId).toBe('youjun_tianwei');
+    });
+
+    it('天威飞刀只记"停留过的格子"，同格重复停留不叠加、也不摆上棋盘', () => {
+        const state = makeGameState();
+        const youjun = addHero(state, 'youjun', 'player1', [0, 0]);
+
+        expect(knifeCells(youjun)).toEqual([], '起点没停留过，不该有刀');
+
+        MovementSystem.moveHero(youjun, [2, 0], state);
+        expect(knifeCells(youjun)).toEqual(['2,0']);
+
+        MovementSystem.moveHero(youjun, [2, 2], state);
+        expect(knifeCells(youjun)).toEqual(['2,0', '2,2']);
+
+        // 绕回已经留过刀的位置：每格最多一柄
+        MovementSystem.moveHero(youjun, [2, 0], state);
+        expect(knifeCells(youjun)).toEqual(['2,0', '2,2']);
+        expect((state.boardEffects ?? []).filter(effect => effect.type !== 'wind-blade')).toHaveLength(0);
+    });
+
+    it('归翎只收回同直线/同对角线上的飞刀，沿途敌人各受4点', () => {
+        const state = makeGameState();
+        const youjun = addHero(state, 'youjun', 'player1', [0, 0]);
+        MovementSystem.moveHero(youjun, [0, 3], state);   // 刀 A：[0,3]
+        MovementSystem.moveHero(youjun, [3, 3], state);   // 刀 B：[3,3]
+        MovementSystem.moveHero(youjun, [3, 0], state);   // 刀 C：[3,0]
+        MovementSystem.moveHero(youjun, [1, 1], state);   // 刀 D：[1,1]（她当前所在格）
+        expect(knifeCells(youjun)).toEqual(['0,3', '1,1', '3,0', '3,3']);
+
+        const onDiagonal = addHero(state, 'baize', 'player2', [2, 2]);  // 在刀 B 的归途上
+        const offLine = addHero(state, 'liuli', 'player2', [0, 2]);     // 在刀 A 的行列上，但 A 收不回
+        onDiagonal.defense = 0;   // 免掉防御减免，直接断言 4 点
+        offLine.defense = 0;
+
+        youjunTianwei.execute(youjun, state);
+
+        expect(onDiagonal.currentHp, '对角线上的飞刀归途应割到它').toBe(onDiagonal.maxHp - 4);
+        expect(offLine.currentHp, '不在同一直线/对角线的飞刀不收回').toBe(offLine.maxHp);
+        expect(knifeCells(youjun), '只消掉被收回的 B 与脚下这柄 D').toEqual(['0,3', '3,0']);
     });
 
     it('技能2四向风刃：风刃落在周身一格四向而非飞出，持续3回合且不伤害远处敌人', () => {

@@ -60,7 +60,6 @@ function loadVariant(rosterKey: string, mode: string): void {
         selectedHero: focus,
         activeHero: focus,
         selectedSkill: mode.startsWith('skill') ? getSkill(TOGGLE_SKILL[rosterKey] ?? focus.skill1Id) : null,
-        changliSkill2Empowered: mode === 'skill-on',
         jetzmiSkill1Enhanced: mode === 'skill-on',
         battleLog: [],
     });

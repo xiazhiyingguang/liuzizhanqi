@@ -80,4 +80,7 @@ export const SKILL_SOUND_FILES: Record<string, string> = {
     jinghua_skill1: 'skills/jinghua_skill1.wav',
     jinghua_skill2: 'skills/jinghua_skill2.wav',
     jinghua_tianwei: 'skills/jinghua_tianwei.wav',
+    huanongying_skill1: 'skills/huanongying_skill1.wav',
+    huanongying_skill2: 'skills/huanongying_skill2.wav',
+    huanongying_replay: 'skills/huanongying_replay.wav',
 };

@@ -21,13 +21,15 @@ import {
     scoreComputerPosition,
     setComputerAiDifficulty,
     type AiDecisionAudit,
+    type ComputerJointMovePlan,
 } from '../core/computer-ai';
 import { noteAiDecision } from '../services/battle-replay';
 import { useGameStore } from '../store/game-store';
 import { getSkill } from '../data/skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
-import { AVAILABLE_HERO_IDS } from '../data/heroes';
+import { AVAILABLE_HERO_IDS, getHeroInfo } from '../data/heroes';
+import { getHeroAbilityRatings } from '../data/hero-ratings';
 import { MovementSystem } from '../core/movement-system';
 
 const AI_PLAYER = 'player2' as const;
@@ -36,14 +38,34 @@ const HUMAN_PLAYER: Player = 'player1';
 const THINK_DELAY_MS = 430;
 
 /**
+ * 电脑那侧的英雄把挂起漂到了别人的回合（她的天威/烈火燎原可能是在他人行动期间挂起来的）。
+ * 这种格子只有电脑解得开：玩家点会被归属守卫拒绝，而"不是它的回合"又让步进器整拍不跑，
+ * 两头都没人收尾，界面上就是提示条挂着、高亮 0 格、怎么点都没反应。
+ */
+function hasDanglingPendingFor(
+    state: Pick<GameState, 'pendingBoardAction' | 'player1Heroes' | 'player2Heroes'
+        | 'currentPlayer' | 'reinforcingPlayer'>,
+    side: Player
+): boolean {
+    const pending = state.pendingBoardAction;
+    if (!pending) return false;
+    if ((state.reinforcingPlayer ?? state.currentPlayer) === side) return false;
+    return [...state.player1Heroes, ...state.player2Heroes]
+        .some(hero => hero.id === pending.heroId && hero.owner === side);
+}
+
+/**
  * 战斗阶段此刻该由 AI 出手的一方：电脑方恒成立，玩家方仅在接管开启时成立。
  * 补员挂起算在"轮到它"之内（补员也是一次决策），选将与布阵阶段不接管。
  */
 function pilotedBattleSide(
     state: Pick<GameState, 'phase' | 'isAiMode' | 'isOnlineMode' | 'autoBattle'
-        | 'currentPlayer' | 'reinforcingPlayer'>
+        | 'currentPlayer' | 'reinforcingPlayer' | 'pendingBoardAction'
+        | 'player1Heroes' | 'player2Heroes'>
 ): Player | null {
     if (state.phase !== 'battle' || !state.isAiMode || state.isOnlineMode) return null;
+    // 漂到玩家回合的电脑挂起：即便轮到玩家，也要让电脑先把自己那格解掉
+    if (hasDanglingPendingFor(state, AI_PLAYER)) return AI_PLAYER;
     const waiting = state.reinforcingPlayer ?? state.currentPlayer;
     if (waiting === AI_PLAYER) return AI_PLAYER;
     return state.autoBattle && waiting === HUMAN_PLAYER ? HUMAN_PLAYER : null;
@@ -70,7 +92,6 @@ function stateSignature(state: ReturnType<typeof useGameStore.getState>): string
         state.skillRange.length,
         state.pendingSkillTargetPositions?.length ?? 0,
         state.baizeReviveTargetHeroId ?? '-',
-        state.changliSkill2Empowered ? 1 : 0,
         state.jetzmiSkill1Enhanced ? 1 : 0,
         state.pendingBoardAction?.heroId ?? '-',
         state.shangguanDashState
@@ -237,15 +258,6 @@ function executeSelectedSkillStep(
         }
     }
 
-    if (
-        skill.id === 'changli_skill2' &&
-        (caster.counters['暗夜星火'] ?? 0) >= 2 &&
-        !state.changliSkill2Empowered
-    ) {
-        store.toggleChangliSkill2Empowered();
-        return;
-    }
-
     if (skill.id === 'jinghua_skill1' && caster.passiveId === 'jinghua_passive') {
         // 水月换身：把最深入的友方换出来——仅当镜花自己站在安全位时才值得换
         if (!caster.position) { store.endHeroAction(); return; }
@@ -314,8 +326,14 @@ function executeSelectedSkillStep(
             }
         }
         if (!bestLanding) { store.endHeroAction(); return; }
-        // 等价于人类点选候补：直接写选择计数器，走同一条 execute 校验
-        caster.counters['__jinghua_summon_pick'] = 0;
+        // 等价于人类点选候补：挑面板最能打的候补当替身（印月按镜影层数放大攻防，
+        // 输出/成长越高的候补吃得越满），写入选择计数器后走同一条 execute 校验
+        const valueOf = (templateId: string) => {
+            const ratings = getHeroAbilityRatings(getHeroInfo(templateId)?.name ?? '');
+            return ratings ? ratings.输出 * 2 + ratings.成长 : 0;
+        };
+        const bestBench = [...bench].sort((a, b) => valueOf(b) - valueOf(a))[0];
+        caster.counters['__jinghua_summon_pick'] = bench.indexOf(bestBench);
         store.executeSkill(bestLanding);
         return;
     }
@@ -685,7 +703,7 @@ function executeWukongStep(
 
 /* --------------------------- 移动+技能联合规划 --------------------------- */
 
-/** 伤害型方案：够强就直接原地释放，不必先走位 */
+/** 伤害型方案：原地就有这么强的一手时，不再为纯站位分挪窝（联合规划另有结论时以联合规划为准） */
 const JOINT_PLAN_SCORE_THRESHOLD = 26;
 /** 布置型（非伤害）方案：门槛更高，否则 AI 会站在原地反复放辅助技而永不接近敌人 */
 const JOINT_PLAN_UTILITY_SCORE_THRESHOLD = 55;
@@ -702,15 +720,16 @@ let jointMoveCache: CachedJointMove | null = null;
 /** 原地没有好技能时，评估"先移动到更优站位再放技能"，并把结论缓存供下一步的移动分支消费。 */
 function rememberJointMovePlan(
     state: ReturnType<typeof useGameStore.getState>,
-    caster: Hero
-): void {
+    caster: Hero,
+    baselinePlan?: ReturnType<typeof chooseComputerSkillPlan>
+): ComputerJointMovePlan | null {
     if (
         jointMoveCache &&
         jointMoveCache.casterId === caster.id &&
         jointMoveCache.roundNumber === state.roundNumber &&
         jointMoveCache.actionsThisTurn === state.actionsThisTurn
-    ) return; // 同一回合同一英雄只规划一次
-    const plan = planJointMoveForHero(state, caster);
+    ) return null; // 同一回合同一英雄只规划一次
+    const plan = planJointMoveForHero(state, caster, baselinePlan);
     jointMoveCache = plan
         ? {
               casterId: caster.id,
@@ -719,6 +738,7 @@ function rememberJointMovePlan(
               position: plan.position,
           }
         : null;
+    return plan;
 }
 
 /** 消费联合规划缓存：校验回合/行动序号/可达性，读后即清，避免跨回合污染。 */
@@ -762,8 +782,18 @@ function executeBattleStep(
         const hero = [...state.player1Heroes, ...state.player2Heroes]
             .find(candidate => candidate.id === state.pendingBoardAction?.heroId);
         if (hero?.owner === aiPlayer) {
+            if (hasDanglingPendingFor(state, aiPlayer)) {
+                // 挂起漂到了别人的回合：这一格只有电脑解得开，但按正常解析结算会替她走一遍
+                // endHeroAction（把她的行动序号与效果过期时间提前扣掉），所以只作废、不结算
+                store.abandonPendingBoardAction();
+                return;
+            }
             const position = chooseComputerPendingBoardPosition(state, hero);
-            if (position) store.resolvePendingBoardAction(position);
+            if (position) store.resolvePendingBoardAction(position, { byComputer: true });
+            else if (state.pendingBoardAction.type === 'yunying-tianwei') {
+                // 电脑挑不出值得斩的落点：交给"行动收尾自动放行"这条兜底出口，别在挂起处原地卡住
+                store.endHeroAction();
+            }
             return;
         }
     }
@@ -810,20 +840,18 @@ function executeBattleStep(
     });
     // 自带位移的技能（游隼疾掠）释放本身就完成了接敌：先走一步会把冲刺距离提前花光，
     // 导致贴脸后冲刺变成负收益、AI 从此不用冲刺，因此这类技能直接原地释放。
-    // 其余按方案类型分档：伤害技够强就原地放；布置技门槛更高，
-    // 否则 AI 会站在原地反复放辅助技、永远不接近敌人（复盘实测会打成 50 回合 0 击杀）。
+    // 其余技能按"原地打"与"先挪一步再打"两种总分比较，谁高用谁。
     const planIsDamage = getSkill(skillPlan?.skillId ?? '')?.type === 'damage';
     const planScoreBar = planIsDamage ? JOINT_PLAN_SCORE_THRESHOLD : JOINT_PLAN_UTILITY_SCORE_THRESHOLD;
     const castInPlace = !!skillPlan && (
         skillPlan.score >= planScoreBar || isSelfPropellingSkill(skillPlan.skillId)
     );
-    const wantsReposition = !caster.hasMovedThisTurn && !castInPlace;
-
-    // 联合规划：原地没有好技能时，评估"先移动到更优站位再放技能"是否显著更优
-    if (wantsReposition) rememberJointMovePlan(state, caster);
-
     const move = chooseComputerMove(state, caster);
-    if (wantsReposition && move) {
+    const canReposition = !caster.hasMovedThisTurn && !!move && !isSelfPropellingSkill(skillPlan?.skillId);
+    // 联合规划返回非 null，即代表"先移动再释放"的总分显著高于原地方案（门槛在规划器内）
+    const joint = canReposition ? rememberJointMovePlan(state, caster, skillPlan) : null;
+
+    if (canReposition && (joint || !castInPlace)) {
         store.showMoveRange();
         return;
     }
@@ -905,7 +933,9 @@ export function runComputerBattleStep(aiPlayer: Player, repeatCount = 0): void {
         deployComputerReinforcement(aiPlayer);
         return;
     }
-    if (state.currentPlayer !== aiPlayer) return;
+    // 不是它的回合本不该出手，但电脑那侧的挂起漂到了玩家回合时例外：
+    // 那一格玩家点不动（归属守卫拒绝）、电脑又整拍不跑，两头都没人收尾就是死局
+    if (state.currentPlayer !== aiPlayer && !hasDanglingPendingFor(state, aiPlayer)) return;
     if (repeatCount >= 2) {
         useGameStore.getState().endHeroAction();
         return;

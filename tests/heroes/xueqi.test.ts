@@ -290,8 +290,12 @@ describe('血契天威 · 血誓不熄', () => {
 
         expect(victim.state, '横扫应收下残血的人头').toBe(HeroState.DEAD);
         expect(useGameStore.getState().pendingBoardAction?.type).toBe('xueqi-tianwei');
-        expect(useGameStore.getState().highlightedPositions, '应高亮全盘供选格')
-            .toHaveLength(36);
+        // 高亮全盘空格：站着别人的格（白泽、长离）点了只会被告知"血契只能跃向空格"，
+        // 既不算可选也不该涂红；自己脚下那一格允许原地起跳
+        expect(useGameStore.getState().highlightedPositions, '应高亮全部可选落点')
+            .toHaveLength(34);
+        expect(useGameStore.getState().highlightedPositions.map(String))
+            .toEqual(expect.arrayContaining(['2,2', '0,5']));
 
         useGameStore.getState().resolvePendingBoardAction([0, 5]);
 

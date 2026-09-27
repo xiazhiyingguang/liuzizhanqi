@@ -3831,6 +3831,13 @@
 .sfx-feather { --sfx-c: 150, 220, 200; --sfx-c2: 240, 255, 250; }
 .sfx-feather .sfx-drop { width: 6px; height: 13px; }
 
+/* 断雪：孤影天威姿态——寒环急旋 + 雪粒绕体 + 星芒闪点 */
+.sfx-duanxue-ring {
+    border-color: rgba(180, 235, 255, 0.9);
+    animation-duration: 1.5s;
+    box-shadow: 0 0 8px rgba(140, 220, 255, 0.5), inset 0 0 6px rgba(140, 220, 255, 0.35);
+}
+
 /* 金银错：金/银双色对旋 */
 .sfx-inlay { --sfx-c: 255, 210, 100; }
 .sfx-inlay-ring { border-color: rgba(255, 210, 100, 0.85); }
@@ -8303,11 +8310,96 @@
     .bf-water-moon-core,
     .bf-moon-seat-ring,
     .bf-moon-seat-dot,
+    .bf-shadow-pool,
+    .bf-shadow-figure,
+    .bf-shadow-petal,
     .cell-swap-mark,
     .sfx-imprint-ring {
         animation-duration: 0.01s !important;
         animation-iteration-count: 1 !important;
     }
+}
+
+/* ============================================================
+   花弄影的「影子」格（shadow-mark）：一汪斜躺的墨色人形剪影，
+   花瓣绕着它慢慢打转——它既是重演的落点，也是弄影的换身跳板。
+   ============================================================ */
+.bf-shadow-mark { z-index: 2; }
+
+.bf-shadow-pool {
+    position: absolute;
+    left: 50%;
+    top: 62%;
+    width: 74%;
+    height: 30%;
+    margin-left: -37%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at 50% 50%,
+        rgba(30, 16, 44, 0.82) 0%,
+        rgba(48, 26, 66, 0.55) 48%,
+        transparent 78%);
+    filter: blur(1px);
+    animation: bf-shadow-breathe 2.6s ease-in-out infinite;
+}
+
+.bf-shadow-figure {
+    position: absolute;
+    left: 50%;
+    top: 20%;
+    width: 44%;
+    height: 56%;
+    margin-left: -22%;
+    transform: skewX(-10deg) scaleY(1.06);
+    transform-origin: 50% 100%;
+    fill: rgba(24, 12, 38, 0.72);
+    filter: blur(0.6px);
+    animation: bf-shadow-sway 3.2s ease-in-out infinite;
+}
+
+.bf-shadow-petal {
+    position: absolute;
+    width: 14%;
+    height: 14%;
+    border-radius: 60% 40% 60% 40%;
+    background: linear-gradient(135deg, #f2c4dd, #b980ad);
+    opacity: 0.85;
+    box-shadow: 0 0 6px rgba(230, 170, 210, 0.6);
+}
+
+.bf-shadow-petal-a {
+    left: 22%;
+    top: 26%;
+    animation: bf-petal-drift-a 3.8s ease-in-out infinite;
+}
+
+.bf-shadow-petal-b {
+    right: 20%;
+    bottom: 30%;
+    animation: bf-petal-drift-b 4.6s ease-in-out infinite;
+}
+
+/* 花弄影自己的影子偏墨紫；候补/敌方视角靠描边区分阵营 */
+.bf-shadow-mark-p1 .bf-shadow-figure { stroke: rgba(150, 210, 235, 0.5); stroke-width: 0.6; }
+.bf-shadow-mark-p2 .bf-shadow-figure { stroke: rgba(235, 170, 150, 0.5); stroke-width: 0.6; }
+
+@keyframes bf-shadow-breathe {
+    0%, 100% { transform: scaleX(1); opacity: 0.85; }
+    50% { transform: scaleX(1.07); opacity: 1; }
+}
+
+@keyframes bf-shadow-sway {
+    0%, 100% { transform: skewX(-10deg) scaleY(1.06) rotate(-1.2deg); }
+    50% { transform: skewX(-14deg) scaleY(1.1) rotate(1.6deg); }
+}
+
+@keyframes bf-petal-drift-a {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.85; }
+    50% { transform: translate(18%, 26%) rotate(140deg); opacity: 0.5; }
+}
+
+@keyframes bf-petal-drift-b {
+    0%, 100% { transform: translate(0, 0) rotate(40deg); opacity: 0.6; }
+    50% { transform: translate(-22%, -18%) rotate(-100deg); opacity: 0.9; }
 }
 
 /* ============================================================
@@ -8630,7 +8722,9 @@
 
 /* ============================================================
    云缨·踏火双斩（yunying-arc-slash，技能二「踏火长驱」）
-   刀光只有一柄：区域层的红刃沿正前方那一排格子横扫一趟，空一下再反扫回来。
+   刀光是一道绕云缨足下圆心铺开的 120° 红色圆弧挥斩：
+   去程亮段行刀从左→右扫过正前方三格命中面、身后拖出渐显的斩痕轨迹，
+   收势后回程反着再扫一次右→左、更宽更亮。
    逐格只留"被扫到"的火气与爆闪（--yas-fwd 由派发层按格子序号注入），
    不再逐格各刻一道刀痕——三格三刀看着就是三下，而不是一道扫过去。
    伤害只结算一次，回程是纯特效。
@@ -8684,74 +8778,441 @@
     animation-delay: var(--yas-fwd, 0ms);
 }
 
-/* —— 区域层：一柄红刃横跨整片命中面，沿攻击方向顶出去再抽回来（只这一道刀光） —— */
-.saf-blade {
+/* —— 区域层：120° 红色扇形挥斩，圆心=云缨脚下格 ——
+   扇面用"半径21 + 笔宽42"的粗描边实现：笔宽正好等于两倍的弧半径，
+   内缘就收拢到圆心（半径0），于是同一段 dashoffset 动画从"描一条弧"变成"从脚下铺出一个扇面"。
+   整组先按 --fx-travel 从命中面中心退一格回到云缨脚下，再按 --fx-rot 旋到攻击轴，
+   四个朝向共用同一个扇形。扇面外沿 ≈1.15 格，正好盖住正前方一排三格。 */
+.saf-yas-fan {
     --step: calc(var(--board-cell-size, 76px) + 6px);
     position: absolute;
-    left: 50%;
-    top: 50%;
-    width: calc(var(--step) * 2.85);
-    height: calc(var(--step) * 0.92);
-    color: var(--fx-c2, #ff4d2e);
-    filter: drop-shadow(0 0 12px var(--fx-glow));
+    inset: 0;
+    pointer-events: none;
+}
+
+.saf-yas-arc {
+    position: absolute;
+    left: calc(50% - var(--fx-travel-x, 0) * var(--step));
+    top: calc(50% - var(--fx-travel-y, 0) * var(--step));
+    width: calc(var(--step) * 2.74);
+    height: calc(var(--step) * 2.74);
+    transform: translate(-50%, -50%) rotate(calc(var(--fx-rot, 0deg) + 90deg));
+    overflow: visible;
+}
+
+/* 已扫过的扇面：dashoffset 收满 = 刀锋扫到哪、扇面铺到哪，扫完慢慢熄掉。
+   butt 端头是扇形边界干净的关键，round 会让两角鼓出来变成一团。 */
+.saf-yas-trail {
+    fill: none;
+    stroke: var(--fx-c2, #ff4d2e);
+    stroke-width: 42;
+    stroke-linecap: butt;
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
     opacity: 0;
+    filter: drop-shadow(0 0 10px var(--fx-glow));
+    animation: saf-yas-trail 430ms cubic-bezier(0.3, 0.55, 0.4, 1) 60ms forwards;
 }
 
-/* 去程：刀身横跨整片命中面（弦沿命中面长边），顺着攻击方向顶出去再收回来，
-   所以朝东/朝西看到的是左右两趟，朝南/朝北看到的是上下两趟 */
-.saf-blade-a {
-    animation: saf-blade-lr 460ms cubic-bezier(0.3, 0.6, 0.4, 1) 60ms forwards;
+/* 行刀的亮刃：一截比扇面略窄的亮扇形沿刀锋递进，读得出"扫"的方向 */
+.saf-yas-edge {
+    fill: none;
+    stroke: #fff6dc;
+    stroke-width: 34;
+    stroke-linecap: butt;
+    stroke-dasharray: 22 78;
+    stroke-dashoffset: 0;
+    opacity: 0;
+    animation: saf-yas-edge 430ms linear 60ms forwards;
 }
 
-@keyframes saf-blade-lr {
-    0% {
-        opacity: 0;
-        transform: translate(calc(-50% - var(--fx-travel-x) * var(--step) * 0.34), calc(-50% - var(--fx-travel-y) * var(--step) * 0.34)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(0.92);
-    }
-    22% { opacity: 1; }
-    60% {
-        opacity: 1;
-        transform: translate(calc(-50% + var(--fx-travel-x) * var(--step) * 0.1), calc(-50% + var(--fx-travel-y) * var(--step) * 0.1)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(1.04);
-    }
-    82% { opacity: 0.95; }
-    100% {
-        opacity: 0;
-        transform: translate(calc(-50% + var(--fx-travel-x) * var(--step) * 0.36), calc(-50% + var(--fx-travel-y) * var(--step) * 0.36)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(1.1);
-    }
+/* 回程：右→左反扫，更宽更亮、慢半拍，第二下要更狠 */
+.saf-yas-trail-b {
+    stroke-width: 46;
+    filter: drop-shadow(0 0 16px var(--fx-glow));
+    animation: saf-yas-trail 520ms cubic-bezier(0.3, 0.55, 0.4, 1) 640ms forwards;
 }
 
-/* 回程：更宽更亮、角度反着带一点，第二下要更狠；与去程之间留一段空档 */
-.saf-blade-b {
-    width: calc(var(--step) * 3.1);
-    height: calc(var(--step) * 1.05);
-    filter: drop-shadow(0 0 18px var(--fx-glow));
-    animation: saf-blade-rl 520ms cubic-bezier(0.24, 0.7, 0.36, 1) 760ms forwards;
+.saf-yas-edge-b {
+    stroke: #fff1d6;
+    stroke-width: 38;
+    animation: saf-yas-edge 520ms linear 640ms forwards;
 }
 
-.saf-blade-b .fx-yas-core { fill: #fff1d6; opacity: 0.96; }
+/* 实心扇面的可见面积远大于一条线，不透明度必须压下来，否则糊成一块红牌 */
+@keyframes saf-yas-trail {
+    0% { stroke-dashoffset: 100; opacity: 0; }
+    12% { opacity: 0.52; }
+    76% { stroke-dashoffset: 0; opacity: 0.42; }
+    100% { stroke-dashoffset: 0; opacity: 0; }
+}
 
-@keyframes saf-blade-rl {
-    0% {
-        opacity: 0;
-        transform: translate(calc(-50% + var(--fx-travel-x) * var(--step) * 0.36), calc(-50% + var(--fx-travel-y) * var(--step) * 0.36)) rotate(calc(var(--fx-rot, 0deg) + 82deg)) scale(0.94);
-    }
-    24% { opacity: 1; }
-    56% {
-        opacity: 1;
-        transform: translate(calc(-50% - var(--fx-travel-x) * var(--step) * 0.08), calc(-50% - var(--fx-travel-y) * var(--step) * 0.08)) rotate(calc(var(--fx-rot, 0deg) + 90deg)) scale(1.06);
-    }
-    82% { opacity: 0.92; }
-    100% {
-        opacity: 0;
-        transform: translate(calc(-50% - var(--fx-travel-x) * var(--step) * 0.38), calc(-50% - var(--fx-travel-y) * var(--step) * 0.38)) rotate(calc(var(--fx-rot, 0deg) + 98deg)) scale(1.14);
-    }
+@keyframes saf-yas-edge {
+    0% { stroke-dashoffset: 0; opacity: 0; }
+    10% { opacity: 1; }
+    86% { opacity: 1; }
+    100% { stroke-dashoffset: -78; opacity: 0; }
+}
+
+/* ============================================================
+   李太白·谪仙醉斩 → 青莲剑阵（swordzone 区域原型）
+   类王者李白大招的读法：范围先行。剑阵边框先钉住 2×3 命中矩形
+   （四角括线收拢），随后四道对角剑光依次穿阵，末了剑阵 bloom 收势。
+   容器就是 areaBounds 包围盒，所有零件按百分比铺，横竖矩形共用。
+   ============================================================ */
+.saf-sz-frame {
+    position: absolute;
+    inset: 4%;
+    border: 2px solid rgba(120, 230, 225, 0.85);
+    border-radius: 6px;
+    box-shadow:
+        0 0 14px var(--fx-glow, rgba(73, 197, 201, 0.55)),
+        inset 0 0 18px rgba(120, 230, 225, 0.26);
+    background: radial-gradient(ellipse at 50% 50%,
+        rgba(120, 230, 225, 0.10) 0%, transparent 72%);
+    opacity: 0;
+    animation: saf-sz-frame 1100ms ease-out forwards;
+}
+
+@keyframes saf-sz-frame {
+    0% { opacity: 0; transform: scale(1.1); }
+    14% { opacity: 1; transform: scale(0.985); }
+    26% { transform: scale(1); }
+    72% { opacity: 0.92; }
+    100% { opacity: 0; transform: scale(1); }
+}
+
+/* 四角括线：两段直边拼出 L 形，比整圈边框更像"剑痕描出来的阵角" */
+.saf-sz-corner {
+    position: absolute;
+    width: 16%;
+    height: 22%;
+    opacity: 0;
+    border: 0 solid #d8fffb;
+    filter: drop-shadow(0 0 6px var(--fx-glow, rgba(73, 197, 201, 0.6)));
+    animation: saf-sz-corner 900ms ease-out 60ms forwards;
+}
+
+.saf-sz-corner-tl { left: 1%; top: 1%; border-left-width: 3px; border-top-width: 3px; border-top-left-radius: 8px; }
+.saf-sz-corner-tr { right: 1%; top: 1%; border-right-width: 3px; border-top-width: 3px; border-top-right-radius: 8px; }
+.saf-sz-corner-bl { left: 1%; bottom: 1%; border-left-width: 3px; border-bottom-width: 3px; border-bottom-left-radius: 8px; }
+.saf-sz-corner-br { right: 1%; bottom: 1%; border-right-width: 3px; border-bottom-width: 3px; border-bottom-right-radius: 8px; }
+
+@keyframes saf-sz-corner {
+    0% { opacity: 0; transform: scale(1.5); }
+    18% { opacity: 1; transform: scale(1); }
+    78% { opacity: 0.95; }
+    100% { opacity: 0; transform: scale(1); }
+}
+
+.saf-sz-beams {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.saf-sz-beam {
+    fill: none;
+    stroke: var(--fx-c2, #eafffb);
+    stroke-width: 2.6;
+    stroke-linecap: round;
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    opacity: 0;
+    filter: drop-shadow(0 0 5px var(--fx-glow, rgba(73, 197, 201, 0.65)))
+            drop-shadow(0 0 13px rgba(120, 230, 225, 0.75));
+}
+
+/* 两道大对角先劈出 X，再两道偏置平行斩填满矩形——四拍递进才读得出"穿阵连斩" */
+.saf-sz-beam-1 { animation: saf-sz-slash 250ms ease-out 260ms forwards; }
+.saf-sz-beam-2 { animation: saf-sz-slash 250ms ease-out 410ms forwards; }
+.saf-sz-beam-3 { stroke-width: 2; animation: saf-sz-slash 210ms ease-out 580ms forwards; }
+.saf-sz-beam-4 { stroke-width: 2; animation: saf-sz-slash 210ms ease-out 700ms forwards; }
+
+@keyframes saf-sz-slash {
+    0% { stroke-dashoffset: 100; opacity: 0; }
+    12% { opacity: 1; }
+    58% { stroke-dashoffset: 0; opacity: 1; }
+    100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+/* 收势：剑阵整体 bloom 一下，给"这一大招打完了"落锤 */
+.saf-sz-flash {
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    background: radial-gradient(ellipse at 50% 50%,
+        rgba(234, 255, 251, 0.5) 0%,
+        rgba(120, 230, 225, 0.18) 55%, transparent 76%);
+    mix-blend-mode: screen;
+    opacity: 0;
+    animation: saf-sz-flash 320ms ease-out 800ms forwards;
+}
+
+@keyframes saf-sz-flash {
+    0% { opacity: 0; transform: scale(0.96); }
+    30% { opacity: 0.9; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.04); }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .fx-yys-arc,
     .fx-yys-shaft,
     .fx-yas-glow,
-    .saf-blade {
+    .saf-yas-trail,
+    .saf-yas-edge,
+    .saf-sz-frame,
+    .saf-sz-corner,
+    .saf-sz-beam,
+    .saf-sz-flash {
+        animation-duration: 0.01s !important;
+        animation-delay: 0s !important;
+    }
+}
+
+/* ============================================================
+   云缨·燎原旋斩（liehuo-wheel，天威「燎原百斩」的落点格）
+   一柄红焰枪刃把柄尾钉在落点格心，绕格心顺时针旋满一周：
+   枪尖拖出主副两道火焰扫弧，另有一道迟半拍的余痕再扫一周把"一圈"坐实；
+   周身八簇火舌按被扫过的次序窜起，收势时荡开一圈灼地火环标出 3×3 炸开的界。
+   配色由档案注入 --fx-c1（赤焰）/--fx-c2（焰金）/--fx-glow。
+   ============================================================ */
+
+/* 灼地热浪：旋斩期间压在落点脚下的一团火光（只作底衬，不能盖过旋刃） */
+.fx-lw-heat {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 132%;
+    height: 132%;
+    margin: -66% 0 0 -66%;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        rgba(255, 206, 128, 0.55) 0%,
+        var(--fx-c1, #ff4a1e) 38%,
+        rgba(120, 24, 6, 0) 70%);
+    filter: blur(7px);
+    mix-blend-mode: screen;
+    opacity: 0;
+    animation: fx-lw-heat 900ms ease-out 130ms forwards;
+}
+
+@keyframes fx-lw-heat {
+    0% { opacity: 0; transform: scale(0.46); }
+    22% { opacity: 0.46; }
+    70% { opacity: 0.26; }
+    100% { opacity: 0; transform: scale(1.06); }
+}
+
+/* 旋转容器：绕格心转满 360° 后与枪刃一起隐去（先回摆一点再暴起） */
+.fx-lw-orbit {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    animation: fx-lw-spin 800ms cubic-bezier(0.3, 0.05, 0.24, 1) 150ms forwards;
+}
+
+@keyframes fx-lw-spin {
+    0% { opacity: 0; transform: rotate(-22deg) scale(1.12); }
+    12% { opacity: 1; }
+    84% { opacity: 1; }
+    100% { opacity: 0; transform: rotate(358deg) scale(1); }
+}
+
+/* 余痕轨道：迟一拍再扫一周的半透明大弧 */
+.fx-lw-orbit-echo {
+    animation-name: fx-lw-spin-echo;
+    animation-duration: 920ms;
+    animation-delay: 300ms;
+}
+
+@keyframes fx-lw-spin-echo {
+    0% { opacity: 0; transform: rotate(-12deg) scale(1.16); }
+    14% { opacity: 0.55; }
+    78% { opacity: 0.38; }
+    100% { opacity: 0; transform: rotate(348deg) scale(1.05); }
+}
+
+/* 火焰扫弧：亮端贴在枪尖、向身后渐隐成烧过的余痕。
+   环带半径对准"柄尾在格心、枪头斜指外"时枪尖画出的圆周（约 1.05 格，正好舔到邻格） */
+.fx-lw-trail {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 220%;
+    height: 220%;
+    margin: -110% 0 0 -110%;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg,
+        rgba(0, 0, 0, 0) 0deg,
+        rgba(160, 26, 6, 0.55) 22deg,
+        var(--fx-c1, #ff4a1e) 54deg,
+        var(--fx-c2, #ffc85a) 82deg,
+        #fff6dc 93deg,
+        rgba(0, 0, 0, 0) 99deg);
+    -webkit-mask: radial-gradient(circle, rgba(0, 0, 0, 0) 0 88%, #000 90% 99%, rgba(0, 0, 0, 0) 100%);
+    mask: radial-gradient(circle, rgba(0, 0, 0, 0) 0 88%, #000 90% 99%, rgba(0, 0, 0, 0) 100%);
+    filter: blur(0.9px) drop-shadow(0 0 7px var(--fx-glow, rgba(255, 74, 30, 0.55)));
+    mix-blend-mode: screen;
+}
+
+/* 副弧：内圈更细的一道刃风，跟着枪尖后面舔一圈 */
+.fx-lw-trail-b {
+    width: 164%;
+    height: 164%;
+    margin: -82% 0 0 -82%;
+    background: conic-gradient(from 24deg,
+        rgba(0, 0, 0, 0) 0deg,
+        var(--fx-c1, #ff4a1e) 22deg,
+        var(--fx-c2, #ffc85a) 52deg,
+        #fff6dc 62deg,
+        rgba(0, 0, 0, 0) 68deg);
+    -webkit-mask: radial-gradient(circle, rgba(0, 0, 0, 0) 0 58%, #000 60% 76%, rgba(0, 0, 0, 0) 77%);
+    mask: radial-gradient(circle, rgba(0, 0, 0, 0) 0 58%, #000 60% 76%, rgba(0, 0, 0, 0) 77%);
+    opacity: 0.62;
+}
+
+/* 余痕弧：铺得更宽更糊、扇角更长，只作扫过之后的火光记忆 */
+.fx-lw-trail-echo {
+    width: 200%;
+    height: 200%;
+    margin: -100% 0 0 -100%;
+    background: conic-gradient(from 296deg,
+        rgba(0, 0, 0, 0) 0deg,
+        var(--fx-c1, #ff4a1e) 74deg,
+        var(--fx-c2, #ffc85a) 138deg,
+        rgba(0, 0, 0, 0) 148deg);
+    -webkit-mask: radial-gradient(circle, rgba(0, 0, 0, 0) 0 80%, #000 82% 96%, rgba(0, 0, 0, 0) 97%);
+    mask: radial-gradient(circle, rgba(0, 0, 0, 0) 0 80%, #000 82% 96%, rgba(0, 0, 0, 0) 97%);
+    filter: blur(1.8px) drop-shadow(0 0 9px var(--fx-glow, rgba(255, 74, 30, 0.55)));
+    opacity: 0.5;
+}
+
+/* 焰缨枪本体：柄尾钉在格心，枪头沿 +x 径向伸出随容器转满一周。
+   盒宽 118%、柄尾在盒内 (8/170, 33/60) → 反算边距把柄尾压回格心 */
+.fx-lw-spear {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 118%;
+    height: 41.6%;
+    margin-left: -5.6%;
+    margin-top: -22.9%;
+    color: var(--fx-c1, #ff4a1e);
+    filter: drop-shadow(0 0 7px var(--fx-glow, rgba(255, 74, 30, 0.55)));
+}
+
+.fx-lw-glyph {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.lw-shaft { fill: none; stroke: #4a2415; stroke-width: 5.2; stroke-linecap: round; }
+.lw-blade { fill: var(--fx-c1, #ff4a1e); stroke: var(--fx-c2, #ffc85a); stroke-width: 1; }
+.lw-core { fill: var(--fx-c2, #ffc85a); opacity: 0.92; }
+.lw-edge { fill: none; stroke: #fff6dc; stroke-width: 2.2; stroke-linecap: round; opacity: 0.95; }
+.lw-tassel { fill: none; stroke: #d8351f; stroke-width: 2.6; stroke-linecap: round; opacity: 0.9; }
+
+/* 轴心辉光：钉住"旋转中心=这一格"的视觉锚点 */
+.fx-lw-hub {
+    position: absolute;
+    inset: 30%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff6dc 0%, var(--fx-c2, #ffc85a) 44%, rgba(0, 0, 0, 0) 74%);
+    opacity: 0;
+    animation: fx-lw-hub 900ms ease-out 100ms forwards;
+}
+
+@keyframes fx-lw-hub {
+    0% { opacity: 0; transform: scale(0.36); }
+    18% { opacity: 0.95; transform: scale(1); }
+    68% { opacity: 0.55; }
+    100% { opacity: 0; transform: scale(1.22); }
+}
+
+/* 火舌圈：八簇短火按枪尖扫过的次序窜起，标出"周身一圈"的界 */
+.fx-lw-tick {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 30%;
+    height: 7px;
+    margin: -3.5px 0 0 -6%;
+    border-radius: 999px 70% 70% 999px / 999px 46% 46% 999px;
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        var(--fx-c1, #ff4a1e) 24%,
+        var(--fx-c2, #ffc85a) 62%,
+        #fff6dc 86%,
+        rgba(0, 0, 0, 0) 100%);
+    box-shadow: 0 0 10px var(--fx-glow, rgba(255, 74, 30, 0.55));
+    filter: blur(0.4px);
+    opacity: 0;
+    animation: fx-lw-tick 380ms ease-out forwards;
+    animation-delay: calc(190ms + var(--lw-i, 0) * 92ms);
+}
+
+@keyframes fx-lw-tick {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--lw-a, 0deg)) translateX(calc((var(--board-cell-size) + 6px) * 0.6)) scaleX(0.3);
+    }
+    26% {
+        opacity: 1;
+        transform: rotate(var(--lw-a, 0deg)) translateX(calc((var(--board-cell-size) + 6px) * 0.76)) scaleX(1);
+    }
+    58% {
+        opacity: 0.85;
+        transform: rotate(calc(var(--lw-a, 0deg) + 4deg)) translateX(calc((var(--board-cell-size) + 6px) * 0.86))
+            scaleX(1.06) scaleY(1.35);
+    }
+    100% {
+        opacity: 0;
+        transform: rotate(calc(var(--lw-a, 0deg) + 8deg)) translateX(calc((var(--board-cell-size) + 6px) * 0.98))
+            scaleX(1.3) scaleY(0.45);
+    }
+}
+
+/* 灼地火环：旋斩收势时从落点荡开一整圈，把 3×3 炸开的界画出来。
+   不用 border 描边（会看成一根铁丝），改成径向渐变铺出的双色火带 */
+.fx-lw-ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 176%;
+    height: 176%;
+    margin: -88% 0 0 -88%;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle,
+            rgba(255, 122, 46, 0.16) 0 52%,
+            rgba(0, 0, 0, 0) 56%),
+        radial-gradient(circle,
+            rgba(0, 0, 0, 0) 0 65%,
+            var(--fx-c1, #ff4a1e) 68%,
+            var(--fx-c2, #ffc85a) 73%,
+            rgba(0, 0, 0, 0) 78%);
+    filter: blur(1.1px) drop-shadow(0 0 10px var(--fx-glow, rgba(255, 74, 30, 0.55)));
+    mix-blend-mode: screen;
+    opacity: 0;
+    animation: fx-lw-ring 660ms cubic-bezier(0.2, 0.7, 0.3, 1) 520ms forwards;
+}
+
+@keyframes fx-lw-ring {
+    0% { opacity: 0; transform: scale(0.34); }
+    22% { opacity: 0.95; }
+    100% { opacity: 0; transform: scale(1.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fx-lw-heat,
+    .fx-lw-orbit,
+    .fx-lw-hub,
+    .fx-lw-tick,
+    .fx-lw-ring {
         animation-duration: 0.01s !important;
         animation-delay: 0s !important;
     }

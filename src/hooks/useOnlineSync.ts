@@ -125,9 +125,6 @@ export function useOnlineSync() {
                             if (action.data.reviveTargetHeroId) {
                                 store.selectBaizeReviveTarget(action.data.reviveTargetHeroId);
                             }
-                            if (action.data.changliEmpowered) {
-                                store.toggleChangliSkill2Empowered();
-                            }
                             if (action.data.jetzmiEnhanced && !store.jetzmiSkill1Enhanced) {
                                 store.toggleJetzmiSkill1Enhanced();
                             }

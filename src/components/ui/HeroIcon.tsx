@@ -575,6 +575,20 @@ function JinghuaIcon() {
     );
 }
 
+function HuanongyingIcon() {
+    // 花弄影 — 一枝花斜倚，月下投出一枚斜长的影子，影尖还带一点回勾
+    return (
+        <Stroke>
+            <path d="M11 25 Q12.5 18 15.5 13.5" strokeWidth={1.6} />
+            <circle cx="17" cy="10.5" r="3.4" strokeWidth={1.4} />
+            <path d="M17 7.1 Q18.8 4.6 21.4 5.6 Q21 8.2 18.6 9" strokeWidth={1.2} opacity={0.7} />
+            <path d="M13.6 12.6 Q10.6 11.4 9.4 8.6 Q12.2 8 14 9.8" strokeWidth={1.2} opacity={0.7} />
+            <path d="M10 25.4 Q16 27.6 22.4 26.4 Q26.4 25.6 28.6 22.8" strokeWidth={1.5} opacity={0.55} />
+            <path d="M28.6 22.8 Q27.2 21.4 25.4 21.9" strokeWidth={1.2} opacity={0.55} />
+        </Stroke>
+    );
+}
+
 /* 通用/默认图标 */
 function DefaultIcon() {
     return (
@@ -645,6 +659,7 @@ const iconMap: Record<string, () => JSX.Element> = {
     yunying: () => <YunyingIcon />,
     jinghong: () => <JinghongIcon />,
     jinghua: () => <JinghuaIcon />,
+    huanongying: () => <HuanongyingIcon />,
 };
 
 /** 已拥有专属线性图标的英雄模板 id；新增英雄必须补一个，否则测试会拦住通用兜底图标 */

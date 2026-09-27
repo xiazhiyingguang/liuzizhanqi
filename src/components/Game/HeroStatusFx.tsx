@@ -204,6 +204,14 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
             );
         case 'feather':
             return <Drop count={2} />;
+        case 'duanxue':
+            return (
+                <>
+                    <Orbit count={4} className="sfx-orbit-snow" />
+                    <i className="sfx-ring sfx-duanxue-ring" />
+                    <Blink count={2} />
+                </>
+            );
         case 'inlay':
             return (
                 <>

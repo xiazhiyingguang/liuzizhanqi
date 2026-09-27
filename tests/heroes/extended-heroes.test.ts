@@ -190,32 +190,41 @@ describe('extended heroes', () => {
         const state = makeGameState();
         const bounty = addHero(state, 'bounty', 'player1', [2, 2]);
         const ally = addHero(state, 'moran', 'player1', [1, 2]);
-        const enemy = addHero(state, 'baize', 'player2', [2, 3]);
-        const secondEnemy = addHero(state, 'liuli', 'player2', [3, 3]);
+        const enemies = [
+            addHero(state, 'baize', 'player2', [2, 3]),
+            addHero(state, 'liuli', 'player2', [3, 3]),
+            addHero(state, 'huifeng', 'player2', [4, 3]),
+            addHero(state, 'changli', 'player2', [5, 3]),
+        ];
         bounty.currentHp -= 10;
-        const hit = DamageCalculator.calculate(ally, enemy, 10);
-        DamageCalculator.applyDamage(enemy, hit, ally, state);
-        expect(enemy.currentHp).toBe(enemy.maxHp - 10);
-        bountySkill2.execute!(bounty, [enemy], state);
+        const hit = DamageCalculator.calculate(ally, enemies[0], 10);
+        DamageCalculator.applyDamage(enemies[0], hit, ally, state);
+        expect(enemies[0].currentHp).toBe(enemies[0].maxHp - 10);
+        bountySkill2.execute!(bounty, [enemies[0]], state);
         expect(bounty.currentHp).toBe(bounty.maxHp - 4);
 
         placeBounties(bounty, state);
-        expect(EffectManager.hasEffect(enemy, '悬赏·永久吸血')).toBe(true);
-        expect(EffectManager.hasEffect(secondEnemy, '悬赏·永久吸血')).toBe(true);
+        // 四种赏金各发一枚，领取奖励的是实际击杀者而不是猎人自己
+        const vampireTarget = enemies.find(enemy => EffectManager.hasEffect(enemy, '悬赏·永久吸血'));
+        expect(vampireTarget).toBeDefined();
+        expect(enemies.filter(enemy => EffectManager.hasEffect(enemy, '悬赏·永久吸血'))).toHaveLength(1);
         expect(EffectManager.hasEffect(bounty, '赏金吸血')).toBe(false);
 
-        enemy.currentHp = 1;
-        const finishingHit = DamageCalculator.calculate(ally, enemy, 5);
-        DamageCalculator.applyDamage(enemy, finishingHit, ally, state);
+        vampireTarget!.currentHp = 1;
+        // 长离被动无条件挡下第一次致命伤；本用例要的是"确实被击杀"，先把这次机会用掉
+        vampireTarget!.counters['changli_revives'] = 1;
+        const finishingHit = DamageCalculator.calculate(ally, vampireTarget!, 5);
+        DamageCalculator.applyDamage(vampireTarget!, finishingHit, ally, state);
         expect(EffectManager.hasEffect(ally, '赏金吸血')).toBe(true);
         expect(EffectManager.hasEffect(bounty, '赏金吸血')).toBe(false);
+        expect(EffectManager.hasEffect(vampireTarget!, '悬赏·永久吸血')).toBe(false);
         expect(state.battleLog.some(log =>
             log.type === 'damage' &&
-            log.message.includes(`${ally.name}对${enemy.name}造成`)
+            log.message.includes(`${ally.name}对${vampireTarget!.name}造成`)
         )).toBe(true);
     });
 
-    it('赏金猎人被动在战斗开始时向敌方全员随机发布赏金', () => {
+    it('赏金猎人被动在战斗开始时向敌方全员发布互不重复的赏金', () => {
         const state = makeGameState();
         const bounty = addHero(state, 'bounty', 'player1', [2, 2]);
         const enemy = addHero(state, 'baize', 'player2', [2, 3]);
@@ -223,8 +232,12 @@ describe('extended heroes', () => {
 
         GameEngine.startNewTurn(state);
 
-        expect(EffectManager.hasEffect(enemy, '悬赏·永久吸血')).toBe(true);
-        expect(EffectManager.hasEffect(secondEnemy, '悬赏·永久吸血')).toBe(true);
+        const names = [enemy, secondEnemy].map(hero =>
+            hero.effects.find(effect => effect.name.startsWith('悬赏·'))?.name
+        );
+        expect(names[0]).toMatch(/^悬赏·/);
+        expect(names[1]).toMatch(/^悬赏·/);
+        expect(names[0]).not.toBe(names[1]);
         expect(bounty.counters['bounty_placed']).toBe(1);
     });
 
@@ -248,17 +261,29 @@ describe('extended heroes', () => {
         vi.spyOn(Math, 'random').mockReturnValue(0);
         const state = makeGameState();
         const bounty = addHero(state, 'bounty', 'player1', [2, 2]);
-        const enemy = addHero(state, 'baize', 'player2', [2, 3]);
-        const secondEnemy = addHero(state, 'liuli', 'player2', [3, 3]);
+        const enemies = [
+            addHero(state, 'baize', 'player2', [2, 3]),
+            addHero(state, 'liuli', 'player2', [3, 3]),
+            addHero(state, 'huifeng', 'player2', [4, 3]),
+            addHero(state, 'changli', 'player2', [5, 3]),
+        ];
         placeBounties(bounty, state);
-        expect(EffectManager.hasEffect(enemy, '悬赏·天威再临')).toBe(true);
 
-        enemy.currentHp = 1;
-        const hit = DamageCalculator.calculate(bounty, enemy, 5);
-        DamageCalculator.applyDamage(enemy, hit, bounty, state);
-        expect(EffectManager.hasEffect(enemy, '悬赏·天威再临')).toBe(false);
-        // 击杀触发天威 + 悬赏·天威再临再触发一次，向随机存活敌人追加猎杀令
-        expect(EffectManager.hasEffect(secondEnemy, '猎杀令')).toBe(true);
+        // 四种赏金各一枚，找出挂到「天威再临」的那名敌人作为被猎杀目标
+        const carrier = enemies.find(enemy => EffectManager.hasEffect(enemy, '悬赏·天威再临'));
+        expect(carrier).toBeDefined();
+        expect(enemies.filter(enemy => EffectManager.hasEffect(enemy, '悬赏·天威再临'))).toHaveLength(1);
+
+        carrier!.currentHp = 1;
+        // 同上：随机挂到长离身上时，她的被动会吃掉这次击杀，先把复活机会用掉
+        carrier!.counters['changli_revives'] = 1;
+        const hit = DamageCalculator.calculate(bounty, carrier!, 5);
+        DamageCalculator.applyDamage(carrier!, hit, bounty, state);
+        expect(EffectManager.hasEffect(carrier!, '悬赏·天威再临')).toBe(false);
+        // 击杀触发天威 + 悬赏·天威再临再触发一次，向随机一名存活敌人追加猎杀令
+        const marked = enemies.filter(enemy => EffectManager.hasEffect(enemy, '猎杀令'));
+        expect(marked.length).toBeGreaterThan(0);
+        expect(marked.every(enemy => enemy.state === HeroState.ALIVE)).toBe(true);
     });
 
     it('阴阳线强化友方、削弱敌方并支持重复连接效果', () => {

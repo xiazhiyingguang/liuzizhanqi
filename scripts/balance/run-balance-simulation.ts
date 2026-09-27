@@ -1,18 +1,25 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { AVAILABLE_HERO_IDS, getHeroInfo } from '../../src/data/heroes';
+import { AVAILABLE_HERO_IDS, createHero, getHeroInfo } from '../../src/data/heroes';
 import { chooseComputerDeployment } from '../../src/core/computer-ai';
 import { runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
+import { takeAiDecisions } from '../../src/services/battle-replay';
 import { useGameStore } from '../../src/store/game-store';
 import type { BattleStatistics, Hero, Player, Position } from '../../src/types/game';
 import { HeroState } from '../../src/types/game';
 
 type HeroId = string;
-type Team = [HeroId, HeroId, HeroId, HeroId];
+/** 替补制赛制：每方6人名单（4首发 + 2替补），因此每局占用12个英雄席位。 */
+const ROSTER_SIZE = 6;
+const STARTERS = 4;
+const TABLE_SIZE = ROSTER_SIZE * 2;
+type Team = HeroId[];
 
 interface SimulationConfig {
     seed: number;
+    /** 目标总局数；>0 时按赛程规模反推 scheduleRounds。 */
+    targetMatches: number;
     scheduleRounds: number;
     maxBattleRounds: number;
     maxDecisionSteps: number;
@@ -29,6 +36,8 @@ interface ScheduledPairing {
 interface HeroMatchResult {
     heroId: HeroId;
     side: Player;
+    /** 该英雄本局是否真正上场过（首发或替补登场）；全程坐冷板凳时为 false。 */
+    entered: boolean;
     score: number;
     won: boolean;
     survived: boolean;
@@ -63,13 +72,18 @@ interface MatchResult {
     decisionSteps: number;
     durationMs: number;
     heroResults: HeroMatchResult[];
+    /** 单局内部异常（选将/部署/结算抛错）时记录原因，该局不计入统计。 */
+    error?: string;
 }
 
 interface HeroAggregate {
     heroId: HeroId;
     name: string;
     heroClass: string;
+    /** 进入名单的局数（含全程替补的局）。 */
     games: number;
+    /** 真正上场过的局数，个人数据按这一列平均。 */
+    enteredGames: number;
     score: number;
     wins: number;
     player1Games: number;
@@ -101,6 +115,28 @@ interface PairAggregate {
     score: number;
 }
 
+/** AI 决策归因：某个英雄的某个技能在电脑手上到底被不被考虑、被考虑后分数如何 */
+interface SkillAuditRow {
+    heroId: HeroId;
+    skillId: string;
+    /** 该技能进入候选列表的决策次数 */
+    enumerated: number;
+    /** 其中被采纳为最终方案的次数 */
+    chosen: number;
+    /** 历史最高方案分 */
+    bestScore: number;
+    /** 该技能是当场最高分、却仍未被采纳的次数（被上层闸门/位移偏好压掉） */
+    outvoted: number;
+    /** 走到"技能已被选中、即将执行"这一步的次数：与成功施放数的差就是执行链失败数 */
+    attempted: number;
+}
+
+type SkillAudit = Map<string, SkillAuditRow>;
+
+function auditKey(heroId: HeroId, skillId: string): string {
+    return `${heroId}|${skillId}`;
+}
+
 const EMPTY_STATS: BattleStatistics = {
     damageDealt: 0,
     damageTaken: 0,
@@ -121,6 +157,7 @@ function readConfig(): SimulationConfig {
     const deep = process.argv.includes('--deep');
     return {
         seed: numberArg('seed', Number(process.env.BALANCE_SEED) || 20260824),
+        targetMatches: numberArg('matches', Number(process.env.BALANCE_MATCHES) || 0),
         scheduleRounds: numberArg(
             'schedule-rounds',
             quick ? 4 : deep ? 24 : Number(process.env.BALANCE_SCHEDULE_ROUNDS) || 12
@@ -169,11 +206,11 @@ function relationKeys(teamA: Team, teamB: Team): { teammates: string[]; opponent
 
 function candidatePairings(order: HeroId[], scheduleRound: number): ScheduledPairing[] {
     const result: ScheduledPairing[] = [];
-    for (let table = 0; table < order.length / 8; table++) {
-        const group = order.slice(table * 8, table * 8 + 8);
+    for (let table = 0; table < Math.floor(order.length / TABLE_SIZE); table++) {
+        const group = order.slice(table * TABLE_SIZE, table * TABLE_SIZE + TABLE_SIZE);
         result.push({
-            teamA: group.slice(0, 4) as Team,
-            teamB: group.slice(4, 8) as Team,
+            teamA: group.slice(0, ROSTER_SIZE),
+            teamB: group.slice(ROSTER_SIZE, TABLE_SIZE),
             scheduleRound,
             table,
         });
@@ -181,18 +218,34 @@ function candidatePairings(order: HeroId[], scheduleRound: number): ScheduledPai
     return result;
 }
 
+/** 每轮可安排的对局数（含镜像局）。 */
+function matchesPerRound(heroCount: number): number {
+    return Math.floor(heroCount / TABLE_SIZE) * 2;
+}
+
 function buildSchedule(heroIds: HeroId[], config: SimulationConfig): ScheduledPairing[] {
-    if (heroIds.length % 8 !== 0) throw new Error(`英雄数必须是8的倍数，当前为${heroIds.length}`);
+    if (heroIds.length < TABLE_SIZE) throw new Error(`英雄数不足${TABLE_SIZE}名，无法生成6v6名单赛程，当前为${heroIds.length}`);
     const random = mulberry32(config.seed ^ 0xA11CE);
     const teammateCounts = new Map<string, number>();
     const opponentCounts = new Map<string, number>();
+    const byeCounts = new Map<string, number>();
     const schedule: ScheduledPairing[] = [];
+    // 英雄数不是每局席位的整数倍时，每轮让"迄今轮空最少"的若干英雄整轮不上，长期保证每人场次接近。
+    const byePerRound = heroIds.length % TABLE_SIZE;
 
     for (let round = 0; round < config.scheduleRounds; round++) {
-        let best: ScheduledPairing[] | null = null;
+        let best: { pairings: ScheduledPairing[]; byed: HeroId[] } | null = null;
         let bestScore = -Infinity;
         for (let attempt = 0; attempt < config.candidatesPerRound; attempt++) {
-            const candidate = candidatePairings(shuffle(heroIds, random), round);
+            const shuffled = shuffle(heroIds, random);
+            const byed = byePerRound === 0
+                ? []
+                : [...shuffled]
+                    .sort((left, right) => (byeCounts.get(left) ?? 0) - (byeCounts.get(right) ?? 0))
+                    .slice(0, byePerRound);
+            const byedSet = new Set(byed);
+            const playing = byePerRound === 0 ? shuffled : shuffled.filter(id => !byedSet.has(id));
+            const candidate = candidatePairings(playing, round);
             let score = 0;
             for (const pairing of candidate) {
                 const relations = relationKeys(pairing.teamA, pairing.teamB);
@@ -208,12 +261,13 @@ function buildSchedule(heroIds: HeroId[], config: SimulationConfig): ScheduledPa
             score += random() * 0.001;
             if (score > bestScore) {
                 bestScore = score;
-                best = candidate;
+                best = { pairings: candidate, byed };
             }
         }
         if (!best) throw new Error('无法生成平衡赛程');
-        schedule.push(...best);
-        for (const pairing of best) {
+        schedule.push(...best.pairings);
+        for (const heroId of best.byed) byeCounts.set(heroId, (byeCounts.get(heroId) ?? 0) + 1);
+        for (const pairing of best.pairings) {
             const relations = relationKeys(pairing.teamA, pairing.teamB);
             for (const key of relations.teammates) teammateCounts.set(key, (teammateCounts.get(key) ?? 0) + 1);
             for (const key of relations.opponents) opponentCounts.set(key, (opponentCounts.get(key) ?? 0) + 1);
@@ -237,7 +291,10 @@ function deploymentFor(team: Team, side: Player): { heroId: string; position: Po
     }));
 }
 
-function setupMatch(team1: Team, team2: Team): Map<string, HeroId> {
+function setupMatch(team1: Team, team2: Team): void {
+    if (team1.length !== ROSTER_SIZE || team2.length !== ROSTER_SIZE) {
+        throw new Error(`名单规模应为${ROSTER_SIZE}人，实际${team1.length}/${team2.length}`);
+    }
     useGameStore.setState({ isOnlineMode: false, isAiMode: false, suppressOnlineBroadcast: false });
     useGameStore.getState().initGame();
     const store = useGameStore.getState();
@@ -245,6 +302,7 @@ function setupMatch(team1: Team, team2: Team): Map<string, HeroId> {
     for (const heroId of team2) store.selectHeroForPlayer('player2', heroId);
     if (!store.confirmHeroSelectionForPlayer('player1')) throw new Error('玩家1选将失败');
     if (!store.confirmHeroSelectionForPlayer('player2')) throw new Error('玩家2选将失败');
+    // 首发4人由 chooseComputerDeployment 按阵容职责挑选，其余2人自动进入替补席
     for (const item of deploymentFor(team1, 'player1')) {
         if (!useGameStore.getState().deployHeroForPlayer('player1', item.heroId, item.position)) {
             throw new Error(`玩家1部署失败：${item.heroId}@${item.position.join(',')}`);
@@ -257,15 +315,11 @@ function setupMatch(team1: Team, team2: Team): Map<string, HeroId> {
     }
     if (!useGameStore.getState().confirmDeploymentForPlayer('player1')) throw new Error('玩家1确认布阵失败');
     if (!useGameStore.getState().confirmDeploymentForPlayer('player2')) throw new Error('玩家2确认布阵失败');
+}
 
-    const mapping = new Map<string, HeroId>();
-    for (const hero of [...useGameStore.getState().player1Heroes, ...useGameStore.getState().player2Heroes]) {
-        const pool = hero.owner === 'player1' ? team1 : team2;
-        const heroId = pool.find(id => hero.id.startsWith(`${id}-${hero.owner}-`));
-        if (!heroId) throw new Error(`无法识别英雄实例：${hero.id}`);
-        mapping.set(hero.id, heroId);
-    }
-    return mapping;
+/** 按"模板id-所属方-"前缀在实例列表里找回该英雄本局的实体；全程未上场的替补返回 undefined。 */
+function instanceOf(instances: Hero[], side: Player, templateId: HeroId): Hero | undefined {
+    return instances.find(item => item.owner === side && item.id.startsWith(`${templateId}-${side}-`));
 }
 
 function stateSignature(): string {
@@ -273,6 +327,9 @@ function stateSignature(): string {
     return [
         state.phase,
         state.currentPlayer,
+        // 补员挂起期间 currentPlayer 与 reinforcingPlayer 不一致，不收进指纹会把"等替补决策"误判成停滞
+        state.reinforcingPlayer ?? '-',
+        state.reinforcementSelectableHeroId ?? '-',
         state.roundNumber,
         state.actionsThisTurn,
         state.selectedHero?.id ?? '-',
@@ -308,13 +365,17 @@ function runMatch(
     pairing: ScheduledPairing,
     mirror: boolean,
     config: SimulationConfig,
+    skillAudit: Map<string, SkillAuditRow>,
 ): MatchResult {
     const started = performance.now();
     const team1 = mirror ? pairing.teamB : pairing.teamA;
     const team2 = mirror ? pairing.teamA : pairing.teamB;
-    const instanceToHeroId = setupMatch(team1, team2);
-    const casts = new Map<string, [number, number]>();
+    setupMatch(team1, team2);
     const moved = new Map<string, number>();
+    // AI 操作质量埋点：轮到某英雄时，这一步到底有没有产出（位移或伤害/技能/治疗/击杀日志）
+    const actionsTaken = new Map<string, number>();
+    const productiveSteps = new Map<string, number>();
+    const stepCount = new Map<string, number>();
     let decisionSteps = 0;
     let previousSignature = '';
     let repeated = 0;
@@ -334,16 +395,19 @@ function runMatch(
         const beforePositions = copyPositions();
         const selectedHeroId = before.selectedHero?.id;
         const selectedSkillId = before.selectedSkill?.id;
-        const logLength = before.battleLog.length;
-        runComputerBattleStep(before.currentPlayer, repeated);
+        // 补员挂起时控制权在 reinforcingPlayer 手上，只喂 currentPlayer 会被直接 return 掉
+        runComputerBattleStep(before.reinforcingPlayer ?? before.currentPlayer, repeated);
         const after = useGameStore.getState();
 
-        if (selectedHeroId && selectedSkillId && after.battleLog.slice(logLength).some(log => log.type === 'skill')) {
-            const current = casts.get(selectedHeroId) ?? [0, 0];
-            const hero = [...after.player1Heroes, ...after.player2Heroes].find(item => item.id === selectedHeroId);
-            if (hero?.skill1Id === selectedSkillId) current[0]++;
-            else if (hero?.skill2Id === selectedSkillId) current[1]++;
-            casts.set(selectedHeroId, current);
+        if (selectedHeroId && selectedSkillId) {
+            // 走到"技能已被选中"这一步，说明真的发起过施法尝试；
+            // 是否有成功结算看 battleStatistics（recordBattleSkillUse 只在 result.success 时计数）。
+            const key = auditKey(
+                [...team1, ...team2].find(heroId => selectedHeroId.startsWith(`${heroId}-${before.currentPlayer}-`)) ?? '',
+                selectedSkillId
+            );
+            const row = skillAudit.get(key);
+            if (row) row.attempted++;
         }
 
         for (const hero of [...after.player1Heroes, ...after.player2Heroes]) {
@@ -351,6 +415,31 @@ function runMatch(
             if (!old?.position || !hero.position || old.state !== HeroState.ALIVE || hero.state !== HeroState.ALIVE) continue;
             const distance = Math.abs(old.position[0] - hero.position[0]) + Math.abs(old.position[1] - hero.position[1]);
             if (distance > 0) moved.set(hero.id, (moved.get(hero.id) ?? 0) + distance);
+        }
+        // AI 决策归因：把这一步电脑"想过哪些技能、各打几分、最后选了谁"记到英雄模板上
+        for (const decision of takeAiDecisions()) {
+            const templateId = [...team1, ...team2].find(
+                heroId => decision.heroId.startsWith(`${heroId}-${decision.player}-`)
+            );
+            if (!templateId) continue;
+            const best = decision.candidates[0];
+            for (const candidate of decision.candidates) {
+                const key = auditKey(templateId, candidate.skillId);
+                const row = skillAudit.get(key) ?? {
+                    heroId: templateId,
+                    skillId: candidate.skillId,
+                    enumerated: 0,
+                    chosen: 0,
+                    bestScore: Number.NEGATIVE_INFINITY,
+                    outvoted: 0,
+                    attempted: 0,
+                };
+                row.enumerated++;
+                row.bestScore = Math.max(row.bestScore, candidate.score);
+                if (decision.chosenSkillId === candidate.skillId) row.chosen++;
+                else if (best?.skillId === candidate.skillId) row.outvoted++;
+                skillAudit.set(key, row);
+            }
         }
         decisionSteps++;
     }
@@ -374,40 +463,39 @@ function runMatch(
         winner = scoreP1 === 0.5 ? undefined : scoreP1 === 1 ? 'player1' : 'player2';
     }
 
-    const rosterHeroes = [...state.player1Heroes, ...state.player2Heroes]
-        .filter(hero => instanceToHeroId.has(hero.id));
-    const teamDamage = new Map<Player, number>([['player1', 0], ['player2', 0]]);
-    for (const hero of rosterHeroes) {
-        const stats = state.battleStatistics?.[hero.id] ?? EMPTY_STATS;
-        teamDamage.set(hero.owner, (teamDamage.get(hero.owner) ?? 0) + stats.damageDealt);
-    }
+    const instances = [...state.player1Heroes, ...state.player2Heroes];
+    // 按名单（含全程未上场的替补）出结果：胜率归属看"选入阵容"，个人数据只按登场局平均。
+    const rosterEntries: { heroId: HeroId; side: Player; hero?: Hero }[] = [
+        ...team1.map(heroId => ({ heroId, side: 'player1' as Player, hero: instanceOf(instances, 'player1', heroId) })),
+        ...team2.map(heroId => ({ heroId, side: 'player2' as Player, hero: instanceOf(instances, 'player2', heroId) })),
+    ];
 
-    const heroResults = rosterHeroes.map(hero => {
-        const heroId = instanceToHeroId.get(hero.id)!;
-        const stats = state.battleStatistics?.[hero.id] ?? EMPTY_STATS;
-        const sideScore = hero.owner === 'player1' ? scoreP1 : 1 - scoreP1;
-        const heroCasts = casts.get(hero.id) ?? [0, 0];
+    const heroResults: HeroMatchResult[] = rosterEntries.map(entry => {
+        const hero = entry.hero;
+        const stats = hero ? state.battleStatistics?.[hero.id] ?? EMPTY_STATS : EMPTY_STATS;
+        const sideScore = entry.side === 'player1' ? scoreP1 : 1 - scoreP1;
+        const alive = hero?.state === HeroState.ALIVE;
         return {
-            heroId,
-            side: hero.owner,
+            heroId: entry.heroId,
+            side: entry.side,
+            entered: !!hero,
             score: sideScore,
             won: sideScore === 1,
-            survived: hero.state === HeroState.ALIVE,
-            endHp: hero.state === HeroState.ALIVE ? hero.currentHp : 0,
-            endShield: hero.state === HeroState.ALIVE ? hero.shield : 0,
-            maxHp: hero.maxHp,
+            survived: !!alive,
+            endHp: alive ? hero!.currentHp : 0,
+            endShield: alive ? hero!.shield : 0,
+            maxHp: hero?.maxHp ?? 0,
             damageDealt: stats.damageDealt,
             damageTaken: stats.damageTaken,
             healingDone: stats.healingDone,
             shieldAbsorbed: stats.shieldAbsorbed,
             kills: stats.kills,
             deathRound: stats.lastDeathRound,
-            skill1Casts: stats.skill1Casts ?? heroCasts[0],
-            skill2Casts: stats.skill2Casts ?? heroCasts[1],
-            movedDistance: moved.get(hero.id) ?? 0,
-            teamDamage: teamDamage.get(hero.owner) ?? 0,
+            skill1Casts: stats.skill1Casts ?? 0,
+            skill2Casts: stats.skill2Casts ?? 0,
+            movedDistance: hero ? moved.get(hero.id) ?? 0 : 0,
         };
-    }).map(({ teamDamage: damage, ...hero }) => ({ ...hero, teamDamage: damage }));
+    });
 
     return {
         id,
@@ -424,7 +512,7 @@ function runMatch(
         battleRounds: Math.min(state.roundNumber, config.maxBattleRounds),
         decisionSteps,
         durationMs: performance.now() - started,
-        heroResults: heroResults.map(({ teamDamage: _teamDamage, ...hero }) => hero),
+        heroResults,
     };
 }
 
@@ -480,6 +568,7 @@ function aggregateHeroes(matches: MatchResult[], heroIds: HeroId[]): HeroAggrega
             name: info.name,
             heroClass: info.class,
             games: 0,
+            enteredGames: 0,
             score: 0,
             wins: 0,
             player1Games: 0,
@@ -512,6 +601,7 @@ function aggregateHeroes(matches: MatchResult[], heroIds: HeroId[]): HeroAggrega
         for (const result of match.heroResults) {
             const aggregate = aggregates.get(result.heroId)!;
             aggregate.games++;
+            aggregate.enteredGames += Number(result.entered);
             aggregate.score += result.score;
             aggregate.wins += Number(result.won);
             if (result.side === 'player1') {
@@ -521,15 +611,17 @@ function aggregateHeroes(matches: MatchResult[], heroIds: HeroId[]): HeroAggrega
                 aggregate.player2Games++;
                 aggregate.player2Score += result.score;
             }
-            aggregate.survived += Number(result.survived);
+            if (result.entered) {
+                aggregate.survived += Number(result.survived);
+                aggregate.deaths += Number(!result.survived);
+                aggregate.deathRoundTotal += result.deathRound ?? 0;
+                aggregate.endHpRateTotal += result.maxHp > 0 ? (result.endHp + result.endShield) / result.maxHp : 0;
+            }
             aggregate.damageDealt += result.damageDealt;
             aggregate.damageTaken += result.damageTaken;
             aggregate.healingDone += result.healingDone;
             aggregate.shieldAbsorbed += result.shieldAbsorbed;
             aggregate.kills += result.kills;
-            aggregate.deaths += Number(!result.survived);
-            aggregate.deathRoundTotal += result.deathRound ?? 0;
-            aggregate.endHpRateTotal += result.maxHp > 0 ? (result.endHp + result.endShield) / result.maxHp : 0;
             aggregate.skill1Casts += result.skill1Casts;
             aggregate.skill2Casts += result.skill2Casts;
             aggregate.movedDistance += result.movedDistance;
@@ -592,6 +684,34 @@ function perGame(total: number, games: number): string {
     return games > 0 ? (total / games).toFixed(1) : '0.0';
 }
 
+function avg(total: number, games: number): number {
+    return games > 0 ? total / games : 0;
+}
+
+function winRateCell(hero: HeroAggregate): string {
+    return hero.games > 0 ? percent(hero.score / hero.games) : '—';
+}
+
+const skillIdCache = new Map<HeroId, { skill1Id: string; skill2Id: string }>();
+
+/** 取某个英雄模板的两个技能 id（借 createHero 造一个不上场的空实例，避免再维护一份对照表） */
+function skillIdsOf(heroId: HeroId): { skill1Id: string; skill2Id: string } {
+    const cached = skillIdCache.get(heroId);
+    if (cached) return cached;
+    const probe = createHero(heroId, 'player1', null);
+    const created = { skill1Id: probe.skill1Id, skill2Id: probe.skill2Id };
+    skillIdCache.set(heroId, created);
+    return created;
+}
+
+function auditVerdict(row: SkillAuditRow | undefined, casts: number): string {
+    if (casts > 0) return '正常';
+    if (!row) return 'AI 从未把它列为候选：缺前置交互状态或目标枚举缺口';
+    if (row.bestScore <= 0) return `AI 想过但按棋盘价值必亏（最高${row.bestScore.toFixed(1)}分）：该技能的收益没有被建模`;
+    if (row.attempted === 0) return `被选为方案${row.chosen}次却从未走到执行：位移重排或上层闸门吃掉`;
+    return `已发起${row.attempted}次施法、0次成功结算：execute 当场返回失败，按 bug 处理`;
+}
+
 function heroName(heroId: string): string {
     return getHeroInfo(heroId).name;
 }
@@ -632,6 +752,8 @@ function reportMarkdown(
     heroes: HeroAggregate[],
     schedule: ScheduledPairing[],
     elapsedMs: number,
+    failures: { id: number; teams: string; message: string }[] = [],
+    skillAudit: Map<string, SkillAuditRow> = new Map(),
 ): string {
     const completed = matches.filter(match => match.completed).length;
     const stalled = matches.filter(match => match.stalled).length;
@@ -650,11 +772,22 @@ function reportMarkdown(
         value.healing += hero.healingDone;
         classMap.set(hero.heroClass, value);
     }
-    const zeroSkillHeroes = heroes.filter(hero => hero.skill1Casts === 0 || hero.skill2Casts === 0);
+    const zeroSkillHeroes = heroes.filter(hero => hero.enteredGames > 0 && (hero.skill1Casts === 0 || hero.skill2Casts === 0));
+    const neverEnteredHeroes = heroes.filter(hero => hero.enteredGames === 0);
+    const gamesList = heroes.map(hero => hero.games);
+    const minGames = Math.min(...gamesList);
+    const maxGames = Math.max(...gamesList);
+    const tablesPerRound = Math.floor(AVAILABLE_HERO_IDS.length / TABLE_SIZE);
     const warnings: string[] = [];
     if (completed < matches.length * 0.9) warnings.push(`仅${percent(completed / matches.length)}对局自然结束，其余为回合上限裁定。`);
     if (stalled > 0) warnings.push(`${stalled}局检测到状态停滞。`);
+    if (failures.length > 0) {
+        const grouped = new Map<string, number>();
+        for (const failure of failures) grouped.set(failure.message, (grouped.get(failure.message) ?? 0) + 1);
+        warnings.push(`${failures.length}局因异常被跳过：${[...grouped.entries()].map(([message, count]) => `${message}（${count}局）`).join('；')}。`);
+    }
     if (zeroSkillHeroes.length > 0) warnings.push(`${zeroSkillHeroes.length}名英雄至少有一个技能从未被AI成功释放。`);
+    if (neverEnteredHeroes.length > 0) warnings.push(`${neverEnteredHeroes.length}名英雄全程只坐替补席未登场，个人数据不可用：${neverEnteredHeroes.map(hero => hero.name).join('、')}。`);
     if (Math.abs(p1Score - 0.5) > 0.08) warnings.push(`玩家1得分率为${percent(p1Score)}，存在明显先后手偏差。`);
 
     const lines: string[] = [
@@ -665,7 +798,7 @@ function reportMarkdown(
         '## 测试口径',
         '',
         `- 英雄池：${AVAILABLE_HERO_IDS.length}名当前可用英雄，全部纳入。`,
-        `- 赛程：${config.scheduleRounds}轮平衡分组，每组4v4并交换先后手，共${matches.length}局；每名英雄${heroes[0]?.games ?? 0}局。`,
+        `- 赛程：${config.scheduleRounds}轮平衡分组，每轮${tablesPerRound}组、每组${ROSTER_SIZE}v${ROSTER_SIZE}名单（${STARTERS}首发+${ROSTER_SIZE - STARTERS}替补）并交换先后手，共${matches.length}局；每名英雄名单${minGames}–${maxGames}局、实际登场${Math.min(...heroes.map(hero => hero.enteredGames))}–${Math.max(...heroes.map(hero => hero.enteredGames))}局${AVAILABLE_HERO_IDS.length % TABLE_SIZE === 0 ? '' : `（每轮${AVAILABLE_HERO_IDS.length % TABLE_SIZE}人按"迄今轮空最少"整轮轮空）`}。`,
         `- 决策：双方均使用项目内同一套“宗师电脑”实际移动、选技、选目标与被动选择逻辑。`,
         '- 强度排名：使用全局对局结果拟合英雄对团队胜负的独立影响，显示为相对平均英雄的Elo影响值；原始胜率和区间同时保留。',
         '- 天赋：当前游戏没有统一的全英雄致知选择流程，本报告测试基础形态，不把少数已编码致知混入比较。',
@@ -686,9 +819,9 @@ function reportMarkdown(
     lines.push(
         '## 英雄强度总榜',
         '',
-        '| 排名 | 等级 | 英雄 | 职业 | 场次 | 得分率（95%区间） | Elo影响 | 伤害/局 | 团队伤害占比 | 治疗/局 | 承伤/局 | 击杀/局 | 存活率 | 终局有效生命 | 技能1/2每局 | 位移/局 |',
+        '| 排名 | 等级 | 英雄 | 职业 | 名单场次（登场） | 得分率（95%区间） | Elo影响 | 伤害/登场局 | 团队伤害占比 | 治疗/登场局 | 承伤/登场局 | 击杀/登场局 | 登场存活率 | 终局有效生命 | 技能1/2每登场局 | 位移/登场局 |',
         '|---:|:---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
-        ...heroes.map(hero => `| ${hero.rank} | ${hero.tier} | ${hero.name} | ${hero.heroClass} | ${hero.games} | ${percent(hero.score / hero.games)}（${percent(hero.winRateLow)}–${percent(hero.winRateHigh)}） | ${hero.impactElo >= 0 ? '+' : ''}${hero.impactElo.toFixed(0)} | ${perGame(hero.damageDealt, hero.games)} | ${percent(hero.teamDamageShareTotal / hero.games)} | ${perGame(hero.healingDone, hero.games)} | ${perGame(hero.damageTaken, hero.games)} | ${perGame(hero.kills, hero.games)} | ${percent(hero.survived / hero.games)} | ${percent(hero.endHpRateTotal / hero.games)} | ${(hero.skill1Casts / hero.games).toFixed(2)}/${(hero.skill2Casts / hero.games).toFixed(2)} | ${perGame(hero.movedDistance, hero.games)} |`),
+        ...heroes.map(hero => `| ${hero.rank} | ${hero.tier} | ${hero.name} | ${hero.heroClass} | ${hero.games}（${hero.enteredGames}） | ${winRateCell(hero)}（${percent(hero.winRateLow)}–${percent(hero.winRateHigh)}） | ${hero.impactElo >= 0 ? '+' : ''}${hero.impactElo.toFixed(0)} | ${perGame(hero.damageDealt, hero.enteredGames)} | ${percent(avg(hero.teamDamageShareTotal, hero.games))} | ${perGame(hero.healingDone, hero.enteredGames)} | ${perGame(hero.damageTaken, hero.enteredGames)} | ${perGame(hero.kills, hero.enteredGames)} | ${percent(avg(hero.survived, hero.enteredGames))} | ${percent(avg(hero.endHpRateTotal, hero.games))} | ${avg(hero.skill1Casts, hero.enteredGames).toFixed(2)}/${avg(hero.skill2Casts, hero.enteredGames).toFixed(2)} | ${perGame(hero.movedDistance, hero.enteredGames)} |`),
         '',
         '## 职业汇总',
         '',
@@ -727,9 +860,29 @@ function reportMarkdown(
     if (zeroSkillHeroes.length === 0) {
         lines.push('- 所有英雄的两个技能都至少成功释放过一次。');
     } else {
-        for (const hero of zeroSkillHeroes) {
-            lines.push(`- ${hero.name}：技能1释放${hero.skill1Casts}次，技能2释放${hero.skill2Casts}次；该技能的实战强度可能被AI低估或驱动尚未覆盖。`);
-        }
+        lines.push(
+            '下面这些技能在整份数据里一次都没结算成功。用 AI 决策留痕区分"英雄真的弱"和"电脑根本不会用"：',
+            '',
+            '| 英雄 | 技能 | 引擎结算施放 | 进入候选 | 被采纳 | 已发起施法 | 候选最高分 | 归因 |',
+            '|---|---|---:|---:|---:|---:|---:|---|',
+            ...zeroSkillHeroes.flatMap(hero => {
+                const { skill1Id, skill2Id } = skillIdsOf(hero.heroId);
+                return [
+                    { skillId: skill1Id, casts: hero.skill1Casts },
+                    { skillId: skill2Id, casts: hero.skill2Casts },
+                ]
+                    .filter(entry => entry.casts === 0)
+                    .map(entry => {
+                        const row = skillAudit.get(auditKey(hero.heroId, entry.skillId));
+                        return `| ${hero.name} | ${entry.skillId} | 0 | ${row?.enumerated ?? 0} | ${row?.chosen ?? 0} | ${row?.attempted ?? 0} | ${row ? row.bestScore.toFixed(1) : '—'} | ${auditVerdict(row, entry.casts)} |`;
+                    });
+            }),
+            '',
+            '> 「进入候选 0 次」= 电脑根本没把它列为选项（缺前置交互状态或目标枚举缺口）；',
+            '> 「候选最高分 ≤ 0」= AI 想过，但按当前棋盘价值模型放它必亏（收益没被建模，多见于自损型与纯辅助型技能）；',
+            '> 「被采纳但已发起 0 次」= 方案在位移重排或上层分数闸门处被吃掉，AI 从没真的点下去；',
+            '> 「已发起 N 次、0 次成功结算」= 真的尝试过却被技能自己的 execute 拒绝，这一类才是可以直接修的 bug。'
+        );
     }
     lines.push(
         '',
@@ -745,12 +898,72 @@ function reportMarkdown(
     return lines.join('\n');
 }
 
+function pad(value: string, width: number): string {
+    // 中文名按视觉宽度对齐：CJK 字符占两列
+    const visual = [...value].reduce((sum, char) => sum + (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(char) ? 2 : 1), 0);
+    return value + ' '.repeat(Math.max(1, width - visual));
+}
+
+function summaryLines(heroes: HeroAggregate[], skillAudit: Map<string, SkillAuditRow> = new Map()): string[] {
+    const header = `${pad('排名', 6)}${pad('等级', 4)}${pad('英雄', 22)}${pad('职业', 8)}${pad('名单(登场)', 12)}${pad('胜率(95%区间)', 22)}${pad('Elo影响', 9)}${pad('伤害/登场局', 12)}${pad('登场存活', 10)}技能1/2`;
+    const row = (hero: HeroAggregate) => [
+        pad(String(hero.rank), 6),
+        pad(hero.tier, 4),
+        pad(hero.name, 22),
+        pad(hero.heroClass, 8),
+        pad(`${hero.games}(${hero.enteredGames})`, 12),
+        pad(`${winRateCell(hero)}（${percent(hero.winRateLow)}–${percent(hero.winRateHigh)}）`, 22),
+        pad(`${hero.impactElo >= 0 ? '+' : ''}${hero.impactElo.toFixed(0)}`, 9),
+        pad(perGame(hero.damageDealt, hero.enteredGames), 12),
+        pad(percent(avg(hero.survived, hero.enteredGames)), 10),
+        `${avg(hero.skill1Casts, hero.enteredGames).toFixed(1)}/${avg(hero.skill2Casts, hero.enteredGames).toFixed(1)}`,
+    ].join('');
+    const middle = heroes.length > 24
+        ? ['', `…（中间${heroes.length - 20}名见 latest.md）`, '']
+        : [];
+    const attribution: string[] = [];
+    const zeroSkillHeroes = heroes.filter(hero => hero.enteredGames > 0 && (hero.skill1Casts === 0 || hero.skill2Casts === 0));
+    if (zeroSkillHeroes.length > 0) {
+        attribution.push(
+            '',
+            'AI 操作归因（这些技能整份数据里 0 次结算，逐条区分"英雄弱"还是"电脑不会用"）',
+            ...zeroSkillHeroes.flatMap(hero => {
+                const { skill1Id, skill2Id } = skillIdsOf(hero.heroId);
+                return [
+                    { skillId: skill1Id, casts: hero.skill1Casts },
+                    { skillId: skill2Id, casts: hero.skill2Casts },
+                ]
+                    .filter(entry => entry.casts === 0)
+                    .map(entry => {
+                        const row = skillAudit.get(auditKey(hero.heroId, entry.skillId));
+                        return `  ${pad(hero.name, 22)}${pad(entry.skillId, 22)}候选${String(row?.enumerated ?? 0).padStart(5)} 采纳${String(row?.chosen ?? 0).padStart(4)} 发起${String(row?.attempted ?? 0).padStart(5)} 最高分${pad(row ? row.bestScore.toFixed(1) : '—', 9)}${auditVerdict(row, entry.casts)}`;
+                    });
+            })
+        );
+    }
+    return [
+        '英雄强度榜单（按拟合Elo排序；胜率含±95%置信区间，个人数据按登场局平均）',
+        '',
+        header,
+        '-'.repeat(112),
+        ...heroes.slice(0, 10).map(row),
+        ...middle,
+        ...heroes.slice(-10).reverse().map(row).reverse(),
+        ...attribution,
+    ];
+}
+
 async function main(): Promise<void> {
     const config = readConfig();
     // 同时固定战斗内的暴击、闪避、随机目标与AI近优选择，保证整份报告可复现。
     Math.random = mulberry32(config.seed ^ 0xBA771E);
-    if (AVAILABLE_HERO_IDS.length !== 32) {
-        throw new Error(`赛程生成器当前要求32名英雄；检测到${AVAILABLE_HERO_IDS.length}名，请调整分组算法。`);
+    if (AVAILABLE_HERO_IDS.length < TABLE_SIZE) {
+        throw new Error(`英雄池不足${TABLE_SIZE}名（当前${AVAILABLE_HERO_IDS.length}名），无法组织6v6名单赛程。`);
+    }
+    // 目标局数优先：每轮 floor(H/12) 组、每组打镜像两局，据此反推需要的轮数。
+    if (config.targetMatches > 0) {
+        const perRound = matchesPerRound(AVAILABLE_HERO_IDS.length);
+        config.scheduleRounds = Math.max(1, Math.round(config.targetMatches / perRound));
     }
     const outputDirectory = resolve(process.cwd(), 'reports', 'balance');
     if (process.argv.includes('--refresh-report')) {
@@ -759,6 +972,7 @@ async function main(): Promise<void> {
             config: SimulationConfig;
             elapsedMs: number;
             matches: MatchResult[];
+            skillAudit?: SkillAuditRow[];
             [key: string]: unknown;
         };
         const adjudicatedIdArgument = process.argv.find(value => value.startsWith('--adjudicated-ids='));
@@ -775,7 +989,15 @@ async function main(): Promise<void> {
             { length: payload.matches.length / 2 },
             (_, index) => ({ scheduleRound: 0, table: index, teamA: [] as unknown as Team, teamB: [] as unknown as Team })
         );
-        const markdown = reportMarkdown(payload.config, payload.matches, heroes, scheduleStub, payload.elapsedMs);
+        const markdown = reportMarkdown(
+            payload.config,
+            payload.matches,
+            heroes,
+            scheduleStub,
+            payload.elapsedMs,
+            [],
+            new Map((payload.skillAudit ?? []).map(row => [auditKey(row.heroId, row.skillId), row]))
+        );
         payload.heroes = heroes;
         await writeFile(jsonPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
         await writeFile(resolve(outputDirectory, 'latest.md'), `${markdown}\n`, 'utf8');
@@ -784,23 +1006,43 @@ async function main(): Promise<void> {
     }
     const schedule = buildSchedule([...AVAILABLE_HERO_IDS], config);
     const matches: MatchResult[] = [];
+    const failures: { id: number; teams: string; message: string }[] = [];
     const started = performance.now();
     let matchId = 1;
     const totalMatches = schedule.length * 2;
-    process.stdout.write(`全英雄强度仿真：${AVAILABLE_HERO_IDS.length}名英雄，${totalMatches}局，种子${config.seed}\n`);
+    process.stdout.write(`全英雄强度仿真：${AVAILABLE_HERO_IDS.length}名英雄，${config.scheduleRounds}轮×${schedule.length / config.scheduleRounds}组，${totalMatches}局，种子${config.seed}\n`);
+    const skillAudit = new Map<string, SkillAuditRow>();
     for (const pairing of schedule) {
         for (const mirror of [false, true]) {
-            const match = runMatch(matchId++, pairing, mirror, config);
+            const id = matchId++;
+            let match: MatchResult;
+            try {
+                match = runMatch(id, pairing, mirror, config, skillAudit);
+            } catch (error) {
+                // 单局抛错（新英雄未适配AI、部署校验失败等）只丢掉这一局，不让整轮仿真白跑。
+                const message = error instanceof Error ? error.message : String(error);
+                failures.push({
+                    id,
+                    teams: `${pairing.teamA.join('+')} vs ${pairing.teamB.join('+')}`,
+                    message,
+                });
+                process.stdout.write(`!! 第${id}局异常已跳过：${message}\n`);
+                continue;
+            }
             matches.push(match);
-            if (matches.length % 8 === 0 || matches.length === totalMatches) {
+            const attempted = matches.length + failures.length;
+            if (attempted % 8 === 0 || attempted === totalMatches) {
                 const completed = matches.filter(item => item.completed).length;
-                process.stdout.write(`进度 ${matches.length}/${totalMatches}，自然结束 ${completed}，最近一局 ${match.battleRounds}轮/${match.decisionSteps}步\n`);
+                process.stdout.write(`进度 ${attempted}/${totalMatches}，自然结束 ${completed}，异常 ${failures.length}，最近一局 ${match.battleRounds}轮/${match.decisionSteps}步\n`);
             }
         }
     }
     const elapsedMs = performance.now() - started;
+    if (matches.length === 0) {
+        throw new Error(`全部${totalMatches}局均异常中断，最后一条错误：${failures[0]?.message ?? '未知'}`);
+    }
     const heroes = aggregateHeroes(matches, [...AVAILABLE_HERO_IDS]);
-    const markdown = reportMarkdown(config, matches, heroes, schedule, elapsedMs);
+    const markdown = reportMarkdown(config, matches, heroes, schedule, elapsedMs, failures, skillAudit);
     await mkdir(outputDirectory, { recursive: true });
     const payload = {
         generatedAt: new Date().toISOString(),
@@ -808,12 +1050,15 @@ async function main(): Promise<void> {
         elapsedMs,
         heroCount: AVAILABLE_HERO_IDS.length,
         matchCount: matches.length,
+        failures,
+        skillAudit: [...skillAudit.values()],
         heroes,
         matches,
     };
     await writeFile(resolve(outputDirectory, 'latest.json'), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     await writeFile(resolve(outputDirectory, 'latest.md'), `${markdown}\n`, 'utf8');
-    process.stdout.write(`报告已生成：${resolve(outputDirectory, 'latest.md')}\n`);
+    process.stdout.write(`\n${summaryLines(heroes, skillAudit).join('\n')}\n`);
+    process.stdout.write(`\n报告已生成：${resolve(outputDirectory, 'latest.md')}\n`);
     process.stdout.write(`数据已生成：${resolve(outputDirectory, 'latest.json')}\n`);
 }
 

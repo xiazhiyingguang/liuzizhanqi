@@ -307,7 +307,7 @@ describe('帝兰完整机制', () => {
         expect(useGameStore.getState().activeHero).toBeNull();
     });
 
-    it('带羽化的移动也可以撤回：归位不重复结算羽化伤害，正向伤害不退还', () => {
+    it('带羽化的移动可以撤回：归位不重复结算羽化，正向移动吃掉的伤害一并退还', () => {
         const state = makeGameState({ currentPlayer: 'player2' });
         const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
         const enemy = addHero(state, 'baize', 'player2', [0, 0]);
@@ -331,7 +331,8 @@ describe('帝兰完整机制', () => {
         expect(enemy.position).toEqual([0, 0]);
         expect(enemy.hasMovedThisTurn).toBe(false);
         expect(enemy.counters['__move_from']).toBeUndefined();
-        // 撤回归位不结算羽化伤害（正向移动已结算的伤害不退还）
-        expect(enemy.currentHp).toBe(hpAfterMove);
+        expect(enemy.counters['__move_damage_hp'], '账本应随撤回清空').toBeUndefined();
+        // 撤回等于"这步没走"：归位不再结算羽化，正向那一步吃掉的伤害也要退回来
+        expect(enemy.currentHp).toBe(enemy.maxHp);
     });
 });

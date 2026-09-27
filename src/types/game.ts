@@ -224,7 +224,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -235,6 +235,8 @@ export interface BoardEffect {
     direction?: 'up' | 'down' | 'left' | 'right';
     /** 施法者行动序号到达该值时（其行动结束瞬间）整片区域一并清除；回合末由 duration 兜底 */
     expireAtActionSerial?: number;
+    /** 毛笔专用：落笔时的回合号——当回合（婉儿行动末）不推进，下一回合起才朝婉儿移动 */
+    placedAtRound?: number;
 }
 
 /** 单位在回合开始时的状态快照（时空旅者·戴尔的「时空回溯」用） */
@@ -327,7 +329,6 @@ export interface GameState {
     baizeReviveTargetHeroId?: string;
     /** 戴尔「时空回溯」两段式复活：已选中的时空停滞单位，等待玩家点选复活落点 */
     daiReviveHeroId?: string;
-    changliSkill2Empowered?: boolean;
     jetzmiSkill1Enhanced?: boolean;
     pendingSkillTargetPositions?: Position[];
     skillOptionFlags?: Record<string, boolean>;
@@ -348,7 +349,7 @@ export interface GameState {
     // 时空旅者·戴尔：每回合开始时记录的全体存活单位快照（生命与效果），供「时空回溯」恢复
     heroSnapshots?: Record<string, HeroRoundSnapshot>;
     pendingBoardAction?: {
-        type: 'schrodinger-tianwei' | 'xueqi-tianwei' | 'yunying-liehuo';
+        type: 'schrodinger-tianwei' | 'xueqi-tianwei' | 'yunying-liehuo' | 'yunying-tianwei';
         heroId: string;
     };
     // 李太白被动链：瞬移到历史位置继续攻击，全部用完自动归位

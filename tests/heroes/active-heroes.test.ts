@@ -178,6 +178,9 @@ describe('Wukong', () => {
     it('gains one Lingxi and updates clone crit effects when a clone dies', () => {
         const state = makeGameState();
         const wukong = addHero(state, 'wukong', 'player1', [2, 2]);
+        // 灵犀为 0 时也要吃到 30% 初始暴击率
+        expect(EffectManager.getEffect(wukong, '悟空暴击率')?.value).toBeCloseTo(0.3);
+
         const clone = createWukongClone('player1', wukong.id, [2, 3], 10);
         state.board[2][3] = clone;
         const enemy = addHero(state, 'moran', 'player2', [2, 4]);
@@ -188,7 +191,7 @@ describe('Wukong', () => {
         expect(clone.state).toBe(HeroState.DEAD);
         expect(state.board[2][3]).toBeNull();
         expect(wukong.counters['灵犀']).toBe(1);
-        expect(EffectManager.getEffect(wukong, '悟空暴击率')?.value).toBeCloseTo(0.4);
+        expect(EffectManager.getEffect(wukong, '悟空暴击率')?.value).toBeCloseTo(0.5);
     });
 
     it('Tianwei summons at most three living clones', () => {
@@ -447,7 +450,7 @@ describe('Changli', () => {
         expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(2);
     });
 
-    it('skill 2 scales with Starfire and distance', () => {
+    it('skill 2 scales with Starfire and distance, then consumes half the stacks', () => {
         const state = makeGameState();
         const hero = addHero(state, 'changli', 'player1', [2, 0]);
         const enemy = addHero(state, 'liuli', 'player2', [2, 3]);
@@ -457,28 +460,50 @@ describe('Changli', () => {
 
         // 8 × (1+2×10%) × (1+3×10%) = 8×1.2×1.3 = 12.48 → 12
         expect(result.damageDealt).toEqual([12]);
-        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(2);
+        // 消耗一半：2 层打掉 1 层
+        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(1);
     });
 
-    it('optionally consumes two Starfire for a 50% stun attempt', () => {
-        vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    it('skill 2 still fires at zero Starfire, riding only the distance bonus', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'changli', 'player1', [2, 0]);
+        const enemy = addHero(state, 'liuli', 'player2', [2, 3]);
+
+        const result = changliSkill2.execute!(hero, [enemy], state);
+
+        // 8 × 1 × (1+3×10%) = 10.4 → 10
+        expect(result.damageDealt).toEqual([10]);
+        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(0);
+    });
+
+    it('odd Starfire keeps the leftover layer after consumption', () => {
         const state = makeGameState();
         const hero = addHero(state, 'changli', 'player1', [2, 0]);
         const enemy = addHero(state, 'liuli', 'player2', [2, 3]);
         EffectManager.setCounter(hero, '暗夜星火', 3);
-        hero.counters['__changli_empowered'] = 1;
 
         changliSkill2.execute!(hero, [enemy], state);
 
-        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(1);
-        expect(EffectManager.hasEffect(enemy, '眩晕')).toBe(true);
+        // 消耗 floor(3/2)=1，剩 2 层留给下一发
+        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(2);
     });
 
-    it('consumes eight Starfire to survive the first lethal hit at half HP', () => {
+    it('Dark Starfire gain is capped at 8', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'changli', 'player1', [0, 0]);
+        const first = addHero(state, 'moran', 'player2', [0, 4]);
+        const second = addHero(state, 'baize', 'player2', [5, 5]);
+        EffectManager.setCounter(hero, '暗夜星火', 7);
+
+        changliSkill1.execute!(hero, [first, second], state);
+
+        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(8);
+    });
+
+    it('revives once at half HP without spending any Starfire', () => {
         const state = makeGameState();
         const hero = addHero(state, 'changli', 'player1', [2, 2]);
         const enemy = addHero(state, 'moran', 'player2', [2, 3]);
-        EffectManager.setCounter(hero, '暗夜星火', 8);
         hero.currentHp = 1;
         const damage = DamageCalculator.calculate(enemy, hero, 20);
 
@@ -486,42 +511,51 @@ describe('Changli', () => {
 
         expect(damage.killed).toBe(false);
         expect(hero.state).toBe(HeroState.ALIVE);
-        expect(hero.currentHp).toBe(21);
-        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(0);
+        // 复活基准是生命上限 48 的一半
+        expect(hero.currentHp).toBe(24);
+        expect(hero.counters['changli_revives']).toBe(1);
+        // 复生不再吃星火
+        expect(hero.counters['暗夜星火'] ?? 0).toBe(0);
+        expect(EffectManager.getEffect(hero, '长离复生增伤')?.value).toBeCloseTo(0.4);
+    });
+
+    it('Tianwei refreshes the passive so the next lethal hit is absorbed again at half of last HP', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'changli', 'player1', [2, 2]);
+        const enemy = addHero(state, 'moran', 'player2', [2, 3]);
+        hero.currentHp = 1;
+        DamageCalculator.applyDamage(hero, DamageCalculator.calculate(enemy, hero, 20), enemy, state);
+        expect(hero.currentHp).toBe(24);
+
+        changliTianwei.execute(hero, state);
+        expect(hero.counters['changli_revives']).toBe(0);
+
+        hero.currentHp = 1;
+        const second = DamageCalculator.calculate(enemy, hero, 20);
+        DamageCalculator.applyDamage(hero, second, enemy, state);
+
+        expect(second.killed).toBe(false);
+        // "上一次的50%"：第二次以第一次复活后的 24 为基准
+        expect(hero.currentHp).toBe(12);
         expect(hero.counters['changli_revives']).toBe(1);
     });
 
-    it('Tianwei immediately grants four Dark Starfire', () => {
-        const state = makeGameState();
-        const hero = addHero(state, 'changli', 'player1', [0, 0]);
-
-        changliTianwei.execute(hero, state);
-
-        expect(EffectManager.getCounter(hero, '暗夜星火')).toBe(4);
-    });
-
-    it('can revive at most three times with thresholds 8, 4, and 4 Starfire', () => {
+    it('the passive cannot save her twice without Tianwei', () => {
         const state = makeGameState();
         const hero = addHero(state, 'changli', 'player1', [2, 2]);
         const enemy = addHero(state, 'moran', 'player2', [2, 3]);
 
-        for (const required of [8, 4, 4]) {
-            hero.currentHp = 1;
-            EffectManager.setCounter(hero, '暗夜星火', required);
-            const damage = DamageCalculator.calculate(enemy, hero, 20);
-            DamageCalculator.applyDamage(hero, damage, enemy, state);
-            expect(damage.killed).toBe(false);
-            expect(hero.state).toBe(HeroState.ALIVE);
-        }
+        hero.currentHp = 1;
+        DamageCalculator.applyDamage(hero, DamageCalculator.calculate(enemy, hero, 20), enemy, state);
+        expect(hero.state).toBe(HeroState.ALIVE);
 
         hero.currentHp = 1;
-        EffectManager.setCounter(hero, '暗夜星火', 99);
         const finalDamage = DamageCalculator.calculate(enemy, hero, 20);
         DamageCalculator.applyDamage(hero, finalDamage, enemy, state);
 
         expect(finalDamage.killed).toBe(true);
         expect(hero.state).toBe(HeroState.DEAD);
-        expect(hero.counters['changli_revives']).toBe(3);
+        expect(hero.counters['changli_revives']).toBe(1);
     });
 });
 

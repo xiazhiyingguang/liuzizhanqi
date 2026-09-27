@@ -139,6 +139,7 @@ const AREA_TITLES: Record<BoardEffect['type'], string> = {
     'blade-mark': '刃痕',
     'water-moon': '水月之影',
     'moon-seat': '月座',
+    'shadow-mark': '残影',
     brush: '毛笔',
 };
 

@@ -30,6 +30,7 @@ export type HeroStatusFxKind =
     | 'chill'        // 寒天
     | 'feather'      // 羽化
     | 'inlay'        // 金银错（震霄反击姿态）
+    | 'duanxue'      // 断雪（孤影天威姿态：贯穿与高伤两回合）
     | 'way'          // 为道（墨阑姿态）
     | 'guard'        // 援护（琉璃/沉渊守护）
     | 'ice-armor'    // 冰甲
@@ -77,6 +78,7 @@ const STATUS_FX_PRIORITY: Array<{ kind: HeroStatusFxKind; effectNames?: string[]
     { kind: 'chill', effectNames: ['寒天'] },
     { kind: 'feather', effectNames: ['羽化'] },
     { kind: 'inlay', effectNames: ['金银错'] },
+    { kind: 'duanxue', effectNames: ['断雪'] },
     { kind: 'way', effectNames: ['为道'] },
     { kind: 'guard', effectNames: ['援护'] },
     { kind: 'ice-armor', effectNames: ['冰甲'] },

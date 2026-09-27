@@ -16,7 +16,6 @@ export default function SkillPanel() {
         roundNumber,
         baizeReviveTargetHeroId,
         daiReviveHeroId,
-        changliSkill2Empowered,
         jetzmiSkill1Enhanced,
         heroXRedirectTargetIds,
         soulLampBeneficiaryIds,
@@ -26,7 +25,6 @@ export default function SkillPanel() {
         selectSkill,
         selectBaizeReviveTarget,
         selectDaiReviveTarget,
-        toggleChangliSkill2Empowered,
         toggleJetzmiSkill1Enhanced,
         selectHeroXRedirectTarget,
         selectSoulLampBeneficiary,
@@ -332,22 +330,6 @@ export default function SkillPanel() {
                             </p>
                         )}
                     </div>
-                )}
-
-                {selectedSkill?.id === 'changli_skill2' &&
-                    (selectedHero.counters['暗夜星火'] ?? 0) >= 2 && (
-                    <button
-                        onClick={toggleChangliSkill2Empowered}
-                        aria-pressed={changliSkill2Empowered}
-                        className={`skill-option ${changliSkill2Empowered ? 'skill-option-on' : ''}`}
-                    >
-                        <span className="skill-option-mark" aria-hidden="true" />
-                        <span className="skill-option-text">
-                            {changliSkill2Empowered
-                                ? '已选择：消耗2层星火尝试眩晕'
-                                : '强化释放：消耗2层星火（可选）'}
-                        </span>
-                    </button>
                 )}
 
                 {selectedSkill?.id === 'jetzmi_skill1' &&

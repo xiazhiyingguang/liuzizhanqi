@@ -153,6 +153,7 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     yunying_skill1: 'fire',           // 星火照野
     yunying_skill2: 'slash',          // 踏火长驱：两道圆弧火斩
     yunying_liehuo: 'explosion',      // 烈火燎原射线（被动引燃，辅助特效）
+    yunying_tianwei: 'slash',         // 天威·燎原百斩（击杀触发，与长驱同一路枪斩）
 
     // ===== 惊鸿·止水：掠水突进与止水决渊 =====
     jinghong_skill1: 'dash',          // 掠水惊鸿：贴敌斩过并绕后
@@ -164,6 +165,11 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     jinghua_skill2: 'summon',         // 印月替身：唤候补登场、本体退场
     jinghua_tianwei: 'slash',         // 镜花照水：登场月华弧斩
     jinghua_tianwei_echo: 'revive',   // 月影回声：被点名友方脚下的月华光柱
+
+    // ===== 花弄影：花间辞扇斩、弄影换身、影子重演 =====
+    huanongying_skill1: 'slash',      // 花间辞：扇形三格挥斩
+    huanongying_skill2: 'teleport',   // 弄影：与影子互换位置
+    huanongying_replay: 'slash',      // 影子重演（被动/天威共用）
 
     // ===== 沉渊·镇岳：极寒领域与拖拽援护 =====
     chenyuan_skill1: 'snow',

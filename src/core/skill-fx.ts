@@ -75,6 +75,7 @@ export type SkillFxKind =
     | 'yunying-sweep'   // 云缨·星火照野：长枪横扰，弧刃按拍逐条甩开（时序分明）+ 收势枪杆抽打
     | 'yunying-arc-slash'  // 云缨·踏火长驱：正前方一排3格挨两道圆弧火斩，先左→右再右→左
     | 'liehuo-blaze'    // 云缨·烈火燎原：火线沿射线逐格引燃，火焰柱一路烧到棋盘尽头
+    | 'liehuo-wheel'    // 云缨·燎原百斩（天威落点）：一柄红焰枪刃绕落点格心旋满一周，刃尖拖出火焰扫弧，周身火痕依次亮起 + 灼地圈荡开
     | 'ink';            // 默认兜底：墨韵波纹
 
 /** 特效原型的中文展示名（供图鉴等处呈现；新增原型时由类型强制补齐） */
@@ -126,6 +127,7 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'yunying-sweep': '乱樱枪影',
     'yunying-arc-slash': '踏火双斩',
     'liehuo-blaze': '燎原火墙',
+    'liehuo-wheel': '燎原旋斩',
     'ink': '墨韵波纹',
 };
 
@@ -194,7 +196,7 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     soul_lamp_skill1: { kind: 'soul-lamp-array', durationMs: 1250 },
     soul_lamp_skill2: { kind: 'soul-lamp-cycle', durationMs: 1150 },
     libai_skill1: { kind: 'libai-slash', durationMs: 800 },
-    libai_skill2: { kind: 'libai-flurry', durationMs: 1000 },
+    libai_skill2: { kind: 'libai-flurry', durationMs: 1150, c1: '#49c5c9', c2: '#eafffb' },
     feynman_skill1: { kind: 'feynman-beam', durationMs: 900 },
     feynman_skill2: { kind: 'feynman-burst', durationMs: 1000 },
 
@@ -321,6 +323,9 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     yunying_skill2: { kind: 'yunying-arc-slash', durationMs: 1400, c1: '#ffb347', c2: '#ff4d2e' },  // 踏火长驱：两道圆弧火斩来回扫过正前方一排3格
     // 烈火燎原：祥瑞满层引燃（非技能，由 store 挂起选择后显式派发，带射线覆盖格）
     yunying_liehuo: { kind: 'liehuo-blaze', durationMs: 1900, c1: '#ff7a3c', c2: '#ffe08a' },
+    // 天威「燎原百斩」：击杀后沿直线斩到落点（非主动技能，由特效请求队列派发）。
+    // 起手格画出枪冲刺的火色拖尾，落点那一格由 liehuo-wheel 旋满一周
+    yunying_tianwei: { kind: 'liehuo-wheel', durationMs: 1400, c1: '#ff4a1e', c2: '#ffc85a' },
 
     // ===== 上官婉儿：墨笔惊鸿（墨色）=====
     shangguan_skill1: { kind: 'pierce', durationMs: 850, c1: '#4a4a5a', c2: '#8a8ab0' },      // 落笔
@@ -365,6 +370,14 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     jinghua_tianwei: { kind: 'jinghua-moonblade', durationMs: 900, c1: '#3f7fae', c2: '#dff2ff' },
     // 天威击杀后的「月影回声」：被点名友方脚下亮起月华光柱
     jinghua_tianwei_echo: { kind: 'light-summon', durationMs: 950, c1: '#bfe0ff', c2: '#f6fbff' },
+
+    // ===== 花弄影：扇形挥斩甩影、身影互换、影子重演（月白粉 / 影紫）=====
+    // 花间辞：三记弧刃沿扇形左前/正前/右前依次扫开
+    huanongying_skill1: { kind: 'triple-slash', durationMs: 900, c1: '#c86a9c', c2: '#ffe0ef' },
+    // 弄影：两端内向涡环（身体格与影子格各一），落点补一记斩由 impactPositions 承接
+    huanongying_skill2: { kind: 'phase-swap', durationMs: 950, c1: '#a76bb0', c2: '#f0d9ff' },
+    // 影子重演（被动/天威共用，由特效请求队列派发）：影格亮起一记半透明残刃
+    huanongying_replay: { kind: 'arc-slash', durationMs: 820, c1: '#6f4a86', c2: '#e7d3f2' },
 
     // ===== 血契：血誓横扫与强锁（赤血 / 骨白）作用区均以施法者为中心 =====
     xueqi_skill1: { kind: 'xueqi-scythe', durationMs: 900, c1: '#c0392f', c2: '#ffd0c6', fxArea: 'self-box' }, // 血誓横扫：血镰绕身旋一圈（天威复用此档案）
@@ -435,6 +448,8 @@ const SKILL_FX_IMPACT_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>([
     'jinghua-moonblade',
     'zuizhen-throw',
     'zuizhen-wheel',
+    // 天威落点那一记旋斩是这一击的特写，要有震屏与闪白
+    'liehuo-wheel',
     'yunying-sweep',
     'yunying-arc-slash',
 ]);
@@ -467,7 +482,7 @@ const SKILL_FX_PER_TARGET_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>
     // 天威照中几名敌人，就飞来几弯月牙刃：飞斩本身就是这一击的特写
     'jinghua-moonblade',
     'zuizhen-throw',
-    // 踏火长驱：打到的每格各起一团"被刀锋扫过"的火气（刀光本身由区域层那一柄巨刃扫，
+    // 踏火长驱：打到的每格各起一团"被刀锋扫过"的火气（刀光本身由区域层那道 120° 圆弧两扫，
     // 见 AREA_FX_KIND_MAP 的 bladesweep，逐格刻刀痕会看成三刀）
     'yunying-arc-slash',
     // 星火照野的乱樱枪影刻意不入列，避免 3×3 每格都甩一遍弧刃糊成一片
@@ -581,7 +596,8 @@ export type SkillAreaFxKind =
     | 'icespikes'    // 冰刺天降：冰锥成片自空砸落覆盖整个区域
     | 'iceshatter'   // 破冰爆震：冰面轰然炸裂，冰棱自中心向外环射 + 霜原闪光
     | 'firewall'     // 燎原火墙：火线自施法者一端沿射线烧到尽头 + 灼地焦痕 + 热浪扭曲
-    | 'bladesweep';  // 巨刃来回扫：一柄红刃沿整片命中面横扫两次，去程回程之间留空档
+    | 'bladesweep'   // 圆弧来回扫：一道 120° 红色圆弧挥斩绕云缨脚下圆心横扫命中面，去程回程各一次
+    | 'swordzone';   // 青莲剑阵：范围边框先钉住命中矩形，再放多道对角剑光穿阵连斩（谪仙醉斩）
 
 /**
  * 从区域格集合求包围盒；空集合返回 null。
@@ -623,10 +639,12 @@ export function computeSkillAreaBounds(
 const AREA_FX_KIND_MAP: Partial<Record<SkillFxKind, SkillAreaFxKind>> = {
     'ember-flare': 'firestorm',
     'liehuo-blaze': 'firewall',
-    // 踏火长驱的命中面是一整排格子，刀光必须由一张跨格巨刃来回扫，不能逐格各刻一道
+    // 踏火长驱的命中面是一整排格子，刀光必须由一张绕云缨足下的 120° 圆弧来回扫，不能逐格各刻一道
     'yunying-arc-slash': 'bladesweep',
     'storm-bolt': 'thunderstorm',
     'cage-bind': 'cage',
+    // 谪仙醉斩：剑阵边框把 2×3 命中区先亮给玩家，剑光再穿阵（类王者李白大招的"先看见范围"）
+    'libai-flurry': 'swordzone',
     'magic-array': 'runearray',
     'light-summon': 'runearray',
     'wukong-clone': 'runearray',

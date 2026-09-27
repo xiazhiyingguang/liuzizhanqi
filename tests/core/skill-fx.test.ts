@@ -46,6 +46,14 @@ describe('resolveSkillFx', () => {
         expect(isPerTargetFxKind(wheel.kind)).toBe(false);
     });
 
+    it('云缨天威·燎原百斩：落点格一记火焰旋斩，全场只出一次本体', () => {
+        const tianwei = resolveSkillFx('yunying_tianwei');
+        expect(tianwei.kind).toBe('liehuo-wheel');
+        expect(isImpactFxKind(tianwei.kind)).toBe(true);
+        // 旋斩是"落在哪一格"的落点特写：被斩中的每一格只补轻量印记，不各转一圈
+        expect(isPerTargetFxKind(tianwei.kind)).toBe(false);
+    });
+
     it('所有档案均带正数存活时长', () => {
         for (const profile of Object.values(SKILL_FX_PROFILES)) {
             expect(profile.durationMs).toBeGreaterThan(0);

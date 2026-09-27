@@ -1,3 +1,10 @@
+import { AVAILABLE_HERO_IDS, getHeroInfo } from './heroes';
+
+/**
+ * 已备好立绘的资产表。加进来就必须两个目录都有同名图——
+ * tests/heroes/hero-assets.test.ts 会逐个 existsSync 校验，指向空气的条目过不了测试。
+ * 醉枕刀、花弄影目前没图，所以不在此列（先补文件再加 ID）。
+ */
 export const HERO_ASSET_IDS = [
     'moran',
     'zhenxiao',
@@ -53,18 +60,30 @@ export interface HeroAsset {
 
 const HERO_ASSET_ID_SET = new Set<string>(HERO_ASSET_IDS);
 
-/** 英雄模板 ID 与图片资产文件名不一致时的映射（南风游隼等新英雄图沿用立绘师命名） */
+/** 模板 ID → 资产 ID 的别名（游隼/沉渊/戴尔的模板名与资产编号不同源）。只影响 resolveHeroTemplateId 的键，与文件名无关 */
 const TEMPLATE_ASSET_ALIASES: Record<string, HeroAssetId> = {
     youjun: 'yousun',
     chenyuan: 'zhenyue',
     dai: 'daier',
 };
 
-/** 图片文件名与模板 ID 不同的英雄（立绘按完整称号命名，模板 ID 只取前半） */
-const ASSET_FILE_NAMES: Partial<Record<HeroAssetId, string>> = {
-    jinghong: 'jinghongzhishui',
-    jinghua: 'jinghuashuiyue',
-};
+/**
+ * 图片文件名直接用游戏内显示名（长离.png、暗影猎手·夜枭.png）：
+ * 换立绘时按角色名丢文件即可，不用再去记模板 ID 与拼音文件名的对应关系。
+ * 只对得到真实模板的英雄取名——getHeroInfo 对未知 ID 返回"未知"，
+ * 若不加这层过滤，luna / yaozhan 这类退役资产会撞成同一个"未知.png"。
+ */
+const IMAGE_FILE_NAMES: Partial<Record<HeroAssetId, string>> = Object.fromEntries(
+    AVAILABLE_HERO_IDS.map(templateId => [
+        TEMPLATE_ASSET_ALIASES[templateId] ?? templateId,
+        getHeroInfo(templateId).name,
+    ] as const)
+);
+
+/** 资产 ID 对应的图片文件名（不含目录与扩展名） */
+export function getHeroImageFileName(assetId: HeroAssetId): string {
+    return IMAGE_FILE_NAMES[assetId] ?? assetId;
+}
 
 export const HERO_ASSETS: Record<HeroAssetId, HeroAsset> = Object.fromEntries(
     HERO_ASSET_IDS.map(heroId => [
@@ -73,8 +92,10 @@ export const HERO_ASSETS: Record<HeroAssetId, HeroAsset> = Object.fromEntries(
             avatar: '/others/full-body/shamozhinu.png',
             fullBody: '/others/full-body/shamozhinu.png',
         } : {
-            avatar: `/hero-images/avatars/${ASSET_FILE_NAMES[heroId] ?? heroId}.png`,
-            fullBody: `/hero-images/full-body/${ASSET_FILE_NAMES[heroId] ?? heroId}.png`,
+            // 存原文而非 percent-encoding：URL 要能直接当文件路径校验（tests/heroes/hero-assets.test.ts
+            // 用 existsSync 断言图不会凭空指向空气），发请求时浏览器自己会转义
+            avatar: `/hero-images/avatars/${getHeroImageFileName(heroId)}.png`,
+            fullBody: `/hero-images/full-body/${getHeroImageFileName(heroId)}.png`,
         },
     ])
 ) as Record<HeroAssetId, HeroAsset>;

@@ -152,92 +152,6 @@ describe('绯雪', () => {
         expect(splashTarget.currentHp).toBe(splashTarget.maxHp - 8);
     });
 
-    it('技能二可选目标覆盖周围3×3（含斜角），斜角敌人可以被打到', () => {
-        const state = makeGameState();
-        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
-        const diagonal = addHero(state, 'moran', 'player2', [1, 1]);
-        const straight = addHero(state, 'baize', 'player2', [2, 3]);
-        const outside = addHero(state, 'zhenxiao', 'player2', [0, 2]);
-
-        const positions = SkillSystem.getValidTargetPositions(caster, feixueSkill2);
-        const has = (row: number, col: number) =>
-            positions.some(([r, c]) => r === row && c === col);
-
-        expect(positions).toHaveLength(8);
-        expect(has(1, 1)).toBe(true);
-        expect(has(3, 3)).toBe(true);
-        expect(has(0, 2)).toBe(false);
-
-        const output = SkillSystem.executeSkill(caster, feixueSkill2, [[1, 1]], state);
-
-        expect(output.success).toBe(true);
-        expect(diagonal.currentHp).toBeLessThan(diagonal.maxHp);
-        expect(straight.currentHp).toBe(straight.maxHp);
-        expect(outside.currentHp).toBe(outside.maxHp);
-    });
-
-    it('技能二按寒天层数增伤、附加被动真实伤害、消费寒天并治疗', () => {
-        const state = makeGameState();
-        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
-        const target = addHero(state, 'moran', 'player2', [2, 3]);
-        const otherSource = addHero(state, 'hanjiangxue', 'player1', [0, 0]);
-        caster.currentHp = 30;
-        target.defense = 0.25;
-        DamageCalculator.applyHantianStacks(target, 1, otherSource.id, state);
-        DamageCalculator.applyHantianStacks(target, 1, caster.id, state);
-
-        const output = SkillSystem.executeSkill(caster, feixueSkill2, [[2, 3]], state);
-
-        // 普通段：(8 + 2x2) x 75% = 9；霜噬：floor(47 x 5%) x 2 = 4。
-        expect(output.damageDealt).toEqual([13]);
-        expect(target.currentHp).toBe(34);
-        expect(DamageCalculator.getHantianStackCount(target)).toBe(0);
-        expect(caster.currentHp).toBe(34);
-        expect(output.healingDone).toEqual([4]);
-        expect(state.battleStatistics?.[caster.id]).toMatchObject({
-            damageDealt: 13,
-            healingDone: 4,
-        });
-    });
-
-    it('技能二攻击冰冻目标必暴，按寒天回血并保留冰冻与寒天', () => {
-        const state = makeGameState();
-        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
-        const target = addHero(state, 'moran', 'player2', [2, 3]);
-        caster.currentHp = 30;
-        target.defense = 0.25;
-        EffectManager.addEffect(target, {
-            type: 'stun', name: '冰冻', duration: 1,
-            sourceHeroId: caster.id, description: '测试冰冻',
-        });
-        DamageCalculator.applyHantianStacks(target, 2, caster.id, state);
-
-        const output = SkillSystem.executeSkill(caster, feixueSkill2, [[2, 3]], state);
-
-        // 必暴普通段：floor(12 x 1.5 x 75%) = 13；霜噬真实伤害4。
-        expect(output.damageDealt).toEqual([17]);
-        expect(target.currentHp).toBe(30);
-        expect(EffectManager.hasEffect(target, '冰冻')).toBe(true);
-        expect(DamageCalculator.getHantianStackCount(target)).toBe(2);
-        expect(caster.currentHp).toBe(34);
-        expect(output.healingDone).toEqual([4]);
-        expect(state.battleStatistics?.[caster.id]?.healingDone).toBe(4);
-    });
-
-    it('致知三把霜噬从每层5%提升为每层10%', () => {
-        const state = makeGameState();
-        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
-        const target = addHero(state, 'moran', 'player2', [2, 3]);
-        caster.counters['talent_3'] = 1;
-        DamageCalculator.applyHantianStacks(target, 2, caster.id, state);
-
-        const output = SkillSystem.executeSkill(caster, feixueSkill2, [[2, 3]], state);
-
-        // 普通段12 + floor(47 x 10%) x 2 = 9点霜噬。
-        expect(output.damageDealt).toEqual([21]);
-        expect(target.currentHp).toBe(26);
-    });
-
     it('致知一在开局生效一次，使生命45提升到53', () => {
         const state = makeGameState();
         const caster = addHero(state, 'feixue', 'player1', [2, 2]);
@@ -304,5 +218,93 @@ describe('绯雪', () => {
 
         expect(EffectManager.hasEffect(earlierOnBoard, '冰冻')).toBe(true);
         expect(EffectManager.hasEffect(laterOnBoard, '冰冻')).toBe(false);
+    });
+
+    it('技能二「连枝」给友方挂上2回合连枝，且不能系在自己身上', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 1]);
+
+        expect(SkillSystem.executeSkill(caster, feixueSkill2, [[2, 2]], state).success).toBe(false);
+        const output = SkillSystem.executeSkill(caster, feixueSkill2, [[2, 1]], state);
+
+        expect(output.success).toBe(true);
+        expect(EffectManager.hasEffect(ally, '连枝')).toBe(true);
+        expect(ally.effects.find(e => e.name === '连枝')).toMatchObject({ duration: 2, sourceHeroId: caster.id });
+    });
+
+    it('连枝友方出手后绯雪追出6点，未连枝的友方不触发', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 1]);
+        const other = addHero(state, 'huifeng', 'player1', [1, 1]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 4]);
+        SkillSystem.executeSkill(caster, feixueSkill2, [[2, 1]], state);
+
+        const hpBefore = enemy.currentHp;
+        const hit = DamageCalculator.calculate(ally, enemy, 5, false);
+        DamageCalculator.asOneAttack(() => DamageCalculator.applyDamage(enemy, hit, ally, state));
+
+        expect(hpBefore - enemy.currentHp).toBe(hit.finalDamage + 6);
+
+        const untouched = addHero(state, 'liuli', 'player2', [3, 4]);
+        const otherHit = DamageCalculator.calculate(other, untouched, 5, false);
+        const otherBefore = untouched.currentHp;
+        DamageCalculator.asOneAttack(() => DamageCalculator.applyDamage(untouched, otherHit, other, state));
+        expect(otherBefore - untouched.currentHp).toBe(otherHit.finalDamage);
+    });
+
+    it('连枝追击不叠加触发：绯雪自己那一击不会再引出下一次追击', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 1]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 4]);
+        enemy.defense = 0;
+        caster.defense = 0;
+        SkillSystem.executeSkill(caster, feixueSkill2, [[2, 1]], state);
+
+        const hit = DamageCalculator.calculate(ally, enemy, 1, false);
+        DamageCalculator.asOneAttack(() => DamageCalculator.applyDamage(enemy, hit, ally, state));
+
+        // 友方1点 + 追击6点；若追击又触发一次6点，这里就会少算
+        expect(enemy.maxHp - enemy.currentHp).toBe(7);
+    });
+
+    it('连枝群攻时随机追一名被命中者', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0.99);
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
+        const ally = addHero(state, 'moran', 'player1', [2, 1]);
+        const first = addHero(state, 'baize', 'player2', [2, 4]);
+        const last = addHero(state, 'huifeng', 'player2', [3, 4]);
+        SkillSystem.executeSkill(caster, feixueSkill2, [[2, 1]], state);
+
+        DamageCalculator.asOneAttack(() => {
+            for (const target of [first, last]) {
+                const hit = DamageCalculator.calculate(ally, target, 5, false);
+                DamageCalculator.applyDamage(target, hit, ally, state);
+            }
+        });
+
+        expect(first.maxHp - first.currentHp).toBe(5);
+        expect(last.maxHp - last.currentHp).toBe(11);
+    });
+
+    it('连枝友方触发天威时，绯雪同步触发一次绝对零度', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'feixue', 'player1', [2, 2]);
+        const ally = addHero(state, 'guying', 'player1', [2, 1]);   // 孤影：击杀触发断雪
+        const doomed = addHero(state, 'baize', 'player2', [2, 4]);
+        const marked = addHero(state, 'moran', 'player2', [0, 0]);
+        SkillSystem.executeSkill(caster, feixueSkill2, [[2, 1]], state);
+        DamageCalculator.applyHantianStacks(marked, 1, caster.id, state);
+        doomed.currentHp = 1;
+
+        const hit = DamageCalculator.calculate(ally, doomed, 9, false, true);
+        DamageCalculator.asOneAttack(() => DamageCalculator.applyDamage(doomed, hit, ally, state));
+
+        expect(doomed.state).not.toBe(HeroState.ALIVE);
+        expect(EffectManager.hasEffect(ally, '断雪')).toBe(true);
+        expect(EffectManager.hasEffect(marked, '冰冻')).toBe(true);
     });
 });

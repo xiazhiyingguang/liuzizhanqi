@@ -1,8 +1,10 @@
+import { nextBattleLogId } from '../core/battle-log-id';
 import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState } from '../types/game';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { recordBattleDamage, recordBattleHealing, recordBattleKill } from '../core/battle-statistics';
 import { executeHuifengTianwei } from '../core/huifeng-marks';
+import { YOUJUN_KNIFE_DAMAGE, YOUJUN_KNIFE_MASK } from '../core/wind-blade';
 import {
     EXTENDED_HERO_IDS,
     EXTENDED_HERO_INFO,
@@ -65,9 +67,13 @@ function countWukongClonesOnBoard(wukongId: string, gameState: { board: (Hero | 
     return count;
 }
 
+/** 孙悟空的初始暴击率：不依赖灵犀就有 30%，之后每点灵犀再 +20%，封顶 100% */
+export const WUKONG_BASE_CRIT_RATE = 0.3;
+const WUKONG_LINGXI_CRIT_PER_STACK = 0.2;
+
 function getWukongCritRate(hero: Hero): number {
     const lingxi = hero.counters['灵犀'] ?? 0;
-    return Math.min(1, 0.2 + lingxi * 0.2);
+    return Math.min(1, WUKONG_BASE_CRIT_RATE + lingxi * WUKONG_LINGXI_CRIT_PER_STACK);
 }
 
 function syncWukongCritToSelfAndClones(wukong: Hero, gameState: { board: (Hero | null)[][] }): void {
@@ -153,7 +159,7 @@ export const moranPassive: PassiveSkill = {
             // 添加日志
             if (gameState.battleLog) {
                 const logEntry = {
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'system' as const,
                     player: hero.owner,
                     message: `${hero.name}的"为道"触发！获得额外行动机会${burstText}`,
@@ -230,7 +236,7 @@ export const zhenxiaoPassive: PassiveSkill = {
             // 添加日志
             if (gameState.battleLog) {
                 const logEntry = {
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'passive' as const,
                     player: hero.owner,
                     message: `${hero.name}反击${attacker.name}，造成${Math.floor(finalDamage)}点伤害，回复${healAmount}点生命`,
@@ -279,7 +285,7 @@ export const liuliPassive: PassiveSkill = {
             // 添加日志
             if (gameState.battleLog) {
                 const logEntry = {
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'passive' as const,
                     player: hero.owner,
                     message: `${hero.name}援护触发，获得1层禅定（当前${hero.counters['禅定']}层）`,
@@ -294,7 +300,7 @@ export const liuliPassive: PassiveSkill = {
 export const wukongPassive: PassiveSkill = {
     id: 'wukong_passive',
     name: '灵犀',
-    description: '每个分身阵亡，增加1点灵犀，提升暴击率',
+    description: '初始暴击率30%；每个分身阵亡增加1点灵犀，每点灵犀再提升20%暴击率（本体与现存分身共享，最高100%）',
     triggerOn: 'always',
     execute: () => {}
 };
@@ -343,7 +349,7 @@ export const hanjiangxueTianwei: TianweiSkill = {
         }
         if (alive.length > 0 && gameState.battleLog) {
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
                 message: `${hero.name}触发天威，对全部存活敌人附加1层寒天`,
@@ -372,7 +378,7 @@ export const xuanxiaoPassive: PassiveSkill = {
 export const changliPassive: PassiveSkill = {
     id: 'changli_passive',
     name: '长夜轮回',
-    description: '拥有足够暗夜星火时可以复生，最多复生3次',
+    description: '拥有一次复活机会：复活后生命为上一次的一半，并永久提升40%伤害',
     triggerOn: 'always',
     execute: () => {}
 };
@@ -406,7 +412,7 @@ export const moranTianwei: TianweiSkill = {
         // 添加日志
         if (gameState.battleLog) {
             const logEntry = {
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
                 message: `${hero.name}触发天威！获得额外行动机会`,
@@ -469,7 +475,7 @@ export const zhenxiaoTianwei: TianweiSkill = {
             // 添加日志
             if (gameState.battleLog) {
                 const logEntry = {
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'tianwei' as const,
                     player: hero.owner,
                     message: `${hero.name}天威吸取周围${enemyCount}个敌人，造成${totalDrain}点伤害，回复${totalHealed}点生命`,
@@ -490,7 +496,7 @@ export const wukongTianwei: TianweiSkill = {
         if (countWukongClonesOnBoard(hero.id, gameState) >= 3) {
             if (gameState.battleLog) {
                 gameState.battleLog.push({
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'tianwei' as const,
                     player: hero.owner,
                     message: `${hero.name}的天威未生效：场上分身已达上限（3个）`,
@@ -521,7 +527,7 @@ export const wukongTianwei: TianweiSkill = {
         if (!summonPos) {
             if (gameState.battleLog) {
                 gameState.battleLog.push({
-                    id: `log-${Date.now()}-${Math.random()}`,
+                    id: nextBattleLogId(),
                     type: 'tianwei' as const,
                     player: hero.owner,
                     message: `${hero.name}的天威未生效：周围没有空位召唤分身`,
@@ -541,7 +547,7 @@ export const wukongTianwei: TianweiSkill = {
 
         if (gameState.battleLog) {
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
                 message: `${hero.name}触发天威，召唤了一个分身`,
@@ -574,7 +580,7 @@ export const nightowlTianwei: TianweiSkill = {
 
         if (gameState.battleLog) {
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
                 message: `${hero.name}触发天威，进入潜行状态，下次攻击无视50%防御`,
@@ -642,7 +648,7 @@ export const mirrorTianwei: TianweiSkill = {
         
         if (gameState.battleLog) {
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
                 message: `${hero.name}触发天威，获得3层破镜之刃`,
@@ -667,7 +673,7 @@ export const mowenTianwei: TianweiSkill = {
 
         if (gameState.battleLog) {
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
                 message: `${hero.name}触发天威，回复${healed}点生命`,
@@ -677,38 +683,68 @@ export const mowenTianwei: TianweiSkill = {
     }
 };
 
+/** 孤影天威姿态名：技能一/二与图鉴、状态徽标共用这一个字符串 */
+export const GUYING_DUANXUE = '断雪';
+
 export const guyingTianwei: TianweiSkill = {
     id: 'guying_tianwei',
-    name: '天威',
-    description: '回收直线与对角线上的剑影，对沿途敌人造成伤害',
+    name: '断雪',
+    description: '进入「断雪」状态，持续两回合：技能一化为穿透斩，剑光贯穿整条路径上的所有敌人；技能二基础伤害提升到12；期间每次使用技能再获得1层寒星（上限仍是5层）',
+    execute: (hero: Hero, gameState: GameState) => {
+        EffectManager.removeEffectByName(hero, GUYING_DUANXUE);
+        EffectManager.addEffect(hero, {
+            type: 'buff',
+            name: GUYING_DUANXUE,
+            // 回合开始时统一递减，2 表示"本回合 + 下一回合"都在势内
+            duration: 2,
+            sourceHeroId: hero.id,
+            description: '技能一穿透斩、技能二基础伤害12，期间每次使用技能+1寒星'
+        });
+
+        if (gameState.battleLog) {
+            gameState.battleLog.push({
+                id: nextBattleLogId(),
+                type: 'tianwei' as const,
+                player: hero.owner,
+                message: `${hero.name}触发天威「断雪」，剑光断处不接两回合`,
+                timestamp: Date.now()
+            });
+        }
+    }
+};
+
+/**
+ * 游隼天威「归翎」：她把飞刀留在自己停留过的格子上（不摆上棋盘，只记账），
+ * 击杀时收回**与本尊同处一条直线或同一条对角线**的那些飞刀，
+ * 飞刀沿收回路径割过敌人，每处造成 4 点伤害；不在同一线上的飞刀继续留在原地等下一次。
+ */
+export const youjunTianwei: TianweiSkill = {
+    id: 'youjun_tianwei',
+    name: '归翎',
+    description: '收回与本尊同处直线或对角线上的所有飞刀，飞刀沿归途割过敌人，每处造成4点伤害',
     execute: (hero: Hero, gameState: GameState) => {
         if (!hero.position) return;
 
-        const mask = hero.counters['guying_sword_shadow_mask'] || 0;
+        let mask = hero.counters[YOUJUN_KNIFE_MASK] ?? 0;
         if (!mask) return;
 
         const [hr, hc] = hero.position;
-        let remainingMask = mask;
         let reclaimed = 0;
         let totalDamage = 0;
 
-        const getBit = (idx: number) => Math.pow(2, idx);
-        const hasBit = (m: number, b: number) => Math.floor(m / b) % 2 === 1;
-
         DamageCalculator.asOneAttack(() => {
             for (let idx = 0; idx < 36; idx++) {
-                const bit = getBit(idx);
-                if (!hasBit(remainingMask, bit)) continue;
+                const bit = Math.pow(2, idx);
+                if (Math.floor(mask / bit) % 2 === 0) continue;
 
                 const sr = Math.floor(idx / 6);
                 const sc = idx % 6;
-
                 const drRaw = hr - sr;
                 const dcRaw = hc - sc;
-                const isSameRow = sr === hr;
-                const isSameCol = sc === hc;
-                const isDiag = Math.abs(drRaw) === Math.abs(dcRaw) && drRaw !== 0;
-                if (!isSameRow && !isSameCol && !isDiag) continue;
+                const onRow = sr === hr;
+                const onCol = sc === hc;
+                const onDiagonal = Math.abs(drRaw) === Math.abs(dcRaw) && drRaw !== 0;
+                if (!onRow && !onCol && !onDiagonal) continue;
 
                 const stepR = drRaw === 0 ? 0 : (drRaw > 0 ? 1 : -1);
                 const stepC = dcRaw === 0 ? 0 : (dcRaw > 0 ? 1 : -1);
@@ -718,7 +754,7 @@ export const guyingTianwei: TianweiSkill = {
                 while (cr !== hr || cc !== hc) {
                     const target = gameState.board[cr][cc];
                     if (target && target.owner !== hero.owner && target.state === HeroState.ALIVE) {
-                        const damageResult = DamageCalculator.calculate(hero, target, 4, false);
+                        const damageResult = DamageCalculator.calculate(hero, target, YOUJUN_KNIFE_DAMAGE, false);
                         DamageCalculator.applyDamage(target, damageResult, hero, gameState, true);
                         totalDamage += damageResult.finalDamage;
                     }
@@ -726,19 +762,19 @@ export const guyingTianwei: TianweiSkill = {
                     cc += stepC;
                 }
 
-                remainingMask -= bit;
+                mask -= bit;
                 reclaimed++;
             }
         });
 
-        hero.counters['guying_sword_shadow_mask'] = remainingMask;
+        hero.counters[YOUJUN_KNIFE_MASK] = mask;
 
         if (reclaimed > 0 && gameState.battleLog) {
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
-                message: `${hero.name}触发天威，回收${reclaimed}道剑影，造成${totalDamage}点伤害`,
+                message: `${hero.name}触发天威「归翎」，收回${reclaimed}柄飞刀，造成${totalDamage}点伤害`,
                 timestamp: Date.now()
             });
         }
@@ -757,9 +793,11 @@ export const huifengTianwei: TianweiSkill = {
 export const changliTianwei: TianweiSkill = {
     id: 'changli_tianwei',
     name: '天威',
-    description: '立即获得4层暗夜星火',
+    description: '立即刷新一次被动（再获得一次复活机会）',
     execute: (hero) => {
-        EffectManager.addCounter(hero, '暗夜星火', 4);
+        // 不给星火而是把被动充满：清掉"已用掉一次复活"的记账，下一次致命伤仍会被挡下。
+        // 复活血量基准 changli_lastReviveHp 刻意保留，所以刷新后的这次只回到上一次的50%
+        hero.counters['changli_revives'] = 0;
     }
 };
 
@@ -848,7 +886,7 @@ export function createHero(
         changli: {
             name: '长离',
             class: '化识',
-            maxHp: 42,
+            maxHp: 48,
             moveRange: 2,
             baseAttack: 0,
             skill1Id: 'changli_skill1',
@@ -964,7 +1002,6 @@ export function createHero(
 
     if (hero.name === '孤影') {
         hero.counters['寒星'] = 0;
-        hero.counters['guying_sword_shadow_mask'] = 0;
     }
 
     if (hero.name === '回锋') {
@@ -1056,7 +1093,7 @@ export function getHeroInfo(heroId: string) {
         changli: {
             name: '长离',
             class: '化识',
-            description: '复活续航。生命42，移动力2'
+            description: '复活续航，单体爆发。生命48，移动力2'
         },
         mirror: {
             name: '镜',
@@ -1071,7 +1108,7 @@ export function getHeroInfo(heroId: string) {
         guying: {
             name: '孤影',
             class: '武曲',
-            description: '寒天冻结，剑影回收。生命41，移动力2'
+            description: '寒天冻结，断雪贯穿。生命41，移动力2'
         },
         hanjiangxue: {
             name: '寒江雪',

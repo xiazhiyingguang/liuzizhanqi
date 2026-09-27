@@ -65,6 +65,17 @@ export function noteAiDecision(decision: Omit<AiDecision, 'seq' | 'frame'>): voi
     });
 }
 
+/**
+ * 取走并清空已记录的 AI 决策点。
+ * 供无头平衡仿真做"技能为什么没放出来"的归因；UI 侧不消费这个列表，
+ * 帧与解说仍留在录像里，所以取走后回放界面照常可用。
+ */
+export function takeAiDecisions(): AiDecision[] {
+    const decisions = recorder.decisions;
+    recorder.decisions = [];
+    return decisions;
+}
+
 /** 清空当前录像（换局、单测、重新开局） */
 export function resetBattleReplay(): void {
     recorder = createEmptyRecorder();

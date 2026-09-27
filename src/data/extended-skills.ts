@@ -1,10 +1,11 @@
+import { nextBattleLogId } from '../core/battle-log-id';
 import { DamageCalculator } from '../core/damage-calculator';
 import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
 import { MovementSystem } from '../core/movement-system';
 import { WindLaneDirection, createWindLane, windLaneAxis, windLaneDirectionFromCode } from '../core/wind-lane';
 import { applyRage } from '../core/taunt';
-import { placeWindBlade, retractWindBladesOnCells, WIND_BLADE_DAMAGE, youjunDashMaxDistance } from '../core/wind-blade';
+import { markYoujunKnifeSpot, placeWindBlade, retractWindBladesOnCells, WIND_BLADE_DAMAGE, youjunDashMaxDistance } from '../core/wind-blade';
 import { BOARD_SIZE, BoardEffect, Effect, GameState, Hero, HeroState, Player, Position, Skill, SkillExecuteResult } from '../types/game';
 import {
     addHeroToOwnerList,
@@ -19,9 +20,11 @@ import {
     findJinghua,
     findMoonSeat,
     findWaterMoon,
+    findHnyShadow,
     getAllies,
     getEnemies,
     getDilanFeatherStacks,
+    getHnyFanPositions,
     getJinghongOuterRing,
     getJinghuaStacks,
     getLivingHeroes,
@@ -35,6 +38,7 @@ import {
     JINGHUA_STACK_MAX,
     resonanceCount,
     setBenchHeroHp,
+    syncPositionAnchoredEffects,
     YUNYING_VAMPIRE_EFFECT,
 } from './extended-heroes';
 import { createHero } from './heroes';
@@ -1206,8 +1210,8 @@ export const libaiSkill2: Skill = {
     },
 };
 
-/** 醉枕刀的醉意层数上限（技能、天威、踩友方交换等所有获取途径都受此约束） */
-export const ZUIYI_MAX = 6;
+/** 醉枕刀的醉意层数上限（技能、天威、踩友方交换等所有获取途径都受此约束）；与李太白同为4层 */
+export const ZUIYI_MAX = 4;
 
 /**
  * 计算醉枕刀醉掷寒锋的最优路径：≤7步从起点到终点，踩过敌人最多（不重复踩同一格子）。
@@ -1267,7 +1271,7 @@ export const zuizhendaoSkill1: Skill = {
     id: 'zuizhendao_skill1',
     name: '醉掷寒锋',
     type: 'damage',
-    description: '向前方三格掷出刀，7步内沿踩敌最多的路径拾刀；沿途敌人受6伤害，每穿过1个敌人获得1层醉意（醉意上限6层）',
+    description: '向前方三格掷出刀，7步内沿踩敌最多的路径拾刀；沿途敌人受4伤害，每穿过1个敌人获得1层醉意（醉意上限4层）',
     rangeType: 'line',
     range: 3,
     targetType: 'enemy',
@@ -1302,7 +1306,7 @@ export const zuizhendaoSkill1: Skill = {
         let gained = 0;
         DamageCalculator.asOneAttack(() => {
             for (const enemy of plan.enemies) {
-                const damage = damageOne(caster, enemy, 6, gameState);
+                const damage = damageOne(caster, enemy, 4, gameState);
                 output.damageDealt?.push(damage.finalDamage);
                 const stacks = EffectManager.getCounter(caster, '醉意');
                 if (stacks < ZUIYI_MAX) {
@@ -1312,7 +1316,7 @@ export const zuizhendaoSkill1: Skill = {
             }
         });
         output.log.push(gained > 0
-            ? `${caster.name}拾刀后获得${gained}层醉意${gained < plan.enemies.length ? '（已达上限6层）' : ''}`
+            ? `${caster.name}拾刀后获得${gained}层醉意${gained < plan.enemies.length ? `（已达上限${ZUIYI_MAX}层）` : ''}`
             : `${caster.name}拾刀路径上没有踩到敌人，未造成伤害`);
         return output;
     },
@@ -1325,7 +1329,7 @@ export const zuizhendaoSkill2: Skill = {
     id: 'zuizhendao_skill2',
     name: '醉影换位',
     type: 'damage',
-    description: '与任意距离的友方交换位置，随后对周围一圈敌方角色造成8点伤害，每命中1个获得1层醉意（醉意上限6层）',
+    description: '与任意距离的友方交换位置，随后对周围一圈敌方角色造成5点伤害，每命中1个获得1层醉意（醉意上限4层）',
     rangeType: '全场',
     range: 6,
     targetType: 'ally',
@@ -1355,7 +1359,7 @@ export const zuizhendaoSkill2: Skill = {
             .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
         DamageCalculator.asOneAttack(() => {
             for (const enemy of enemies) {
-                const damage = damageOne(caster, enemy, 8, gameState, true);
+                const damage = damageOne(caster, enemy, 5, gameState, true);
                 output.damageDealt?.push(damage.finalDamage);
                 const stacks = EffectManager.getCounter(caster, '醉意');
                 if (stacks < ZUIYI_MAX) {
@@ -1449,7 +1453,15 @@ export const feixueSkill1: Skill = {
             }${primary.passiveDamage > 0 ? `，其中霜噬附加${primary.passiveDamage}点真实伤害` : ''}`
         );
 
-        if (!shattered || !targetPosition) return output;
+        if (!shattered) {
+            // 未破冰的一刀是寒天的主要铺层入口：只挂层，不爆炸
+            if (target.state === HeroState.ALIVE) {
+                DamageCalculator.applyHantianStacks(target, 1, caster.id, gameState);
+                output.log.push(`${target.name}被附着1层寒天`);
+            }
+            return output;
+        }
+        if (!targetPosition) return output;
 
         // 特效管线：本次击碎了冰冻——上报「破冰爆震」专属形态与 3x3 爆震范围，
         // 供 executeSkill 包装层覆盖默认档案（fxVariant）并铺 AOE 整体特效（coveredPositions）
@@ -1489,57 +1501,34 @@ export const feixueSkill1: Skill = {
     },
 };
 
+export const LIANZHI_EFFECT = '连枝';
+/** 连枝持续回合：策划文案漏了数字，先按 2 回合定，调参只改这里 */
+export const LIANZHI_ROUNDS = 2;
+export const LIANZHI_PURSUE_DAMAGE = 6;
+
 export const feixueSkill2: Skill = {
     id: 'feixue_skill2',
-    name: '踏雪追命',
-    type: 'damage',
-    description: '对周围一格（含斜角）的一名敌人造成8点伤害，每层寒天额外增加2点、附加霜噬真实伤害并回复2点生命；未冰冻时消耗寒天，冰冻时必定暴击且保留寒天与冰冻',
-    rangeType: 'area',
-    range: 1,
-    areaSize: 3,
-    targetType: 'enemy',
+    name: '连枝',
+    type: 'special',
+    description: '与一名存活友方结为连枝，持续2回合：对方每次主动出手打到敌人后，绯雪随之追出6点伤害（群攻则随机追一名被命中者）；对方触发天威时，绯雪也触发一次绝对零度',
+    rangeType: 'single',
+    range: 99,
+    targetType: 'ally',
     targetCount: 1,
-    baseDamage: 8,
-    scalesWithAttack: false,
-    canCrit: true,
-    execute: (caster, targets, gameState) => {
-        const target = targets[0];
-        if (!target || target.state !== HeroState.ALIVE) return fail(`${caster.name}的技能2没有找到目标`);
+    execute: (caster, targets) => {
+        const ally = targets[0];
+        if (!ally || ally.state !== HeroState.ALIVE) return fail('请选择一名存活友方');
+        if (ally.id === caster.id) return fail('连枝要系在别人身上');
 
-        const frozen = EffectManager.hasEffect(target, '冰冻');
-        const hantianStacks = DamageCalculator.getHantianStackCount(target);
-        const hit = dealFeixueSkillDamage(
-            caster,
-            target,
-            8 + hantianStacks * 2,
-            gameState,
-            { forceCrit: frozen }
-        );
-
-        const output = result();
-        output.damageDealt?.push(hit.damage.finalDamage);
-        output.log.push(
-            `${caster.name}使用踏雪追命对${target.name}造成${hit.damage.finalDamage}点伤害${
-                hit.damage.isCrit ? '（暴击）' : ''
-            }${hit.passiveDamage > 0 ? `，其中霜噬附加${hit.passiveDamage}点真实伤害` : ''}`
-        );
-
-        if (hantianStacks > 0) {
-            const consumed = frozen ? 0 : DamageCalculator.consumeHantianStacks(target);
-            const healed = caster.state === HeroState.ALIVE
-                ? DamageCalculator.applyHeal(caster, hantianStacks * 2, gameState, caster)
-                : 0;
-            output.healingDone?.push(healed);
-            output.log.push(
-                frozen
-                    ? `${caster.name}借${hantianStacks}层寒天恢复${healed}点生命，${target.name}的冰冻与寒天被保留`
-                    : `${caster.name}消耗${consumed}层寒天，恢复${healed}点生命`
-            );
-        } else if (frozen) {
-            output.log.push(`${target.name}的冰冻与寒天被保留`);
-        }
-
-        return output;
+        EffectManager.removeEffectByName(ally, LIANZHI_EFFECT);
+        EffectManager.addEffect(ally, {
+            type: 'buff',
+            name: LIANZHI_EFFECT,
+            duration: LIANZHI_ROUNDS,
+            sourceHeroId: caster.id,
+            description: '绯雪与之连枝：每次主动出手后被追加一次6点伤害，触发天威时绯雪同步触发',
+        });
+        return result([`${caster.name}与${ally.name}结为连枝，霜影随身`]);
     },
 };
 
@@ -1935,6 +1924,9 @@ export const nanfengSkill2: Skill = {
 /** 上官婉儿毛笔寿命：最多朝婉儿移动的次数 */
 export const SHANGGUAN_BRUSH_LIFETIME = 3;
 
+/** 上官婉儿毛笔落下/经过格子的固定伤害（策划案 2026-09 上调为 9） */
+export const SHANGGUAN_BRUSH_DAMAGE = 9;
+
 /** 查找指定格子上的毛笔（上官婉儿的棋盘效果） */
 export function findBrushAt(gameState: GameState, row: number, col: number): BoardEffect | undefined {
     return (gameState.boardEffects ?? []).find(
@@ -2132,14 +2124,14 @@ export function hasShangguanDashOption(
 /**
  * 上官婉儿技能1：落笔
  * 在四方向之一、距离1~3格处落下毛笔（允许落在敌方英雄身上，落笔瞬间对其造成
- * 6点固定伤害）；毛笔随后每回合朝婉儿移动1格（最多移动3次），经过/落点处的
- * 敌人受到6点固定伤害，抵达婉儿或寿命耗尽时消失。
+ * 9点固定伤害）；毛笔落成的当回合不推进，此后每次婉儿行动结束朝她移动1格
+ * （最多移动3次），经过/落点处的敌人受到9点固定伤害，抵达婉儿或寿命耗尽时消失。
  */
 export const shangguanSkill1: Skill = {
     id: 'shangguan_skill1',
     name: '落笔',
     type: 'special',
-    description: '在四方向之一、距离1~3格处落下毛笔（可落在敌人身上并立即造成6点固定伤害）；毛笔每回合朝自己移动1格（最多3次），经过的敌人受到6点固定伤害。',
+    description: '在四方向之一、距离1~3格处落下毛笔（可落在敌人身上并立即造成9点固定伤害）；毛笔落成当回合不移动，之后每次婉儿行动结束朝自己移动1格（最多3次），经过的敌人受到9点固定伤害。',
     rangeType: 'line',
     range: 3,
     targetType: 'any',
@@ -2163,12 +2155,12 @@ export const shangguanSkill1: Skill = {
         }
 
         const output = result();
-        // 落在敌方英雄身上：立即造成6点固定伤害（不可闪避）
+        // 落在敌方英雄身上：立即造成9点固定伤害（不可闪避）
         if (occupant && occupant.owner !== caster.owner && occupant.state === HeroState.ALIVE) {
             const dmg = DamageCalculator.calculate(
                 caster,
                 occupant,
-                6,
+                SHANGGUAN_BRUSH_DAMAGE,
                 false,
                 false,
                 { fixedDamage: true, canCrit: false }
@@ -2186,6 +2178,8 @@ export const shangguanSkill1: Skill = {
             owner: caster.owner,
             sourceHeroId: caster.id,
             duration: SHANGGUAN_BRUSH_LIFETIME,
+            // 落成的当回合（婉儿这次行动结束）不推进，下一回合起才开始朝她移动
+            placedAtRound: gameState.roundNumber,
         });
         output.log.push(`${caster.name}在(${r},${c})落下一支毛笔`);
         return output;
@@ -2305,6 +2299,8 @@ export const youjunSkill1: Skill = {
         gameState.board[start[0]][start[1]] = null;
         gameState.board[landing[0]][landing[1]] = caster;
         caster.position = landing;
+        // 疾掠的落点同样算"停留过的位置"，天威归翎会从这里收回飞刀
+        markYoujunKnifeSpot(caster);
         DamageCalculator.applyDilanMovementDamage(caster, dashDistance, gameState);
         DamageCalculator.applyBleedMovementDamage(caster, dashDistance, gameState);
 
@@ -2672,7 +2668,7 @@ export function triggerXubaiEntrance(hero: Hero, gameState: GameState): void {
     if (names.length === 0) return;
 
     gameState.battleLog?.push({
-        id: `log-${Date.now()}-${Math.random()}`,
+        id: nextBattleLogId(),
         type: 'passive',
         player: hero.owner,
         message: `${hero.name}初至战场，抚育周围友军：${names.join('、')}`,
@@ -2901,7 +2897,7 @@ export function resolveLingxiEcho1(caster: Hero, gameState: GameState): void {
     }
 
     gameState.battleLog?.push({
-        id: `log-${Date.now()}-${Math.random()}`,
+        id: nextBattleLogId(),
         type: 'passive',
         player: caster.owner,
         message: `${caster.name}的海螺回响再起，命中${enemies.length}名敌人并施加潮汐`,
@@ -3119,6 +3115,7 @@ const YUNYING_SPARK_DAMAGE = 3;           // 技能一：每名敌人 3 点
 const YUNYING_SPARK_PER_STACK = 2;        // 技能一：目标每有 1 层祥瑞，这一击再 +2 点
 const YUNYING_CHARGE_DAMAGE = 6;          // 技能二：正前方每格 6 点
 const YUNYING_VAMPIRE_PER_TARGET = 0.2;   // 每个命中敌人为下一次攻击提供 20% 吸血
+const YUNYING_TIANWEI_DAMAGE = 4;         // 天威·燎原百斩：路径与落点火圈每处 4 点
 
 function yunyingDirectionStep(dirCode: number): [number, number] {
     if (dirCode === 0) return [-1, 0];
@@ -3195,6 +3192,218 @@ export function castLiehuoBurn(caster: Hero, gameState: GameState, dirCode: numb
         output.log.push(`${caster.name}的烈火燎原只烧过一片空处`);
     }
     return output;
+}
+
+/* ---------------- 云缨：天威·燎原百斩 ---------------- */
+
+/**
+ * 燎原百斩的可选落点：与她同行、同列或同处一条对角线上的空格，距离不限。
+ * 共线判据与游隼「归翎」一致（斜线即 |Δ行| == |Δ列|），不另立一套口径。
+ */
+export function getYunyingTianweiLandings(hero: Hero, gameState: Pick<GameState, 'board'>): Position[] {
+    if (!hero.position) return [];
+    const [row, col] = hero.position;
+    const landings: Position[] = [];
+    for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            if (r === row && c === col) continue;
+            const onRow = r === row;
+            const onCol = c === col;
+            const onDiagonal = Math.abs(r - row) === Math.abs(c - col);
+            if (!onRow && !onCol && !onDiagonal) continue;
+            if (gameState.board[r]?.[c]) continue;
+            landings.push([r, c]);
+        }
+    }
+    return landings;
+}
+
+/** 从她原位置到落点这条直线上的格子：不含起点、含落点。 */
+function yunyingSlashPathCells(from: Position, landing: Position): Position[] {
+    const stepR = Math.sign(landing[0] - from[0]);
+    const stepC = Math.sign(landing[1] - from[1]);
+    const cells: Position[] = [];
+    let row = from[0] + stepR;
+    let col = from[1] + stepC;
+    while (row !== landing[0] || col !== landing[1]) {
+        cells.push([row, col]);
+        row += stepR;
+        col += stepC;
+    }
+    cells.push([landing[0], landing[1]]);
+    return cells;
+}
+
+function pushYunyingTianweiLog(gameState: GameState, player: Player, message: string): void {
+    gameState.battleLog?.push({
+        id: nextBattleLogId(),
+        type: 'tianwei',
+        player,
+        message,
+        timestamp: Date.now(),
+    });
+}
+
+/**
+ * 天威「燎原百斩」结算：先沿她与落点这条直线逐格斩过（每处4点），
+ * 再在落点炸开3×3火圈（每处4点），最后人才落到那一格。
+ * 与烈火燎原同一口径：整批命中不再叠加祥瑞（__liehuo_resolving）。
+ */
+export function castLiaoyuanHundredSlash(
+    caster: Hero,
+    gameState: GameState,
+    landing: Position
+): SkillExecuteResult {
+    if (!caster.position) return fail('云缨尚未部署');
+    // 这一记自己的斩击把人打死会再走一遍天威分发：不挡住就会用陈旧的起点二次落位
+    if ((caster.counters['__yunying_tianwei_resolving'] ?? 0) === 1) return fail('燎原百斩正在斩击之中');
+    if (!getYunyingTianweiLandings(caster, gameState).some(([r, c]) => r === landing[0] && c === landing[1])) {
+        return fail('燎原百斩只能落在与她同行、同列或同对角线的空格');
+    }
+
+    const output = result();
+    const origin: Position = [...caster.position] as Position;
+    const slashCells = (cells: Position[]): { hits: number; damage: number; impact: Position[] } => {
+        let hits = 0;
+        let damage = 0;
+        const impact: Position[] = [];
+        DamageCalculator.asOneAttack(() => {
+            for (const [row, col] of cells) {
+                const target = gameState.board[row]?.[col];
+                if (!target || target.owner === caster.owner || target.state !== HeroState.ALIVE) continue;
+                const hit = damageOne(caster, target, YUNYING_TIANWEI_DAMAGE, gameState, true);
+                output.damageDealt?.push(hit.finalDamage);
+                if (target.position) impact.push([...target.position] as Position);
+                hits += 1;
+                damage += hit.finalDamage;
+            }
+        });
+        return { hits, damage, impact };
+    };
+
+    caster.counters['__yunying_tianwei_resolving'] = 1;
+    // 燎原烧死人时天威就嵌在燎原自己的挂起标记里结算，收尾要还原原值而非直接删除：
+    // 删了会让燎原剩下的命中重新开始叠祥瑞
+    const resolvingBefore = caster.counters['__liehuo_resolving'];
+    caster.counters['__liehuo_resolving'] = 1;
+    try {
+        const path = slashCells(yunyingSlashPathCells(origin, landing));
+        const blast = slashCells(MovementSystem.getAreaPositions(landing, 3));
+        const hits = path.hits + blast.hits;
+
+        if (caster.state === HeroState.ALIVE && !gameState.board[landing[0]][landing[1]]) {
+            gameState.board[origin[0]][origin[1]] = null;
+            gameState.board[landing[0]][landing[1]] = caster;
+            caster.position = landing;
+            syncPositionAnchoredEffects(gameState);
+            // 直线穿敌，普通寻路走不通：与惊鸿绕后同一口径手动落位后逐格补回移动连带结算
+            const steps = Math.max(Math.abs(landing[0] - origin[0]), Math.abs(landing[1] - origin[1]));
+            DamageCalculator.applyDilanMovementDamage(caster, steps, gameState);
+            DamageCalculator.applyBleedMovementDamage(caster, steps, gameState);
+        }
+
+        pushYunyingTianweiLog(gameState, caster.owner, hits > 0
+            ? `${caster.name}天威·燎原百斩，枪光扫过${hits}处造成${path.damage + blast.damage}点伤害，人落到(${landing[0] + 1},${landing[1] + 1})`
+            : `${caster.name}天威·燎原百斩斩向空处，只在那一格留下火线`);
+        requestSkillFx({
+            skillId: 'yunying_tianwei',
+            owner: caster.owner,
+            fromPos: origin,
+            targetPos: landing,
+            impactPositions: [...path.impact, ...blast.impact],
+        });
+    } finally {
+        if (resolvingBefore === undefined) delete caster.counters['__liehuo_resolving'];
+        else caster.counters['__liehuo_resolving'] = resolvingBefore;
+        delete caster.counters['__yunying_tianwei_resolving'];
+    }
+    return output;
+}
+
+/**
+ * 天威与燎原的排队标记：`pendingBoardAction` 一次只存得下一个挂起，
+ * 而策划口径是"先天威、后燎原"，所以谁在等谁要各记一笔账。
+ */
+const LIEHUO_QUEUED_KEY = '__yunying_liehuo_queued';
+const TIANWEI_QUEUED_KEY = '__yunying_tianwei_queued';
+
+function takeYunyingQueuedPick(hero: Hero, key: string): boolean {
+    if (hero.counters[key] !== 1) return false;
+    delete hero.counters[key];
+    return true;
+}
+
+/** 她的烈火燎原排在天威之后：取走这次排队，由 game-store 在天威斩完后补挂方向选择 */
+export function takeYunyingQueuedLiehuo(hero: Hero): boolean {
+    return takeYunyingQueuedPick(hero, LIEHUO_QUEUED_KEY);
+}
+
+/** 她的天威排在燎原那次燃烧之后：取走这次排队，由 game-store 在烧完后补挂落点选择 */
+export function takeYunyingQueuedTianwei(hero: Hero): boolean {
+    return takeYunyingQueuedPick(hero, TIANWEI_QUEUED_KEY);
+}
+
+/** 引燃撞上她自己挂起的天威：这次燎原记到排队账上，等天威斩完再补挂方向选择 */
+export function queueYunyingLiehuoBehindTianwei(attacker: Hero): void {
+    attacker.counters[LIEHUO_QUEUED_KEY] = 1;
+}
+
+/**
+ * 自动挑选落点：直线与火圈合计斩中人数最多者，同分取更近的那格
+ * （与南风天威"方向不可选择"同一口径）。
+ * 玩家手点是主路径，这里只服务电脑与"行动收尾时她始终没点"的兜底放行。
+ */
+export function pickYunyingTianweiLanding(hero: Hero, gameState: GameState): Position | null {
+    if (hero.state !== HeroState.ALIVE || !hero.position) return null;
+    const landings = getYunyingTianweiLandings(hero, gameState);
+    if (landings.length === 0) return null;
+
+    const origin = hero.position;
+    let best: Position | null = null;
+    let bestScore = 0;
+    let bestSteps = BOARD_SIZE * 2;
+    for (const landing of landings) {
+        const struck = new Set<string>();
+        for (const [row, col] of [...yunyingSlashPathCells(origin, landing),
+            ...MovementSystem.getAreaPositions(landing, 3)]) {
+            const target = gameState.board[row]?.[col];
+            if (target && target.owner !== hero.owner && target.state === HeroState.ALIVE) {
+                struck.add(`${row},${col}`);
+            }
+        }
+        const steps = Math.max(Math.abs(landing[0] - origin[0]), Math.abs(landing[1] - origin[1]));
+        if (struck.size > bestScore || (struck.size === bestScore && struck.size > 0 && steps < bestSteps)) {
+            best = landing;
+            bestScore = struck.size;
+            bestSteps = steps;
+        }
+    }
+    return bestScore > 0 ? best : null;
+}
+
+/**
+ * 击杀触发的天威入口：挂起玩家手点落点，返回是否真的挂上了（调用方据此决定是否扣住行动）。
+ * 没有合法落点（共线格被占满）时沿用旧口径——不斩不位移，直接放行，绝不留下无人可解的挂起。
+ */
+export function requestYunyingTianweiLanding(hero: Hero, gameState: GameState): boolean {
+    if (hero.state !== HeroState.ALIVE || !hero.position) return false;
+    const pending = gameState.pendingBoardAction;
+    const ownLiehuo = pending?.type === 'yunying-liehuo' && pending.heroId === hero.id;
+    if (pending && !ownLiehuo) return false;
+    if (getYunyingTianweiLandings(hero, gameState).length === 0) return false;
+    if (ownLiehuo) {
+        if (hero.counters['__liehuo_resolving'] === 1) {
+            // 正嵌在这一次燎原的批量命中里结算：挂起槽要等 game-store 收尾才空出来，先记下排队
+            hero.counters[TIANWEI_QUEUED_KEY] = 1;
+            return false;
+        }
+        // 先天威后燎原：天威夺下挂起槽，刚引燃的燎原回炉排队，两者都不会被对方覆盖掉
+        hero.counters[LIEHUO_QUEUED_KEY] = 1;
+    }
+    gameState.pendingBoardAction = { type: 'yunying-tianwei', heroId: hero.id };
+    pushYunyingTianweiLog(gameState, hero.owner,
+        `${hero.name}触发天威·燎原百斩：请选择枪光斩向的落点（与她同行、同列或同对角线的空格）`);
+    return true;
 }
 
 export const yunyingSkill1: Skill = {
@@ -3435,7 +3644,7 @@ const JINGHUA_ENTRANCE_DAMAGE = 5;
 
 function pushJinghuaLog(gameState: GameState, player: Player, message: string): void {
     gameState.battleLog.push({
-        id: `log-${Date.now()}-${Math.random()}`,
+        id: nextBattleLogId(),
         timestamp: Date.now(),
         type: 'passive',
         player,
@@ -3629,6 +3838,19 @@ export function jinghuaMoonSeatReturn(
     jinghuaEntranceStrike(jinghua, gameState);
 }
 
+/**
+ * 踏座者的行动结束时兑现月座：镜花归场、踏座者让位、登场即照一击。
+ * 收口在 GameEngine.endHeroAction，所以普攻/技能/直接结束行动三条路都走得到。
+ */
+export function settleJinghuaSeatReturn(hero: Hero, gameState: GameState): boolean {
+    if (hero.counters['__jinghua_seat_return_pending'] !== 1) return false;
+    delete hero.counters['__jinghua_seat_return_pending'];
+    const jinghua = findJinghua(gameState, hero.owner);
+    if (!jinghua) return false;
+    jinghuaMoonSeatReturn(jinghua, hero, gameState);
+    return true;
+}
+
 /** 回合初结算：三回合将满仍未被踏响的月座自动归位（在通用 duration 衰减移除它之前抢一步） */
 export function tickJinghuaMoonSeats(gameState: GameState): void {
     for (const seat of (gameState.boardEffects ?? []).filter(effect => effect.type === 'moon-seat')) {
@@ -3680,8 +3902,14 @@ export function resolveJinghuaSwapMove(
             // 也绝不允许把占格的敌人挤开或把镜花硬塞进旁边格子
             const occupant = gameState.board[seat.position[0]][seat.position[1]];
             if (occupant && occupant !== mover) return null;
+            // 已经有人把这张座踩响在排队了：再让第二人踏一次只会空转，白扔一次移动
+            const seatClaimed = [...gameState.player1Heroes, ...gameState.player2Heroes]
+                .some(hero => hero.counters['__jinghua_seat_return_pending'] === 1);
+            if (seatClaimed) return null;
             lockSwap();
-            jinghuaMoonSeatReturn(jinghua, mover, gameState);
+            // 不当场归场：踏座者这一手还没打完，立刻让位+登场会吃掉他剩下的行动。
+            // 只记下"此人已把月座踩响"，等他的行动结束再兑现（见 settleJinghuaSeatReturn）。
+            mover.counters['__jinghua_seat_return_pending'] = 1;
             return 'moonseat';
         }
         return null;
@@ -3871,6 +4099,260 @@ export const jinghuaPassiveInfo = {
     description: '友方每次移动都可以不消耗移动力选择与镜花·水月或其「水月」交换位置：每次交换为镜花叠1层镜影（上限5层）。镜影：每层提升10%闪避与10%攻击',
 };
 
+// ============================================================================
+// 花弄影：身影互召，行动末影子重演这一击
+// ============================================================================
+
+const HNY_FAN_DAMAGE = 6;       // 技能1「花间辞」扇形三格
+const HNY_LAND_DAMAGE = 8;      // 技能2「弄影」落点周圈斩
+const HNY_REPLAY_FAN = 3;       // 重演·花间辞：影子在影格同方向再挥扇形
+const HNY_REPLAY_LAND = 4;      // 重演·弄影：影子在自身周围补一圈
+const HNY_TIANWEI_RATIO = 0.7;  // 天威追加重演的折减
+
+function pushHnyLog(gameState: GameState, player: Player, message: string): void {
+    gameState.battleLog?.push({
+        id: nextBattleLogId(),
+        type: 'skill',
+        player,
+        message,
+        timestamp: Date.now(),
+    });
+}
+
+function hnyEnemiesInCells(cells: Position[], gameState: GameState, caster: Hero): Hero[] {
+    return cells
+        .map(([row, col]) => gameState.board[row]?.[col])
+        .filter((unit): unit is Hero =>
+            !!unit && unit.owner !== caster.owner && unit.state === HeroState.ALIVE);
+}
+
+/** 中心的正交四格（弄影的落点斩与影子的周圈重演共用） */
+function hnyRingCells(center: Position): Position[] {
+    const [row, col] = center;
+    return ([[row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]] as Position[])
+        .filter(([r, c]) => r >= 0 && r < 6 && c >= 0 && c < 6);
+}
+
+/**
+ * 影子重演的形态：花间辞→影格沿同方向再挥扇形；其余（弄影）→影格环身周圈斩。
+ * 结算与 AI 估值共用这一份定义，避免两边对"重演打哪几格"各算各的。
+ */
+export function getHnyReplayForm(
+    shadowPos: Position, lastAttack: number, lastDir: number
+): { cells: Position[]; damage: number } {
+    const fanForm = lastAttack === 1 && lastDir >= 0;
+    return {
+        cells: fanForm ? getHnyFanPositions(shadowPos, lastDir) : hnyRingCells(shadowPos),
+        damage: fanForm ? HNY_REPLAY_FAN : HNY_REPLAY_LAND,
+    };
+}
+
+/** 由点击的相邻格推导挥斩方向（0上1下2左3右）；点击不是正交邻格时返回 null */
+function hnyDirFromClick(from: Position, clicked: Position | null): number | null {
+    if (!clicked) return null;
+    const dr = clicked[0] - from[0];
+    const dc = clicked[1] - from[1];
+    if (dr === 0 && dc === 0) return null;
+    if (Math.abs(dr) + Math.abs(dc) !== 1) return null;
+    return dr === -1 ? 0 : dr === 1 ? 1 : dc === -1 ? 2 : 3;
+}
+
+/**
+ * 放置/刷新影子：场上至多一朵。duration 2 = 跨过下一整轮，
+ * 在「再下一轮开始」时才被通用衰减抹掉——正好覆盖她下一次行动结束时的重演。
+ */
+function placeHnyShadow(hanying: Hero, gameState: GameState, cell: Position): void {
+    const effects = (gameState.boardEffects ?? []).filter(
+        effect => !(effect.type === 'shadow-mark' && effect.owner === hanying.owner)
+    );
+    effects.push({
+        id: `shadow-mark-${hanying.id}-${Date.now()}`,
+        type: 'shadow-mark',
+        position: [...cell] as Position,
+        owner: hanying.owner,
+        sourceHeroId: hanying.id,
+        duration: 2,
+    });
+    gameState.boardEffects = effects;
+}
+
+/**
+ * 影子重演她最后一次攻击动作：
+ * 花间辞→影子在影格沿同方向再挥一记扇形；弄影→影子环身补一圈斩。
+ * 重演算她的攻击（吃增伤/吸血/和声），但不产影、不再触发天威追加（in_replay 守卫）。
+ */
+function performHnyReplay(hanying: Hero, gameState: GameState, multiplier: number): void {
+    const shadow = findHnyShadow(gameState, hanying.owner);
+    const lastAttack = hanying.counters['__hny_last_attack'] ?? 0;
+    if (!shadow || lastAttack <= 0) return;
+
+    const dirCode = hanying.counters['__hny_last_dir'] ?? -1;
+    const form = getHnyReplayForm(shadow.position, lastAttack, dirCode);
+    const damage = Math.max(1, Math.round(form.damage * multiplier));
+    const targets = hnyEnemiesInCells(form.cells, gameState, hanying);
+
+    hanying.counters['__hny_in_replay'] = 1;
+    try {
+        for (const target of targets) {
+            if (target.state !== HeroState.ALIVE) continue;
+            damageOne(hanying, target, damage, gameState, true);
+        }
+    } finally {
+        hanying.counters['__hny_in_replay'] = 0;
+    }
+
+    const fanForm = lastAttack === 1 && dirCode >= 0;
+    const formName = fanForm ? '花间辞' : '周圈一斩';
+    if (targets.length === 0) {
+        pushHnyLog(gameState, hanying.owner, `${hanying.name}的影子举起刀，只斩了个空`);
+    } else {
+        pushHnyLog(gameState, hanying.owner,
+            `${hanying.name}的影子在月下落${formName}，${targets.length}名敌人各受${damage}点`);
+    }
+    requestSkillFx({
+        skillId: 'huanongying_replay',
+        owner: hanying.owner,
+        fromPos: [...shadow.position] as Position,
+        targetPos: [...shadow.position] as Position,
+        impactPositions: form.cells.filter(([r, c]) => gameState.board[r]?.[c]),
+    });
+}
+
+/** 被动「弄影」重演段：她行动结束时，影子重演本动作的最后一击（随后消耗重演额度） */
+export function resolveHnyReplay(hero: Hero, gameState: GameState): void {
+    if (hero.passiveId !== 'huanongying_passive') return;
+    if (hero.state !== HeroState.ALIVE || !hero.position) return;
+    if ((hero.counters['__hny_last_attack'] ?? 0) <= 0) return;
+    performHnyReplay(hero, gameState, 1);
+    hero.counters['__hny_last_attack'] = 0;
+    hero.counters['__hny_last_dir'] = -1;
+}
+
+/** 天威「花谢影不落」：她击杀时立刻追加一次70%重演；重演中的击杀不再连锁 */
+export function huanongyingTianweiExecute(hero: Hero, gameState: GameState): void {
+    if (hero.state !== HeroState.ALIVE) return;
+    if ((hero.counters['__hny_in_replay'] ?? 0) === 1) return;
+    if ((hero.counters['__hny_last_attack'] ?? 0) <= 0) return;
+    if (!findHnyShadow(gameState, hero.owner)) return;
+    pushHnyLog(gameState, hero.owner, `${hero.name}天威·花谢影不落，影子抢在行动末之前再舞了一回`);
+    performHnyReplay(hero, gameState, HNY_TIANWEI_RATIO);
+}
+
+/** 花弄影阵亡/离场时抹掉她的影子，不留无主残墨 */
+export function purgeHnyShadow(hero: Hero, gameState: GameState): void {
+    if (hero.passiveId !== 'huanongying_passive') return;
+    const before = (gameState.boardEffects ?? []).length;
+    gameState.boardEffects = (gameState.boardEffects ?? []).filter(
+        effect => !(effect.type === 'shadow-mark' && effect.sourceHeroId === hero.id)
+    );
+    if ((gameState.boardEffects?.length ?? 0) !== before) {
+        pushHnyLog(gameState, hero.owner, `${hero.name}身陨，地上的影子跟着淡去了`);
+    }
+}
+
+/** 技能1「花间辞」：扇形三格挥斩6点，把影子甩到最后一个被斩中的格子 */
+export const huanongyingSkill1: Skill = {
+    id: 'huanongying_skill1',
+    name: '花间辞',
+    type: 'damage',
+    description: '向身前锋形三格（左前/正前/右前）挥斩6点，并把影子甩到最后一个被斩中的格子（全部落空则落在正前格）；影子存续两回合，行动末影子会沿同一方向在影格再挥一记扇形（3点）',
+    rangeType: 'cross',
+    range: 1,
+    targetType: 'any',
+    targetCount: 'all',
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('花弄影没有立足之地');
+        const stagedDir = caster.counters['__hny_dir'];
+        const dirCode = stagedDir !== undefined && stagedDir >= 0
+            ? stagedDir
+            : hnyDirFromClick(caster.position, encodedTarget(caster));
+        if (dirCode === null) return fail('请点击她身旁的方向格决定挥斩朝向');
+
+        const fanCells = getHnyFanPositions(caster.position, dirCode);
+        const enemies = hnyEnemiesInCells(fanCells, gameState, caster);
+        // 影子落点：扫描序里最后一个被斩中的格子；全空则正前格（扇形索引1）
+        const shadowCell = enemies.length > 0
+            ? (fanCells.filter(cell =>
+                enemies.some(enemy => enemy.position &&
+                    enemy.position[0] === cell[0] && enemy.position[1] === cell[1]))
+                .pop() ?? fanCells[1] ?? fanCells[0])
+            : fanCells[1] ?? fanCells[0];
+        if (!shadowCell) return fail('身前没有格子可以落影');
+
+        const output = result();
+        caster.counters['__hny_last_attack'] = 1;
+        caster.counters['__hny_last_dir'] = dirCode;
+        placeHnyShadow(caster, gameState, shadowCell);
+
+        for (const enemy of enemies) {
+            if (enemy.state !== HeroState.ALIVE) continue;
+            damageOne(caster, enemy, HNY_FAN_DAMAGE, gameState, true);
+        }
+        if (enemies.length === 0) {
+            output.log.push(`${caster.name}一记花间辞斩向空处，影子悄悄落到${shadowCell[0] + 1}行${shadowCell[1] + 1}列`);
+        } else {
+            output.log.push(`${caster.name}花间辞扇形挥斩，${enemies.length}名敌人各受${HNY_FAN_DAMAGE}点，影子甩向敌阵`);
+        }
+        output.fxCoveredPositions = fanCells;
+        return output;
+    },
+};
+
+/** 技能2「弄影」：与影子互换位置（位移），落地瞬间斩击周身正交敌人8点 */
+export const huanongyingSkill2: Skill = {
+    id: 'huanongying_skill2',
+    name: '弄影',
+    type: 'damage',
+    description: '与场上的影子互换位置（视为位移，不触发移动类效果），落地瞬间对相邻敌人各斩8点；影子留在她出发的那格，行动末会环身补一圈4点斩',
+    rangeType: 'single',
+    range: 6,
+    targetType: 'self',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('花弄影没有立足之地');
+        const shadow = findHnyShadow(gameState, caster.owner);
+        if (!shadow) return fail('场上没有她的影子——先用花间辞把影子甩出去');
+        const [oldR, oldC] = caster.position;
+        const [newR, newC] = shadow.position;
+        if (oldR === newR && oldC === newC) return fail('她与影子本就同格，无需互换');
+        if (gameState.board[newR][newC]) return fail('影子上站着别人，换不进去');
+
+        const output = result();
+        // 身影互换：身体落进影格，影子回到她的出发格等待行动末的周圈重演
+        gameState.board[oldR][oldC] = null;
+        gameState.board[newR][newC] = caster;
+        caster.position = [newR, newC];
+        shadow.position = [oldR, oldC];
+        // 与惊鸿绕后同口径：位移算一次正常移动，之后不能再步行
+        caster.hasMovedThisTurn = true;
+        caster.counters['__hny_last_attack'] = 2;
+        caster.counters['__hny_last_dir'] = -1;
+
+        const enemies = hnyEnemiesInCells(hnyRingCells(caster.position), gameState, caster);
+        for (const enemy of enemies) {
+            if (enemy.state !== HeroState.ALIVE) continue;
+            damageOne(caster, enemy, HNY_LAND_DAMAGE, gameState, true);
+        }
+        output.log.push(enemies.length > 0
+            ? `${caster.name}与影子换身，落地一斩扫中${enemies.length}名敌人（${HNY_LAND_DAMAGE}点）`
+            : `${caster.name}与影子换身，落地时身旁空无一人`);
+        output.fxCoveredPositions = [[oldR, oldC], [newR, newC]];
+        return output;
+    },
+};
+
+export const huanongyingPassiveInfo = {
+    id: 'huanongying_passive',
+    name: '花间一舞',
+    description: '她每次出手都会在影子身上留下招式记忆：行动结束时，影子在她的影格重演最后一次攻击（花间辞→同向扇形3点；弄影→环身周圈斩4点）。重演算作她的攻击，但不会再次触发天威',
+};
+
+export const huanongyingTianweiInfo = {
+    id: 'huanongying_tianwei',
+    name: '花谢影不落',
+    description: '她击杀敌人时，影子立刻按七折追加一次重演；重演造成的击杀不再连锁',
+};
+
 export const EXTENDED_SKILLS: Record<string, Skill> = {
     skeletonking_skill1: skeletonkingSkill1,
     skeletonking_skill2: skeletonkingSkill2,
@@ -3934,4 +4416,6 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     jinghong_skill2: jinghongSkill2,
     jinghua_skill1: jinghuaSkill1,
     jinghua_skill2: jinghuaSkill2,
+    huanongying_skill1: huanongyingSkill1,
+    huanongying_skill2: huanongyingSkill2,
 };

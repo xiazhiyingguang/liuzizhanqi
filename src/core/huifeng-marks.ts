@@ -1,3 +1,4 @@
+import { nextBattleLogId } from './battle-log-id';
 import { GameState, Hero, HeroState } from '../types/game';
 import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
@@ -253,7 +254,7 @@ export function executeHuifengTianwei(caster: Hero, gameState: GameState): void 
     if (gameState.battleLog) {
         for (const message of context.log) {
             gameState.battleLog.push({
-                id: `log-${Date.now()}-${Math.random()}`,
+                id: nextBattleLogId(),
                 type: 'tianwei',
                 player: caster.owner,
                 message,

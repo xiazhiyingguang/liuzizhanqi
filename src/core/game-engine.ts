@@ -1,10 +1,11 @@
+import { nextBattleLogId } from './battle-log-id';
 import { GameState, Hero, HeroState, BattleLogEntry, Player, Position } from '../types/game';
 import { MovementSystem } from './movement-system';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
 import { findSoulLampBeneficiary, isJinghongCharging, placeBounties, purgeYinyangLinksOf, syncPositionAnchoredEffects } from '../data/extended-heroes';
-import { resolveLingxiEcho1, tickJinghuaMoonSeats } from '../data/extended-skills';
-import { recordBattleHealing } from './battle-statistics';
+import { resolveHnyReplay, resolveLingxiEcho1, settleJinghuaSeatReturn, SHANGGUAN_BRUSH_DAMAGE, tickJinghuaMoonSeats } from '../data/extended-skills';
+import { isRealCharacterHero, recordBattleHealing } from './battle-statistics';
 import { lanesAtPosition, windLaneNextCell } from './wind-lane';
 
 /**
@@ -381,6 +382,9 @@ export class GameEngine {
         // 触发回合结束相关效果
         this.triggerActionEndEffects(hero, gameState);
 
+        // 月座踏响要等踏座者这一手打完才兑现：先归场再切控制权，胜负与补员都算在他这次行动里
+        settleJinghuaSeatReturn(hero, gameState);
+
         if (hero.passiveId === 'mowen_passive' && hero.state === HeroState.ALIVE) {
             hero.counters['mowen_prev_hp'] = hero.currentHp;
         }
@@ -403,6 +407,9 @@ export class GameEngine {
                     candidate.hasActedThisTurn);
             if (lingxi) resolveLingxiEcho1(lingxi, gameState);
         }
+
+        // 花弄影「弄影」：她行动结束，影子在影格重演本动作的最后一击（先于胜负检查，重演击杀可影响战局）
+        resolveHnyReplay(hero, gameState);
 
         // 胜负必须先于换边、额外行动和进入下一轮结算。
         // TEMP_DEAD 不算场上存活单位，因此最后一个单位暂时阵亡会在这里立即失败。
@@ -653,9 +660,7 @@ export class GameEngine {
         const isAliveOnBoard = (hero: Hero) => {
             if (hero.state !== HeroState.ALIVE || !hero.position) return false;
             // 召唤物为临时战术单位：不计入"场上仍有战力"，六名真实英雄全灭即判负
-            if (hero.counters?.['__isClone'] === 1 || hero.counters?.['__isSummon'] === 1) return false;
-            if (hero.id.startsWith('wukong-clone|') || hero.id.startsWith('mirror-clone|') ||
-                hero.id.startsWith('t-summon|')) return false;
+            if (!isRealCharacterHero(hero)) return false;
             const [row, col] = hero.position;
             return gameState.board[row]?.[col] === hero;
         };
@@ -870,7 +875,7 @@ export class GameEngine {
             }
 
             if (hero.passiveId === 'bounty_passive' && hero.counters['bounty_placed'] !== 1) {
-                // 被动：战斗开始（第一回合）向敌方全员随机发布一次悬赏
+                // 被动：战斗开始（第一回合）向敌方全员发布一次悬赏，四种赏金各一枚、互不重复
                 hero.counters['bounty_placed'] = 1;
                 const assignments = placeBounties(hero, gameState);
                 if (assignments.length > 0) {
@@ -908,7 +913,7 @@ export class GameEngine {
             }
         }
 
-        // 上官婉儿：行动结束后，她落下的毛笔朝自己移动1格，经过的敌人受到6点固定伤害
+        // 上官婉儿：行动结束后，她落下的毛笔朝自己移动1格（落笔当回合除外），经过的敌人受到固定伤害
         if (hero.passiveId === 'shangguan_passive' && hero.position) {
             this.moveShangguanBrushes(hero, gameState);
         }
@@ -965,9 +970,9 @@ export class GameEngine {
     }
 
     /**
-     * 上官婉儿的毛笔每回合朝她移动1格；移动到的格子若有敌人则造成6点固定伤害；
-     * 毛笔抵达上官婉儿所在格时消失。毛笔寿命最多3次移动（复用 duration 字段），
-     * 耗尽后自动消散。毛笔为不可规避的固定伤害。
+     * 上官婉儿的毛笔朝她移动1格（落笔当回合不推进，见 placedAtRound）；
+     * 移动到的格子若有敌人则造成 9 点固定伤害；毛笔抵达上官婉儿所在格时消失。
+     * 毛笔寿命最多3次移动（复用 duration 字段），耗尽后自动消散。毛笔为不可规避的固定伤害。
      */
     private static moveShangguanBrushes(hero: Hero, gameState: GameState): void {
         const brushes = (gameState.boardEffects ?? []).filter(
@@ -978,6 +983,10 @@ export class GameEngine {
         const toRemove = new Set<string>();
 
         for (const brush of brushes) {
+            // 落成的当回合（=婉儿放笔这次行动结束）毛笔按兵不动，下一回合起才推进
+            if (brush.placedAtRound !== undefined && brush.placedAtRound === gameState.roundNumber) {
+                continue;
+            }
             const [br, bc] = brush.position;
             if (br === hr && bc === hc) {
                 toRemove.add(brush.id);
@@ -995,7 +1004,7 @@ export class GameEngine {
 
             const occupant = gameState.board[nr][nc];
             if (occupant && occupant.owner !== hero.owner && occupant.state === HeroState.ALIVE) {
-                const dmg = DamageCalculator.calculate(hero, occupant, 6, false, false, { fixedDamage: true, canCrit: false });
+                const dmg = DamageCalculator.calculate(hero, occupant, SHANGGUAN_BRUSH_DAMAGE, false, false, { fixedDamage: true, canCrit: false });
                 DamageCalculator.applyDamage(occupant, dmg, hero, gameState);
                 this.addLog(gameState, {
                     type: 'passive',
@@ -1391,7 +1400,7 @@ export class GameEngine {
     static addLog(gameState: GameState, entry: Omit<BattleLogEntry, 'id' | 'timestamp'>): void {
         const newEntry: BattleLogEntry = {
             ...entry,
-            id: `log-${Date.now()}-${Math.random()}`,
+            id: nextBattleLogId(),
             timestamp: Date.now()
         };
 
