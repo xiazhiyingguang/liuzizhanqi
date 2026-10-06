@@ -142,6 +142,10 @@ describe('泠汐', () => {
         expect(lingxi.counters['lingxi_echo2_round'], '回潮结算后清空').toBe(0);
         expect(getTideStacks(near), '回潮一次性消耗潮汐').toBe(0);
         expect(lingxi.currentHp, '回潮至少带来3层×3的自疗').toBeGreaterThanOrEqual(19);
+        const echoFx = drainPendingSkillFxRequests().find(request => request.skillId === 'lingxi_skill2');
+        expect(echoFx?.coveredPositions, '回潮保留原方向完整矩形，不能朝第一个敌人歪斜').toEqual([
+            [1, 3], [2, 3], [3, 3], [1, 4], [2, 4], [3, 4],
+        ]);
     });
 
     it('被动助力：下一个出手的友方一次领走全部层数，每层+20%增伤', () => {

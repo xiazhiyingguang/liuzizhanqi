@@ -1,0 +1,379 @@
+/*
+ * 姜太公技能特效：垂钩、抛掷、鲸落。
+ * 三件都是"水"的语言——落钩是线从上方垂进水面，抛掷是一根绷紧的弧线把人甩过去，
+ * 鲸落是一整头鲸腾出水面、空中翻身、再头朝下砸回去。配色全部走档案注入的 --fx-c1/--fx-c2/--fx-glow。
+ */
+
+.fxjtg-line,
+.fxjtg-hook,
+.fxjtg-ripple,
+.fxjtgt-rope,
+.fxjtgt-splash,
+.fxjtgt-drop,
+.fxjtgw-whale,
+.fxjtgw-surface,
+.fxjtgw-crown,
+.fxjtgw-spray,
+.fxjtgw-drip,
+.fxjtgw-wave {
+    pointer-events: none;
+    position: absolute;
+    display: block;
+}
+
+/* ── 垂钩：钓线自上而下垂落，钩尖触水起两圈涟漪 ── */
+.fxjtg-line {
+    left: 50%;
+    top: -46%;
+    width: 2px;
+    height: 96%;
+    margin-left: -1px;
+    background: linear-gradient(180deg,
+        transparent,
+        color-mix(in srgb, var(--fx-c2, #eaf7f2) 70%, transparent) 40%,
+        var(--fx-c1, #3f9c93));
+    transform-origin: 50% 100%;
+    transform: scaleY(0);
+    animation: fxjtg-drop 420ms cubic-bezier(.3, .8, .5, 1) forwards;
+}
+
+.fxjtg-hook {
+    left: 50%;
+    top: 44%;
+    width: 26%;
+    height: 30%;
+    margin-left: -13%;
+    border: 2px solid var(--fx-c2, #eaf7f2);
+    border-top-color: transparent;
+    border-right-color: transparent;
+    border-radius: 0 0 60% 60%;
+    filter: drop-shadow(0 0 6px var(--fx-glow, rgba(63, 156, 147, .6)));
+    opacity: 0;
+    animation: fxjtg-set 300ms ease-out forwards;
+    animation-delay: 320ms;
+}
+
+.fxjtg-ripple {
+    left: 50%;
+    top: 50%;
+    width: 44%;
+    height: 22%;
+    margin: -11% 0 0 -22%;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--fx-c2, #eaf7f2) 75%, transparent);
+    opacity: 0;
+    animation: fxjtg-spread 620ms ease-out forwards;
+    animation-delay: 360ms;
+}
+
+.fxjtg-ripple-b {
+    width: 62%;
+    height: 30%;
+    margin: -15% 0 0 -31%;
+    border-color: color-mix(in srgb, var(--fx-c1, #3f9c93) 70%, transparent);
+    animation-delay: 470ms;
+}
+
+@keyframes fxjtg-drop {
+    0% { transform: scaleY(0); opacity: .2; }
+    70% { opacity: 1; }
+    100% { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes fxjtg-set {
+    0% { opacity: 0; transform: translateY(-40%) rotate(-12deg); }
+    60% { opacity: 1; }
+    100% { opacity: .95; transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes fxjtg-spread {
+    0% { opacity: 0; transform: scale(.24); }
+    30% { opacity: .9; }
+    100% { opacity: 0; transform: scale(1.7); }
+}
+
+/* ── 抛掷：绷紧的钓线从落点倒回起手格，落点炸开水花 ── */
+/* 容器钉在落点格：线的左端就是落点，按 --fx-rot 反方向伸回起手格，长度＝两格间的实际距离 */
+.fxjtgt-rope {
+    --jtg-step: calc(var(--board-cell-size, 76px) + 6px);
+    left: 50%;
+    top: 50%;
+    width: calc(var(--fx-dist, 1) * var(--jtg-step));
+    height: 3px;
+    transform-origin: 0 50%;
+    transform: rotate(calc(var(--fx-rot, 0deg) + 180deg)) scaleX(.1);
+    background: linear-gradient(90deg,
+        var(--fx-c2, #eaf7f2),
+        color-mix(in srgb, var(--fx-c1, #3f9c93) 80%, transparent) 55%,
+        transparent);
+    opacity: 0;
+    animation: fxjtgt-yank var(--fx-travel-ms, 420ms) cubic-bezier(.22, .68, .3, 1) forwards;
+}
+
+.fxjtgt-splash {
+    left: 50%;
+    top: 50%;
+    width: 52%;
+    height: 52%;
+    margin: -26% 0 0 -26%;
+    border-radius: 50%;
+    border: 3px solid var(--fx-c2, #eaf7f2);
+    box-shadow: 0 0 14px var(--fx-glow, rgba(63, 156, 147, .6));
+    opacity: 0;
+    animation: fxjtg-spread 560ms ease-out forwards;
+    animation-delay: var(--fx-travel-ms, 420ms);
+}
+
+/* 落点的水花四散：八滴沿圆周弹出去，读的是"人砸进水里" */
+.fxjtgt-drop {
+    left: 50%;
+    top: 50%;
+    width: 9%;
+    height: 9%;
+    margin: -4.5% 0 0 -4.5%;
+    border-radius: 50%;
+    background: var(--fx-c2, #eaf7f2);
+    opacity: 0;
+    transform: rotate(var(--fx-angle, 0deg)) translateX(12%);
+    animation: fxjtgt-fly 520ms ease-out forwards;
+    animation-delay: var(--fx-travel-ms, 420ms);
+}
+
+@keyframes fxjtgt-yank {
+    0% { opacity: 0; transform: rotate(calc(var(--fx-rot, 0deg) + 180deg)) scaleX(.1); }
+    35% { opacity: 1; }
+    100% { opacity: 0; transform: rotate(calc(var(--fx-rot, 0deg) + 180deg)) scaleX(1); }
+}
+
+@keyframes fxjtgt-fly {
+    0% { opacity: 0; transform: rotate(var(--fx-angle, 0deg)) translateX(12%); }
+    25% { opacity: .95; }
+    100% { opacity: 0; transform: rotate(var(--fx-angle, 0deg)) translateX(92%); }
+}
+
+/* ── 鲸落：整头巨鲸跃出水面，空中翻身，头朝下砸回水里，砸出水幕、水冠、飞沫与浪环 ── */
+.fxjtgw-whale {
+    left: 50%;
+    top: 46%;
+    width: 158%;
+    height: 88%;
+    margin: -44% 0 0 -79%;
+    opacity: 0;
+    filter: drop-shadow(0 0 16px var(--fx-glow, rgba(63, 156, 147, .55)));
+    animation: fxjtgw-leap 1260ms cubic-bezier(.33, .6, .45, 1) forwards;
+}
+
+.fxjtgw-whale svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.fxjtgw-whale-body {
+    fill: color-mix(in srgb, var(--fx-c1, #3f9c93) 62%, #06282c);
+    stroke: color-mix(in srgb, var(--fx-c2, #eaf7f2) 42%, transparent);
+    stroke-width: 1.4;
+}
+
+.fxjtgw-whale-belly { fill: color-mix(in srgb, var(--fx-c2, #eaf7f2) 85%, transparent); }
+.fxjtgw-whale-fin { fill: color-mix(in srgb, var(--fx-c2, #eaf7f2) 62%, transparent); }
+.fxjtgw-whale-dorsal { fill: color-mix(in srgb, var(--fx-c1, #3f9c93) 80%, #06282c); }
+.fxjtgw-whale-pleats {
+    fill: none;
+    stroke: color-mix(in srgb, var(--fx-c2, #eaf7f2) 55%, transparent);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+}
+.fxjtgw-whale-mouth { fill: none; stroke: #06282c; stroke-width: 2; stroke-linecap: round; opacity: .8; }
+.fxjtgw-whale-eye { fill: #06282c; }
+
+/* 水面：鲸冲破的那条水线，入水时被砸亮 */
+.fxjtgw-surface {
+    left: 50%;
+    top: 63%;
+    width: 100%;
+    height: 18%;
+    margin: -9% 0 0 -50%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center,
+        color-mix(in srgb, var(--fx-c2, #eaf7f2) 60%, transparent),
+        transparent 68%);
+    opacity: 0;
+    animation: fxjtgw-surface 1260ms ease-out forwards;
+}
+
+/* 水幕：鲸腾空时身上带起的那道弧形水带，随翻身散去 */
+.fxjtgw-sheet {
+    left: 22%;
+    top: 18%;
+    width: 58%;
+    height: 50%;
+    border-top: 5px solid color-mix(in srgb, var(--fx-c2, #eaf7f2) 62%, transparent);
+    border-radius: 50%;
+    filter: blur(1px);
+    opacity: 0;
+    animation: fxjtgw-sheet 1260ms ease-out forwards;
+}
+
+/* 入水闪光：鲸身砸进水面的那一记亮斑 */
+.fxjtgw-flash {
+    left: 50%;
+    top: 60%;
+    width: 92%;
+    height: 46%;
+    margin: -23% 0 0 -46%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse,
+        var(--fx-c2, #eaf7f2) 6%,
+        color-mix(in srgb, var(--fx-c2, #eaf7f2) 55%, transparent) 38%,
+        transparent 70%);
+    opacity: 0;
+    animation: fxjtgw-flash 560ms ease-out forwards;
+    animation-delay: 470ms;
+}
+
+/* 入水水冠：一排参差的水峰自水线蹿起再折落 */
+.fxjtgw-crown {
+    left: 50%;
+    top: 40%;
+    width: 82%;
+    height: 44%;
+    margin: 0 0 0 -41%;
+    background: linear-gradient(180deg,
+        var(--fx-c2, #eaf7f2),
+        color-mix(in srgb, var(--fx-c1, #3f9c93) 55%, transparent) 78%,
+        transparent);
+    clip-path: polygon(0 100%, 5% 42%, 11% 74%, 19% 12%, 26% 62%, 33% 26%, 41% 80%, 50% 0, 59% 72%, 67% 22%, 75% 64%, 83% 16%, 90% 70%, 96% 40%, 100% 100%);
+    transform-origin: 50% 100%;
+    opacity: 0;
+    animation: fxjtgw-crown 620ms cubic-bezier(.2, .75, .4, 1) forwards;
+    animation-delay: 480ms;
+}
+
+/* 飞沫：入水瞬间沿上半圆甩出去的水珠 */
+.fxjtgw-spray {
+    left: 50%;
+    top: 62%;
+    width: 10%;
+    height: 10%;
+    margin: -5% 0 0 -5%;
+    border-radius: 50%;
+    background: var(--fx-c2, #eaf7f2);
+    box-shadow: 0 0 7px var(--fx-glow, rgba(63, 156, 147, .6));
+    opacity: 0;
+    animation: fxjtgw-spray 660ms ease-out forwards;
+    animation-delay: 490ms;
+}
+
+/* 空中滴水：鲸腾到最高点时身上甩落的水珠 */
+.fxjtgw-drip {
+    left: 40%;
+    top: 24%;
+    width: 5%;
+    height: 8%;
+    border-radius: 50% 50% 55% 55% / 30% 30% 70% 70%;
+    background: color-mix(in srgb, var(--fx-c2, #eaf7f2) 88%, transparent);
+    opacity: 0;
+    animation: fxjtgw-drip 560ms ease-in forwards;
+    animation-delay: var(--drip-delay, 300ms);
+}
+
+.fxjtgw-wave {
+    left: 50%;
+    top: 50%;
+    width: 72%;
+    height: 34%;
+    margin: -17% 0 0 -36%;
+    border-radius: 50%;
+    border: 3px solid color-mix(in srgb, var(--fx-c2, #eaf7f2) 80%, transparent);
+    opacity: 0;
+    animation: fxjtg-spread 700ms ease-out forwards;
+    animation-delay: 500ms;
+}
+
+.fxjtgw-wave-b {
+    width: 104%;
+    height: 48%;
+    margin: -24% 0 0 -52%;
+    border-color: color-mix(in srgb, var(--fx-c1, #3f9c93) 75%, transparent);
+    animation-delay: 640ms;
+}
+
+/* 腾起 → 空中翻身 → 头朝下扎回水里 → 没入；
+   0.41×1260≈515ms 处头部破水，与档案 impactMs 470 的命中反馈同拍 */
+@keyframes fxjtgw-leap {
+    0% { opacity: 0; transform: translate(-14%, 54%) rotate(-34deg) scale(.62); }
+    8% { opacity: 1; }
+    24% { transform: translate(-2%, -34%) rotate(14deg) scale(1.05); }
+    35% { transform: translate(4%, -2%) rotate(74deg) scale(1); }
+    41% { opacity: 1; transform: translate(8%, 38%) rotate(114deg) scale(.96); }
+    50% { opacity: .9; transform: translate(9%, 60%) rotate(128deg) scale(.84); }
+    60%, 100% { opacity: 0; transform: translate(9%, 70%) rotate(134deg) scale(.8); }
+}
+
+@keyframes fxjtgw-surface {
+    0% { opacity: 0; transform: scaleX(.4); }
+    10% { opacity: .5; }
+    30% { opacity: .3; transform: scaleX(.9); }
+    40% { opacity: .85; transform: scaleX(1.06); }
+    70% { opacity: .35; }
+    100% { opacity: 0; transform: scaleX(1.12); }
+}
+
+@keyframes fxjtgw-sheet {
+    0%, 8% { opacity: 0; transform: rotate(12deg) scale(.8); }
+    24% { opacity: .7; }
+    40% { opacity: .45; transform: rotate(24deg) scale(1.05); }
+    55%, 100% { opacity: 0; transform: rotate(28deg) scale(1.12); }
+}
+
+@keyframes fxjtgw-flash {
+    0% { opacity: 0; transform: scale(.3); }
+    25% { opacity: .9; }
+    100% { opacity: 0; transform: scale(1.25); }
+}
+
+@keyframes fxjtgw-crown {
+    0% { opacity: 0; transform: scaleY(.12) scaleX(.7); }
+    22% { opacity: .95; transform: scaleY(1) scaleX(1); }
+    55% { opacity: .8; transform: scaleY(.72) scaleX(1.05); }
+    100% { opacity: 0; transform: scaleY(.3) scaleX(1.14); }
+}
+
+@keyframes fxjtgw-spray {
+    0% { opacity: 0; transform: rotate(var(--fx-angle, 0deg)) translateX(8%) scale(.5); }
+    20% { opacity: .95; }
+    100% { opacity: 0; transform: rotate(var(--fx-angle, 0deg)) translateX(520%) translateY(160%) scale(.85); }
+}
+
+@keyframes fxjtgw-drip {
+    0% { opacity: 0; transform: translate(var(--drip-x, 0), -18%) scaleY(.7); }
+    18% { opacity: .9; }
+    100% { opacity: 0; transform: translate(var(--drip-x, 0), 260%) scaleY(1.15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fxjtg-line,
+    .fxjtg-hook,
+    .fxjtg-ripple,
+    .fxjtgt-rope,
+    .fxjtgt-splash,
+    .fxjtgt-drop,
+    .fxjtgw-whale,
+    .fxjtgw-surface,
+    .fxjtgw-crown,
+    .fxjtgw-spray,
+    .fxjtgw-drip,
+    .fxjtgw-wave {
+        animation-duration: .01s !important;
+        animation-delay: 0s !important;
+    }
+}
+
+html[data-quality="low"] .fxjtg-ripple-b,
+html[data-quality="low"] .fxjtgw-wave-b,
+html[data-quality="low"] .fxjtgt-drop,
+html[data-quality="low"] .fxjtgw-drip {
+    display: none;
+}

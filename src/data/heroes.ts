@@ -1,10 +1,12 @@
 import { nextBattleLogId } from '../core/battle-log-id';
+import { requestMechanismFx } from '../core/mechanism-fx';
 import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState } from '../types/game';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
-import { recordBattleDamage, recordBattleHealing, recordBattleKill } from '../core/battle-statistics';
 import { executeHuifengTianwei } from '../core/huifeng-marks';
+import { enterNightowlStealth } from '../core/nightowl-stealth';
 import { YOUJUN_KNIFE_DAMAGE, YOUJUN_KNIFE_MASK } from '../core/wind-blade';
+import { zhizhiValue } from '../core/hero-zhizhi';
 import {
     EXTENDED_HERO_IDS,
     EXTENDED_HERO_INFO,
@@ -69,11 +71,20 @@ function countWukongClonesOnBoard(wukongId: string, gameState: { board: (Hero | 
 
 /** 孙悟空的初始暴击率：不依赖灵犀就有 30%，之后每点灵犀再 +20%，封顶 100% */
 export const WUKONG_BASE_CRIT_RATE = 0.3;
+/** 灵犀每层提供的暴击率：基础 +20%，致知3 抬到 +30% */
 const WUKONG_LINGXI_CRIT_PER_STACK = 0.2;
 
-function getWukongCritRate(hero: Hero): number {
+/**
+ * 孙悟空的暴击率口径，三处结算（本体出手、分身出手、布阵同步）都走这里。
+ * 之前 damage-calculator 与 game-store 各抄了一份公式，其中一份还把初始暴击率写成 0.2。
+ */
+export function getWukongCritRate(hero: Hero): number {
     const lingxi = hero.counters['灵犀'] ?? 0;
-    return Math.min(1, WUKONG_BASE_CRIT_RATE + lingxi * WUKONG_LINGXI_CRIT_PER_STACK);
+    // 致知1：初始暴击率 30% → 50%
+    const base = zhizhiValue(hero, 1, WUKONG_BASE_CRIT_RATE, WUKONG_BASE_CRIT_RATE + 0.2);
+    // 致知3：每层灵犀 +20% → +30%
+    const perStack = zhizhiValue(hero, 3, WUKONG_LINGXI_CRIT_PER_STACK, 0.3);
+    return Math.min(1, base + lingxi * perStack);
 }
 
 function syncWukongCritToSelfAndClones(wukong: Hero, gameState: { board: (Hero | null)[][] }): void {
@@ -167,97 +178,117 @@ export const moranPassive: PassiveSkill = {
                 };
                 gameState.battleLog.push(logEntry);
             }
+            if (hero.currentHp > 0) requestMechanismFx(hero, 'moran_extra_action', gameState, {
+                logId: gameState.battleLog[gameState.battleLog.length - 1]?.id,
+            });
         }
     }
 };
 
-// 震霄被动："金银错"反击
+// ===== 震霄 =====
+
+/** 被动「血锋」的刻度：每失去 2% 生命，提升 1% 增伤 */
+const BLOOD_EDGE_STEP_PERCENT = 2;
+const BLOOD_EDGE_GAIN = 0.01;
+/** 龙势受伤回复比例（按已损失生命） */
+const LONGSHI_HEAL_RATE = 0.15;
+
+/**
+ * 被动「血锋」：每失去 2% 生命提升 1% 增伤。
+ * 走增伤通道而不是"攻击提升"——震霄没有基础攻击力，攻击通道对他恒等于 0。
+ */
+export function getZhenxiaoDamageBonus(hero: Hero): number {
+    if (hero.maxHp <= 0) return 0;
+    const lostPercent = ((hero.maxHp - hero.currentHp) / hero.maxHp) * 100;
+    return Math.floor(lostPercent / BLOOD_EDGE_STEP_PERCENT) * BLOOD_EDGE_GAIN;
+}
+
+/** 耗血口径：技能一/技能二/天威共用，致知1 把 20% 降到 15%。 */
+export function spendZhenxiaoBlood(hero: Hero): number {
+    const rate = hero.counters['talent_1'] ? 0.15 : 0.2;
+    const cost = Math.floor(hero.currentHp * rate);
+    hero.currentHp = Math.max(1, hero.currentHp - cost);
+    return cost;
+}
+
+function pushZhenxiaoLog(gameState: GameState, owner: Player, message: string): void {
+    gameState.battleLog ??= [];
+    gameState.battleLog.push({
+        id: nextBattleLogId(),
+        type: 'passive',
+        player: owner,
+        message,
+        timestamp: Date.now(),
+    });
+}
+
+/** 龙势（天威给予）：每次受到伤害后，按已损失生命的 15% 回复。 */
+function resolveLongshiRecovery(hero: Hero, gameState: GameState): void {
+    if (!hero.effects.some(effect => effect.name === '龙势')) return;
+    if (hero.state !== HeroState.ALIVE || hero.maxHp <= 0) return;
+    const healed = Math.floor((hero.maxHp - hero.currentHp) * LONGSHI_HEAL_RATE);
+    if (healed <= 0) return;
+    DamageCalculator.applyHeal(hero, healed, gameState, hero);
+    pushZhenxiaoLog(gameState, hero.owner, `${hero.name}的龙势涌动，恢复${healed}点生命`);
+}
+
+// 反击本身会造成一次新的伤害结算，若对面也带着「金银错」就会来回反弹到死。
+// 用一把模块级锁把回击压成"一层"：回击途中不再触发回击。
+let resolvingJinyincuo = false;
+
+/** 金银错（技能二给予）：受到敌方英雄伤害后回击，回击吃增伤等一切增益，并吸血 50%。 */
+function resolveJinyincuoCounter(
+    hero: Hero,
+    gameState: GameState,
+    context?: { attacker?: Hero }
+): void {
+    if (resolvingJinyincuo) return;
+    if (!hero.effects.some(effect => effect.name === '金银错')) return;
+    const attacker = context?.attacker;
+    if (!attacker || attacker.owner === hero.owner) return;
+    if (attacker.state !== HeroState.ALIVE) return;
+
+    const counterBase = hero.counters['talent_3'] ? 8 : 6;
+    const counterTargetPos = attacker.position ? [...attacker.position] as Position : undefined;
+    const counterLogStart = gameState.battleLog.length;
+    resolvingJinyincuo = true;
+    try {
+        const result = DamageCalculator.asOneAttack(() => {
+            const damage = DamageCalculator.calculate(hero, attacker, counterBase);
+            DamageCalculator.applyDamage(attacker, damage, hero, gameState);
+            return damage;
+        });
+        const healed = Math.floor(result.hpDamage * 0.5);
+        const actualHealed = healed > 0 ? DamageCalculator.applyHeal(hero, healed, gameState, hero) : 0;
+        pushZhenxiaoLog(gameState, hero.owner,
+            `${hero.name}金银错回击${attacker.name}，造成${result.finalDamage}点伤害，回复${healed}点生命`);
+        if (counterTargetPos) {
+            const damageLog = gameState.battleLog.slice(counterLogStart).find(log =>
+                log.type === 'damage' && log.details?.sourceHeroId === hero.id && log.details?.targetHeroId === attacker.id);
+            requestMechanismFx(hero, 'zhenxiao_counter', gameState, {
+                targetPos: counterTargetPos, damagePositions: result.finalDamage > 0 ? [counterTargetPos] : [],
+                logId: damageLog?.id ?? gameState.battleLog[gameState.battleLog.length - 1]?.id,
+                softImpactPositions: actualHealed > 0 && hero.position ? [hero.position] : [],
+            });
+        }
+    } finally {
+        resolvingJinyincuo = false;
+    }
+}
+
+/**
+ * 被动位「血锋」：常驻的残血增伤由 damage-calculator 直接读取，
+ * 这里只承载两个状态的受击结算——「金银错」（技能二）与「龙势」（天威）。
+ * 龙势的"不会死亡"落在 DamageCalculator 扣血的那一步，早于本钩子。
+ */
 export const zhenxiaoPassive: PassiveSkill = {
     id: 'zhenxiao_passive',
-    name: '金银错',
-    description: '受到敌方英雄造成的伤害后，进行回击，伤害为6，吸血50%',
+    name: '血锋',
+    description: '每失去2%生命，提升1%增伤；受击时结算"金银错"回击与"龙势"回血',
     triggerOn: 'onDamaged',
     execute: (hero, gameState, context) => {
-        // 检查是否处于"金银错"状态
-        const hasJinyincuo = hero.effects.some(e => e.name === '金银错');
-        if (!hasJinyincuo) {
-            return;
-        }
-
-        // 检查攻击者是否存在且为敌方
-        if (!context?.attacker) {
-            return;
-        }
-
-        const attacker = context.attacker;
-
-        if (attacker.owner === hero.owner) {
-            return;
-        }
-
-        if (attacker.state !== HeroState.ALIVE) {
-            return;
-        }
-
-        const counterDamage = 6;
-
-        // 计算实际伤害（考虑护盾和防御）
-        let finalDamage = counterDamage;
-        let shieldDamage = 0;
-
-        // 先扣除护盾
-        if (attacker.shield > 0) {
-            const shieldAbsorb = Math.min(attacker.shield, finalDamage);
-            attacker.shield -= shieldAbsorb;
-            finalDamage -= shieldAbsorb;
-            shieldDamage = shieldAbsorb;
-        }
-        if (shieldDamage > 0) recordBattleDamage(gameState, hero, attacker, 0, shieldDamage);
-
-        // 再计算防御减免
-        if (finalDamage > 0 && attacker.defense > 0) {
-            finalDamage = Math.max(1, finalDamage * (1 - attacker.defense / 100));
-        }
-
-        // 扣除生命值
-        if (finalDamage > 0) {
-            const hpBeforeDamage = attacker.currentHp;
-            attacker.currentHp = Math.max(0, attacker.currentHp - finalDamage);
-            const actualHpDamage = Math.min(hpBeforeDamage, Math.floor(finalDamage));
-            recordBattleDamage(gameState, hero, attacker, actualHpDamage);
-
-            // 吸血50%
-            const healAmount = Math.floor(finalDamage * 0.5);
-            const hpBeforeHeal = hero.currentHp;
-            hero.currentHp = Math.min(hero.maxHp, hero.currentHp + healAmount);
-            const actualHealing = hero.currentHp - hpBeforeHeal;
-            recordBattleHealing(gameState, hero, actualHealing);
-
-            // 添加日志
-            if (gameState.battleLog) {
-                const logEntry = {
-                    id: nextBattleLogId(),
-                    type: 'passive' as const,
-                    player: hero.owner,
-                    message: `${hero.name}反击${attacker.name}，造成${Math.floor(finalDamage)}点伤害，回复${healAmount}点生命`,
-                    timestamp: Date.now()
-                };
-                gameState.battleLog.push(logEntry);
-            }
-
-            // 检查是否击杀
-            if (attacker.currentHp <= 0 && attacker.state === HeroState.ALIVE) {
-                attacker.state = HeroState.DEAD;
-                hero.killCount++;
-                recordBattleKill(gameState, hero, attacker);
-
-                // 从棋盘上移除
-                const [row, col] = attacker.position;
-                if (gameState.board[row] && gameState.board[row][col] === attacker) {
-                    gameState.board[row][col] = null;
-                }
-            }
-        }
+        resolveLongshiRecovery(hero, gameState);
+        resolveJinyincuoCounter(hero, gameState, context);
     }
 };
 
@@ -423,67 +454,36 @@ export const moranTianwei: TianweiSkill = {
     }
 };
 
-// 震霄天威：吸取周围生命
+// 震霄天威：击杀后耗血进入「龙势」
+/**
+ * 天威 · 龙起：击杀敌人后立即消耗当前生命，进入「龙势」直到下一回合结束。
+ * duration 2 的口径是"本回合 + 下一回合"（效果在回合初才衰减），即文案里的"持续到下一回合结束"。
+ */
 export const zhenxiaoTianwei: TianweiSkill = {
     id: 'zhenxiao_tianwei',
-    name: '天威',
-    description: '吸取周围一格范围内(3x3)的敌人数量*4的生命值',
+    name: '天威 · 龙起',
+    description: '击杀敌人后消耗当前生命20%（致知1降至15%），进入"龙势"状态，持续到下一回合结束',
     execute: (hero, gameState) => {
-        if (!hero.position) return;
+        if (hero.state !== HeroState.ALIVE) return;
 
-        const [row, col] = hero.position;
-        // 3x3范围，包括对角线方向
-        const directions = [
-            [-1, -1], [-1, 0], [-1, 1],  // 上方一排
-            [0, -1], [0, 1],   // 左右（不包括自己）
-            [1, -1], [1, 0], [1, 1]    // 下方一排
-        ];
+        const cost = spendZhenxiaoBlood(hero);
+        EffectManager.removeEffectByName(hero, '龙势');
+        EffectManager.addEffect(hero, {
+            type: 'buff',
+            name: '龙势',
+            duration: 2,
+            sourceHeroId: hero.id,
+            description: '每次受到伤害后恢复已损失生命15%，且不会死亡（至少保留1点生命）'
+        });
 
-        let enemyCount = 0;
-        const enemies: Hero[] = [];
-
-        // 查找周围一格内(3x3)的敌人
-        for (const [dr, dc] of directions) {
-            const newRow = row + dr;
-            const newCol = col + dc;
-
-            if (newRow >= 0 && newRow < 6 && newCol >= 0 && newCol < 6) {
-                const target = gameState.board[newRow][newCol];
-                if (target && target.owner !== hero.owner && target.state === HeroState.ALIVE) {
-                    enemyCount++;
-                    enemies.push(target);
-                }
-            }
-        }
-
-        if (enemyCount > 0) {
-            const totalDrain = enemyCount * 4;
-            const drainPerEnemy = Math.floor(totalDrain / enemyCount);
-            let totalHealed = 0;
-
-            DamageCalculator.asOneAttack(() => {
-                for (const enemy of enemies) {
-                    const dmg = DamageCalculator.calculate(hero, enemy, drainPerEnemy, false, true);
-                    DamageCalculator.applyDamage(enemy, dmg, hero, gameState, true);
-                    totalHealed += dmg.hpDamage;
-                }
-            });
-
-            // 恢复生命
-            DamageCalculator.applyHeal(hero, totalHealed, gameState, hero);
-
-            // 添加日志
-            if (gameState.battleLog) {
-                const logEntry = {
-                    id: nextBattleLogId(),
-                    type: 'tianwei' as const,
-                    player: hero.owner,
-                    message: `${hero.name}天威吸取周围${enemyCount}个敌人，造成${totalDrain}点伤害，回复${totalHealed}点生命`,
-                    timestamp: Date.now()
-                };
-                gameState.battleLog.push(logEntry);
-            }
-        }
+        gameState.battleLog ??= [];
+        gameState.battleLog.push({
+            id: nextBattleLogId(),
+            type: 'tianwei',
+            player: hero.owner,
+            message: `${hero.name}天威·龙起，耗去${cost}点生命进入龙势`,
+            timestamp: Date.now()
+        });
     }
 };
 
@@ -537,7 +537,7 @@ export const wukongTianwei: TianweiSkill = {
             return;
         }
 
-        const clone = createWukongClone(hero.owner, hero.id, summonPos, 10);
+        const clone = createWukongClone(hero.owner, hero.id, summonPos, zhizhiValue(hero, 2, 10, 12));
         gameState.board[summonPos[0]][summonPos[1]] = clone;
 
         if (hero.counters['灵犀'] === undefined) {
@@ -562,18 +562,7 @@ export const nightowlTianwei: TianweiSkill = {
     name: '天威',
     description: '立即进入潜行状态，下次攻击无视目标50%防御',
     execute: (hero: Hero, gameState: GameState) => {
-        if (!EffectManager.hasEffect(hero, '潜行')) {
-            EffectManager.addEffect(hero, {
-                type: 'buff',
-                name: '潜行',
-                duration: -1, 
-                sourceHeroId: hero.id,
-                description: '潜行状态，免疫单体伤害，范围伤害每回合最多10点'
-            });
-            hero.counters['stealth_turns'] = 1;
-        } else {
-            hero.counters['stealth_turns'] = (hero.counters['stealth_turns'] || 1) + 1;
-        }
+        enterNightowlStealth(hero, gameState.roundNumber);
 
         // 下次攻击无视50%防御
         hero.counters['ignore_defense_next'] = 1;
@@ -631,7 +620,7 @@ export function getMirrorOwnerIdFromCloneId(cloneId: string): string | null {
 export const mirrorPassive: PassiveSkill = {
     id: 'mirror_passive',
     name: '破镜之刃',
-    description: '获得破镜之刃后立即释放，对范围内血量最低的敌人造成伤害',
+    description: '获得破镜之刃后立即释放，斩向"镜域"（本体与镜像张成的外接矩形）内血量最低的敌人；镜域里没人则层数留存，等敌人走进来补放',
     triggerOn: 'always',
     execute: () => {}
 };
@@ -644,14 +633,16 @@ export const mirrorTianwei: TianweiSkill = {
         if (hero.counters['破镜之刃'] === undefined) {
             hero.counters['破镜之刃'] = 0;
         }
-        hero.counters['破镜之刃'] += 3;
+        // 致知2：天威给的破镜之刃 3 层 → 4 层
+        const bladeStacks = zhizhiValue(hero, 2, 3, 4);
+        hero.counters['破镜之刃'] += bladeStacks;
         
         if (gameState.battleLog) {
             gameState.battleLog.push({
                 id: nextBattleLogId(),
                 type: 'tianwei' as const,
                 player: hero.owner,
-                message: `${hero.name}触发天威，获得3层破镜之刃`,
+                message: `${hero.name}触发天威，获得${bladeStacks}层破镜之刃`,
                 timestamp: Date.now()
             });
         }
@@ -754,7 +745,8 @@ export const youjunTianwei: TianweiSkill = {
                 while (cr !== hr || cc !== hc) {
                     const target = gameState.board[cr][cc];
                     if (target && target.owner !== hero.owner && target.state === HeroState.ALIVE) {
-                        const damageResult = DamageCalculator.calculate(hero, target, YOUJUN_KNIFE_DAMAGE, false);
+                        // 游隼致知3：归翎飞刀 4 → 5
+                        const damageResult = DamageCalculator.calculate(hero, target, zhizhiValue(hero, 3, YOUJUN_KNIFE_DAMAGE, YOUJUN_KNIFE_DAMAGE + 1), false);
                         DamageCalculator.applyDamage(target, damageResult, hero, gameState, true);
                         totalDamage += damageResult.finalDamage;
                     }
@@ -907,7 +899,7 @@ export function createHero(
         },
         nightowl: {
             name: '暗影猎手·夜枭',
-            class: '猎户',
+            class: '武曲',
             maxHp: 40,
             moveRange: 3,
             baseAttack: 0,
@@ -1023,12 +1015,32 @@ export function createHero(
     return hero;
 }
 
+/** 实例 id（`模板-player1-时间戳`）还原成模板 id；分身与召唤物还原不出来就还是自身 */
+export function heroTemplateId(hero: { id: string }): string {
+    return hero.id.replace(/-(player1|player2)-\d+$/, '');
+}
+
+/**
+ * 把"武装"步骤选下的专属器写进英雄实例。权威账本是 playerNWeaponIds（模板 id → 武器 id），
+ * 实例上的 weaponId 只是派生缓存：布阵撤下重选、补员上场、印月替身临时拉人都会重新
+ * createHero，每次都必须按模板 id 重新派生，否则会出现"撤下再上阵就掉了武器"的静默失配。
+ */
+export function applyHeroWeapon<T extends { id: string; owner: Player; weaponId?: string | null }>(
+    hero: T,
+    weaponIds: Record<string, string | null> | undefined
+): T {
+    const templateId = heroTemplateId(hero);
+    // 一器一主：值等于模板 id 才算启用，其余（含脏数据）一律视为未武装
+    hero.weaponId = weaponIds?.[templateId] === templateId ? templateId : null;
+    return hero;
+}
+
 /**
  * 暂时下架的英雄：机制、图鉴、特效、音效与测试全部保留，只是不进选将池。
  * AVAILABLE_HERO_IDS 是选将界面、英雄图鉴与 AI 选将的唯一入口，
  * 因此恢复上线只需把 id 从这个名单里删掉。
  */
-export const HIDDEN_HERO_IDS = ['schrodinger'];
+export const HIDDEN_HERO_IDS = ['schrodinger', 'hero_x'];
 
 export const AVAILABLE_HERO_IDS = ([
     'moran',
@@ -1058,7 +1070,7 @@ export function getHeroInfo(heroId: string) {
         zhenxiao: {
             name: '震霄',
             class: '武曲',
-            description: '反击吸血。生命46，移动力2'
+            description: '耗血换伤、受击回吸。生命46，移动力2'
         },
         huifeng: {
             name: '回锋',
@@ -1077,7 +1089,7 @@ export function getHeroInfo(heroId: string) {
         },
         nightowl: {
             name: '暗影猎手·夜枭',
-            class: '猎户',
+            class: '武曲',
             description: '潜行刺杀。生命40，移动力3'
         },
         liuli: {

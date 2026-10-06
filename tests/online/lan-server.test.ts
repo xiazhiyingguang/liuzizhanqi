@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { io as createClient, type Socket } from 'socket.io-client';
 // The LAN server intentionally stays as plain ESM JavaScript so it can run without a build step.
 // @ts-expect-error JavaScript server module has no declaration file.
-import { rooms, startServer, stopServer } from '../../server/server.js';
+import { rooms, startServer, stopServer, sweepExpiredReconnects } from '../../server/server.js';
 
 let serverUrl = '';
 const clients: Socket[] = [];
@@ -211,6 +211,61 @@ describe('局域网房间服务器', () => {
         player2.disconnect();
     });
 
+    it('撤下已部署英雄会释放格子并转发给对端，换人后仍能确认部署', async () => {
+        const player1 = await connectClient();
+        const player2 = await connectClient();
+        const created = await emitAck<{ success: boolean; roomId: string }>(player1, 'create-room');
+        await emitAck<any>(player1, 'join-room', { roomId: created.roomId, playerName: '甲' });
+        await emitAck<any>(player2, 'join-room', { roomId: created.roomId, playerName: '乙' });
+
+        const room = rooms.get(created.roomId)!;
+        room.phase = 'deploy';
+        room.heroSelections.player1 = ['moran', 'zhenxiao', 'baize', 'xuanxiao', 'liuli'];
+        room.heroSelections.player2 = ['wukong', 'nightowl', 'changli', 'feixue'];
+
+        const rejections: any[] = [];
+        player1.on('action-rejected', event => rejections.push(event));
+
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'moran', position: [0, 0] });
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'zhenxiao', position: [1, 1] });
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'baize', position: [2, 2] });
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'xuanxiao', position: [3, 0] });
+
+        // 撤下 moran 换第5名英雄顶上：服务器若不识别 undeploy，(0,0) 仍视为被 moran 占用，
+        // 新英雄被误拒，玩家一改不了首发名单。
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const undeploySeen = once<any>(player2, 'action-broadcast');
+        action(player1, created.roomId, 'undeploy-hero', { heroId: 'moran' });
+        const seen = await undeploySeen;
+        expect(seen.action.type).toBe('undeploy-hero');
+        expect(seen.action.data.heroId).toBe('moran');
+
+        action(player1, created.roomId, 'deploy-hero', { heroId: 'liuli', position: [0, 0] });
+        await new Promise(resolve => setTimeout(resolve, 80));
+        expect(rejections).toEqual([]);
+        expect(Object.fromEntries(room.deployments.player1)).toEqual({
+            liuli: '0,0', zhenxiao: '1,1', baize: '2,2', xuanxiao: '3,0'
+        });
+
+        // 撤下未部署过的英雄应被拒，避免把对端棋盘带偏
+        const rejected = once<any>(player1, 'action-rejected');
+        action(player1, created.roomId, 'undeploy-hero', { heroId: 'moran' });
+        expect((await rejected).message).toContain('尚未部署');
+
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'wukong', position: [0, 3] });
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'nightowl', position: [1, 3] });
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'changli', position: [2, 3] });
+        action(player2, created.roomId, 'deploy-hero', { heroId: 'feixue', position: [3, 3] });
+        action(player1, created.roomId, 'confirm-deployment');
+        action(player2, created.roomId, 'confirm-deployment');
+        await new Promise(resolve => setTimeout(resolve, 80));
+        expect(room.phase).toBe('battle');
+
+        await emitAck(player1, 'leave-room', { roomId: created.roomId });
+        player1.disconnect();
+        player2.disconnect();
+    });
+
     it('战斗阶段把技能 action 与权威快照一并转发，供对端重建施法表现', async () => {
         const player1 = await connectClient();
         const player2 = await connectClient();
@@ -380,5 +435,111 @@ describe('局域网房间服务器', () => {
         await emitAck(inviter, 'leave-room', { roomId: first.roomId });
         inviter.disconnect();
         recipient.disconnect();
+    });
+});
+
+/**
+ * 掉线保留与重连回席。
+ * 背景：一次 Wi-Fi 抖动或笔记本合盖就会让 socket.io 心跳超时，
+ * 旧实现当场删房间，双方几十回合的对局直接没了。
+ */
+describe('联机掉线保留与重连回席', () => {
+    const battleSnapshot = () => ({
+        board: Array.from({ length: 6 }, () => Array(6).fill(null)),
+        phase: 'battle',
+        currentPlayer: 'player1',
+        roundNumber: 3
+    });
+
+    async function openBattleRoom() {
+        const player1 = await connectClient();
+        const player2 = await connectClient();
+        const created = await emitAck<{ success: boolean; roomId: string }>(player1, 'create-room');
+        await emitAck<any>(player1, 'join-room', {
+            roomId: created.roomId, playerName: '甲', playerId: 'player-drop-a'
+        });
+        await emitAck<any>(player2, 'join-room', {
+            roomId: created.roomId, playerName: '乙', playerId: 'player-drop-b'
+        });
+        const room = rooms.get(created.roomId)!;
+        // 直接推进到战斗阶段：这里验的是掉线保席，选将与布阵流程另有用例覆盖
+        room.phase = 'battle';
+        room.status = 'playing';
+        room.gameState = battleSnapshot();
+        return { roomId: created.roomId, player1, player2, room };
+    }
+
+    it('对局中掉线只挂席位，不删房间', async () => {
+        const { roomId, player1, player2, room } = await openBattleRoom();
+
+        const dropped = once<any>(player2, 'opponent-dropped');
+        player1.disconnect();
+        const payload = await dropped;
+
+        expect(payload.droppedPlayerNumber).toBe(1);
+        expect(payload.graceSeconds).toBeGreaterThan(0);
+        expect(rooms.has(roomId)).toBe(true);
+        expect(room.player1.socketId).toBeNull();
+        expect(room.dropDeadlineAt).toBeGreaterThan(Date.now());
+
+        player2.disconnect();
+    });
+
+    it('同一身份重连坐回原席位并拿回权威快照', async () => {
+        const { roomId, player1, player2, room } = await openBattleRoom();
+        player1.disconnect();
+        await once(player2, 'opponent-dropped');
+        await new Promise(resolve => setTimeout(resolve, 30));
+
+        const returnee = await connectClient();
+        const resume = once<any>(returnee, 'room-resume');
+        const resumedNotice = once<any>(player2, 'opponent-resumed');
+        const ack = await emitAck<any>(returnee, 'join-room', {
+            roomId, playerName: '甲', playerId: 'player-drop-a'
+        });
+
+        const payload = await resume;
+        expect(ack.success).toBe(true);
+        expect(payload.playerNumber).toBe(1);
+        expect(payload.gameState.roundNumber).toBe(3);
+        expect(payload.opponentOffline).toBe(false);
+        expect((await resumedNotice).resumedPlayerNumber).toBe(1);
+        expect(room.player1.socketId).toBe(returnee.id);
+        expect(room.dropDeadlineAt).toBeFalsy();
+
+        returnee.disconnect();
+        player2.disconnect();
+    });
+
+    it('别人的身份抢不到保留中的席位', async () => {
+        const { player1, player2, roomId } = await openBattleRoom();
+        player1.disconnect();
+        await once(player2, 'opponent-dropped');
+        await new Promise(resolve => setTimeout(resolve, 30));
+
+        const stranger = await connectClient();
+        const taken = await emitAck<any>(stranger, 'join-room', {
+            roomId, playerName: '丙', playerId: 'player-stranger'
+        });
+        expect(taken.success).toBe(false);
+        expect(taken.error).toBe('房间已满');
+
+        stranger.disconnect();
+        player2.disconnect();
+    });
+
+    it('超过宽限期仍未重连才关闭房间并通知在线方', async () => {
+        const { roomId, player1, player2, room } = await openBattleRoom();
+        player1.disconnect();
+        await once(player2, 'opponent-dropped');
+        await new Promise(resolve => setTimeout(resolve, 30));
+
+        const closed = once<any>(player2, 'player-disconnected');
+        room.dropDeadlineAt = Date.now() - 1;
+        sweepExpiredReconnects();
+
+        expect((await closed).message).toContain('离线超时');
+        expect(rooms.has(roomId)).toBe(false);
+        player2.disconnect();
     });
 });

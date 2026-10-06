@@ -1,0 +1,129 @@
+/* 实体物象与动作层。只命中本模块的类，避免影响已有专属特效。 */
+.fx-theme { color: var(--fx-c1); --theme-hit: var(--fx-hit-ms, 240ms); }
+.fx-theme-glyph { width: 100%; height: 100%; overflow: visible; }
+.fx-theme-emblem { position: absolute; inset: 7%; opacity: 0; animation: theme-emblem 1000ms ease-out both; }
+.fx-theme-source { inset: 18%; animation-duration: 750ms; }
+/* 静态朝向层：emblem 动画自带 transform，同层旋转会被关键帧覆盖，故独立外包一层 */
+.fx-theme-aim { position: absolute; inset: 0; }
+@keyframes theme-emblem { 0% { opacity: 0; transform: scale(.25) rotate(-70deg); } 26% { opacity: .9; transform: scale(1) rotate(0deg); } 70% { opacity: .7; } 100% { opacity: 0; transform: scale(1.13) rotate(30deg); } }
+.fx-theme-chip { position: absolute; left: 50%; top: 50%; width: 7%; height: 4%; border-radius: 40% 2%; background: var(--fx-c1); opacity: 0; animation: theme-chip 550ms ease-out both; animation-delay: calc(var(--theme-hit) + var(--chip-step, 0) * 35ms); }
+@keyframes theme-chip { 0% { opacity: 0; transform: rotate(var(--chip-angle)) translateX(6px) scale(.3); } 15% { opacity: .9; } 100% { opacity: 0; transform: rotate(var(--chip-angle)) translateX(calc(var(--board-cell-size) * .72)) scale(.2); } }
+.fx-theme-chip-ice { background: var(--fx-c2); border: 1px solid var(--fx-c1); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.fx-theme-chip-rune { border: 1px solid currentColor; background: var(--fx-c2); border-radius: 0; }
+.fx-theme-chip-feather { width: 13%; height: 4%; clip-path: polygon(0 70%, 65% 0, 100% 30%, 65% 80%); }
+.fx-theme-chip-bone { background: var(--fx-c2); border: 1px solid var(--fx-c1); }
+.fx-theme-chip-leaf { width: 11%; height: 6%; border-radius: 80% 0; }
+.fx-theme-chip-sand { width: 3%; height: 3%; border-radius: 50%; }
+.fx-theme-chip-ember { background: var(--fx-c2); box-shadow: 0 0 4px var(--fx-c1); }
+
+/* 两端连接：实体线条先建立，光珠沿线输送；玄阴反向抽回。 */
+.fx-theme-connector { position: absolute; left: 50%; top: calc(50% - 15px); width: calc(var(--fx-dist) * (var(--board-cell-size) + 6px)); height: 30px; transform: rotate(var(--fx-rot)); transform-origin: 0 50%; }
+.fx-theme-connector svg { width: 100%; height: 100%; overflow: visible; }
+.fx-theme-link-path, .fx-theme-link-twigs { stroke: currentColor; stroke-width: 2; fill: none; stroke-dasharray: 260; stroke-dashoffset: 260; animation: theme-link-draw 900ms ease-out both; }
+.fx-theme-link-twigs { stroke: var(--fx-c2); stroke-width: 3; animation-delay: 160ms; }
+@keyframes theme-link-draw { 0% { opacity: 0; stroke-dashoffset: 260; } 12% { opacity: 1; } 55% { opacity: .85; stroke-dashoffset: 0; } 100% { opacity: 0; stroke-dashoffset: 0; } }
+.fx-theme-link-bead { position: absolute; left: 0; top: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--fx-c2); box-shadow: 0 0 7px var(--fx-c1); opacity: 0; animation: theme-link-travel 650ms ease-in-out 180ms both; }
+.fx-theme-link-bead-b { width: 4px; height: 4px; top: 13px; animation-delay: 290ms; }
+.fx-theme-connector.is-reverse .fx-theme-link-bead { animation-direction: reverse; }
+@keyframes theme-link-travel { 0% { opacity: 0; left: 0; } 15%, 85% { opacity: 1; } 100% { opacity: 0; left: 100%; } }
+.hero-link.hero-link-frost { color: #6da8c6; opacity: .65; }
+.hero-link-frost .hero-link-core { height: 2px; background: linear-gradient(90deg, transparent, #80b7cb 15%, #bddfea 50%, #80b7cb 85%, transparent); }
+.hero-link-frost .hero-link-flow { background: repeating-linear-gradient(90deg, transparent 0 22px, #d8f5ff 23px 27px, transparent 28px 44px); }
+
+/* 飞行与命中共享 --fx-travel-ms / --fx-hit-ms。 */
+.fx-theme-projectile { position: absolute; left: 50%; top: 50%; width: 30%; height: 75%; margin: -37.5% 0 0 -15%; transform-origin: 50% 50%; opacity: 0; animation: theme-projectile var(--fx-travel-ms, 260ms) linear 90ms both; }
+.fx-theme-projectile-ink-brush .fx-theme-glyph { transform: rotate(-90deg); }
+@keyframes theme-projectile { 0% { opacity: 0; transform: rotate(var(--fx-rot)) translateX(0); } 10%, 90% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--fx-rot)) translateX(calc(var(--fx-dist) * (var(--board-cell-size) + 6px))); } }
+.fx-theme-gather { position: absolute; inset: 34%; border: 2px solid currentColor; transform: rotate(45deg); opacity: 0; animation: theme-gather 260ms ease-out both; }
+@keyframes theme-gather { 0% { opacity: 0; transform: rotate(45deg) scale(1.7); } 55% { opacity: .85; } 100% { opacity: 0; transform: rotate(45deg) scale(.2); } }
+.fx-theme-brush-land { position: absolute; inset: -12% 22% 14%; width: 56%; height: 98%; opacity: 0; animation: theme-brush-land 500ms cubic-bezier(.15,.8,.3,1) var(--theme-hit) both; }
+@keyframes theme-brush-land { 0% { opacity: 0; transform: translateY(-55%) rotate(15deg); } 25% { opacity: 1; transform: translateY(0) rotate(-12deg); } 70% { opacity: .9; } 100% { opacity: 0; transform: translateY(-8%) rotate(-12deg); } }
+.fx-theme-ink-main, .fx-theme-ink-dry { position: absolute; left: -18%; top: 40%; width: 136%; height: 21%; transform: rotate(calc(var(--fx-rot) - 38deg)); transform-origin: 70% 50%; opacity: 0; background: var(--fx-c1); clip-path: polygon(0 35%, 18% 12%, 52% 24%, 94% 0, 100% 40%, 65% 57%, 93% 73%, 35% 80%, 3% 100%, 20% 65%); animation: theme-ink-cut 540ms cubic-bezier(.12,.82,.3,1) var(--theme-hit) both; }
+.fx-theme-ink-dry { height: 6%; top: 48%; width: 105%; left: -2%; background: #f2eee5; animation-delay: calc(var(--theme-hit) + 35ms); }
+@keyframes theme-ink-cut { 0% { opacity: 0; transform: rotate(calc(var(--fx-rot) - 38deg)) scaleX(.08) scaleY(1.7); } 14% { opacity: .95; transform: rotate(calc(var(--fx-rot) - 38deg)) scaleX(1.08); } 55% { opacity: .7; } 100% { opacity: 0; transform: rotate(calc(var(--fx-rot) - 38deg)) scaleX(1.18) scaleY(.6); } }
+.fx-theme-ink-spread { position: absolute; inset: 28%; background: var(--fx-c1); border-radius: 40% 60% 62% 38%; opacity: 0; animation: theme-ink-spread 680ms ease-out var(--theme-hit) both; }
+@keyframes theme-ink-spread { 0% { opacity: 0; transform: scale(.2); } 25% { opacity: .5; transform: scale(1); } 100% { opacity: 0; transform: scale(1.65); } }
+.fx-theme-ink-segment { position: absolute; height: 13px; margin-top: -6.5px; transform-origin: 0 50%; transform: rotate(var(--segment-angle)); clip-path: polygon(0 40%, 17% 13%, 54% 0, 90% 20%, 100% 58%, 72% 72%, 27% 100%, 0 78%); background: linear-gradient(90deg, #443449, #302b3a 60%, #9b846d); opacity: 0; animation: theme-ink-path 820ms ease-out var(--segment-delay) both; }
+.fx-theme-ink-segment b { position: absolute; inset: 35% 9%; background: #eee6d9; clip-path: polygon(0 40%, 70% 0, 100% 50%, 20% 100%); }
+@keyframes theme-ink-path { 0% { opacity: 0; scale: .03 1; } 20% { opacity: .85; scale: 1 1; } 75% { opacity: .38; } 100% { opacity: 0; scale: 1 1; } }
+.fx-theme-dash-brush { position: absolute; inset: 10% 35%; width: 30%; height: 80%; opacity: 0; animation: theme-projectile var(--fx-travel-ms, 260ms) ease-out 30ms both; }
+
+/* 钱币聚印与通灵：钱孔、钱纹和冠形保留实体对比。 */
+.fx-theme-coin-source { position: absolute; inset: 24%; opacity: 0; animation: theme-emblem 520ms ease-out both; }
+.fx-theme-coin-main { position: absolute; inset: 0; opacity: 0; animation: theme-coin-drop 1100ms cubic-bezier(.15,.85,.32,1) both; }
+@keyframes theme-coin-drop { 0% { opacity: 0; transform: translateY(-80%) rotateY(75deg) scale(.35); } 18% { opacity: 1; } 38% { transform: translateY(0) rotateY(0deg) scale(1.12); opacity: 1; } 54% { transform: scale(.95); } 85% { opacity: .55; } 100% { opacity: 0; transform: scale(1.12); } }
+.fx-theme-coin-orbit { position: absolute; inset: 0; }
+.fx-theme-coin-orbit > span { position: absolute; left: 38%; top: 38%; width: 24%; height: 24%; opacity: 0; animation: theme-coin-converge 850ms ease-out both; transform: rotate(var(--coin-angle)); }
+@keyframes theme-coin-converge { 0% { opacity: 0; transform: rotate(var(--coin-angle)) translateX(calc(var(--board-cell-size) * .8)) scale(.5); } 18% { opacity: 1; } 48% { transform: rotate(var(--coin-angle)) translateX(0) scale(.7); opacity: .8; } 100% { opacity: 0; transform: rotate(var(--coin-angle)) translateX(calc(var(--board-cell-size) * .65)) scale(.3); } }
+.fx-theme-coin-blessing .fx-theme-coin-main { inset: 22%; animation: theme-emblem 1050ms ease-out 160ms both; }
+.fx-theme-coin-blessing .fx-theme-coin-orbit > span { animation-direction: reverse; }
+.fx-theme-coin-awaken .fx-theme-coin-main, .fx-theme-coin-strike.is-empowered .fx-theme-coin-main { inset: -18%; filter: drop-shadow(0 0 6px #b27b2c); }
+.fx-theme-seal-impact { position: absolute; inset: 8%; border: 3px double currentColor; opacity: 0; transform: rotate(45deg); animation: theme-seal 520ms ease-out var(--theme-hit) both; }
+@keyframes theme-seal { 0% { opacity: 0; transform: rotate(45deg) scale(.35); } 20% { opacity: .75; } 100% { opacity: 0; transform: rotate(45deg) scale(1.6); } }
+.fx-theme-coin-blessing .fx-theme-seal-impact { border-width: 1px; }
+.fx-theme-crown { position: absolute; left: 8%; top: -14%; width: 84%; height: 34%; display: flex; justify-content: center; align-items: end; opacity: 0; animation: theme-emblem 1250ms ease-out 150ms both; }
+.fx-theme-crown i { width: 30%; height: 70%; background: var(--fx-c2); border: 2px solid currentColor; clip-path: polygon(0 100%, 0 20%, 50% 60%, 100% 0, 100% 100%); }
+.fx-theme-crown i:nth-child(2) { height: 100%; clip-path: polygon(0 100%, 0 55%, 50% 0, 100% 55%, 100% 100%); }
+
+/* 帛画开卷后，金乌和玄龟由画面凝出。 */
+.fx-theme-scroll { position: absolute; inset: 15% -28%; opacity: 0; animation: theme-scroll-open 1250ms ease-out both; }
+.fx-theme-scroll-paper { position: absolute; inset: 0 5%; background: repeating-linear-gradient(90deg, transparent 0 8px, #a3835b22 9px 10px), linear-gradient(0deg, #cab88b, #f1e4bf 50%, #cab88b); border-block: 2px solid #806446; box-shadow: inset 0 0 12px #77513544; }
+.fx-theme-scroll-roller { position: absolute; z-index: 1; top: -8%; bottom: -8%; width: 8%; background: linear-gradient(90deg, #554331, #c6a574, #554331); border-radius: 3px; }
+.fx-theme-scroll-left { left: 0; }.fx-theme-scroll-right { right: 0; }
+@keyframes theme-scroll-open { 0% { opacity: 0; transform: scaleX(.06); } 15% { opacity: .9; } 38%, 70% { opacity: .8; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1.08) translateY(10%); } }
+.fx-theme-beast { position: absolute; inset: -12%; opacity: 0; animation: theme-beast-rise 920ms cubic-bezier(.15,.7,.3,1) 350ms both; }
+@keyframes theme-beast-rise { 0% { opacity: 0; transform: translateY(20%) scale(.2); filter: blur(3px); } 36% { opacity: .95; transform: translateY(-10%) scale(1.04); filter: blur(0); } 80% { opacity: .8; } 100% { opacity: 0; transform: translateY(-23%) scale(1.1); } }
+.fx-theme-scroll-xuangui .fx-theme-beast { inset: 3%; animation-name: theme-turtle-rise; }
+@keyframes theme-turtle-rise { 0% { opacity: 0; transform: translateY(30%) scale(.3); } 45% { opacity: .95; transform: translateY(0) scale(1.05); } 80% { opacity: .8; } 100% { opacity: 0; transform: scale(1.1); } }
+.fx-theme-scroll-source { position: absolute; inset: 22%; border: 3px double currentColor; opacity: 0; animation: theme-emblem 700ms ease-out both; }
+
+/* 五弦的节奏：源端拨弦，受益者音符；爆发才出现裂帛波。 */
+.fx-theme-strings { position: absolute; inset: -5% 18%; transform: rotate(-18deg); }
+.fx-theme-strings i, .fx-theme-score i { position: absolute; left: calc(12% + var(--string-index) * 16%); top: 0; height: 100%; width: 2px; background: currentColor; opacity: 0; animation: theme-string 700ms ease-out both; animation-delay: calc(var(--string-index) * 65ms); }
+@keyframes theme-string { 0% { opacity: 0; transform: scaleY(.1); } 25% { opacity: .85; transform: scaleY(1) translateX(3px); } 40% { transform: translateX(-3px); } 60% { transform: translateX(1px); } 100% { opacity: 0; transform: scaleY(1); } }
+.fx-theme-score { position: absolute; inset: 15% -10%; transform: rotate(-14deg); }
+.fx-theme-score i { left: 0; top: calc(var(--string-index) * 18%); height: 1px; width: 100%; animation-delay: calc(200ms + var(--string-index) * 45ms); }
+.fx-theme-note { position: absolute; inset: 22% 31%; width: 38%; height: 65%; opacity: 0; animation: theme-note 800ms ease-out 220ms both; }
+@keyframes theme-note { 0% { opacity: 0; transform: translateY(15%) scale(.5); } 25% { opacity: .95; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-50%) rotate(12deg); } }
+.fx-theme-sound-cut { position: absolute; left: -30%; top: 40%; width: 160%; height: 9%; border-top: 4px solid currentColor; border-bottom: 1px solid var(--fx-c2); opacity: 0; animation: theme-sound-cut 500ms ease-out var(--theme-hit) both; }
+.fx-theme-sound-cut-b { top: 58%; animation-delay: calc(var(--theme-hit) + 100ms); }
+@keyframes theme-sound-cut { 0% { opacity: 0; transform: scaleX(.05) skewY(-15deg); } 15% { opacity: 1; } 100% { opacity: 0; transform: scaleX(1.2) skewY(5deg) translateY(-15px); } }
+
+.fx-theme-eye { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; animation: theme-eye 950ms ease-out both; }
+@keyframes theme-eye { 0% { opacity: 0; transform: scale(1.3,.05); } 22% { opacity: 1; transform: scale(1,1); } 65% { opacity: .85; } 100% { opacity: 0; transform: scale(.8,.1); } }
+.fx-theme-shadow-flight { position: absolute; left: 50%; top: 26%; width: calc(var(--fx-dist) * (var(--board-cell-size) + 6px)); height: 45%; background: linear-gradient(90deg, transparent, #292036aa 60%, #ae416c); clip-path: polygon(0 30%, 78% 8%, 100% 50%, 78% 92%, 0 70%); transform: rotate(var(--fx-rot)); transform-origin: 0 50%; opacity: 0; animation: theme-ink-path 600ms ease-out both; }
+.fx-theme-shadow-cut { position: absolute; left: -15%; top: 43%; width: 130%; height: 8%; background: linear-gradient(90deg, transparent, #351e3f, var(--fx-c2), transparent); transform: rotate(-42deg); opacity: 0; animation: theme-shadow-cut 450ms ease-out var(--theme-hit) both; }
+.fx-theme-shadow-cut-b { transform: rotate(40deg); animation-delay: calc(var(--theme-hit) + 90ms); }
+@keyframes theme-shadow-cut { 0% { opacity: 0; scale: .08 1.8; } 18% { opacity: 1; scale: 1.1 1; } 100% { opacity: 0; scale: 1.2 .2; } }
+.fx-theme-nightowl-strike .fx-theme-eye { opacity: .4; animation-duration: 650ms; }
+.fx-theme-bone { position: absolute; inset: -12%; width: 124%; height: 124%; transform-origin: 20% 80%; opacity: 0; animation: theme-bone-swing 800ms cubic-bezier(.2,.85,.3,1) both; }
+@keyframes theme-bone-swing { 0% { opacity: 0; transform: rotate(-80deg) scale(.65); } 20% { opacity: 1; transform: rotate(-65deg) scale(1); } 32% { transform: rotate(25deg) scale(1.08); } 65% { opacity: .9; } 100% { opacity: 0; transform: rotate(35deg) scale(1); } }
+.fx-theme-bone-cut { position: absolute; inset: 30% -20%; border-top: 7px solid var(--fx-c2); border-radius: 50%; transform: rotate(var(--fx-rot)); opacity: 0; animation: theme-shadow-cut 450ms ease-out var(--theme-hit) both; }
+.fx-theme-roots { position: absolute; inset: -8%; width: 116%; height: 116%; opacity: 0; stroke-dasharray: 260; stroke-dashoffset: 260; animation: theme-root-grow 1050ms ease-out both; }
+@keyframes theme-root-grow { 0% { opacity: 0; stroke-dashoffset: 260; } 20% { opacity: .85; } 60% { opacity: .9; stroke-dashoffset: 0; } 100% { opacity: 0; stroke-dashoffset: 0; } }
+.fx-theme-wither-flower { position: absolute; inset: -8%; width: 116%; height: 116%; opacity: 0; animation: theme-wither 800ms ease-out 100ms both; }
+@keyframes theme-wither { 0% { opacity: 0; transform: scale(.3) rotate(-30deg); } 30% { opacity: .9; transform: scale(1) rotate(0deg); } 55% { opacity: .9; transform: scale(.65) rotate(20deg); } 100% { opacity: 0; transform: scale(1.4) rotate(35deg); } }
+.fx-theme-wind-sheet { position: absolute; inset: -12% -22%; transform: rotate(var(--fx-rot)); opacity: 0; animation: theme-wind-pass 850ms cubic-bezier(.2,.7,.3,1) both; }
+.fx-theme-wind-sheet svg { width: 100%; height: 100%; }
+@keyframes theme-wind-pass { 0% { opacity: 0; transform: rotate(var(--fx-rot)) translateX(-55%) scaleX(.3); } 35% { opacity: .9; transform: rotate(var(--fx-rot)) translateX(0) scaleX(1); } 100% { opacity: 0; transform: rotate(var(--fx-rot)) translateX(65%) scaleX(1.2); } }
+.fx-theme-wind-line .fx-theme-wind-sheet { inset: 25% -35%; }
+.fx-theme-star-lance { position: absolute; left: -75%; top: 42%; width: 270%; height: 15%; background: linear-gradient(90deg, transparent, #b34b1f 30%, #ffcf67 70%, #fff4ce); clip-path: polygon(0 30%, 76% 0, 100% 50%, 76% 100%, 0 70%); }
+.fx-theme-star-impact { position: absolute; inset: -12%; background: var(--fx-c2); clip-path: polygon(50% 0, 57% 35%, 87% 10%, 68% 44%, 100% 50%, 65% 57%, 88% 88%, 57% 65%, 50% 100%, 43% 65%, 12% 88%, 35% 57%, 0 50%, 35% 43%, 12% 12%, 43% 35%); opacity: 0; animation: theme-star-burst 550ms ease-out var(--theme-hit) both; }
+@keyframes theme-star-burst { 0% { opacity: 0; transform: scale(.15); } 15% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35) rotate(25deg); } }
+.fx-theme-runes { position: absolute; inset: 0; }
+.fx-theme-runes .fx-theme-glyph { position: absolute; width: 32%; height: 75%; left: 34%; top: 0; opacity: 0; animation: theme-rune-rise 850ms ease-out 100ms both; }
+.fx-theme-runes .fx-theme-rune-0 { left: 0; top: 10%; rotate: -22deg; }
+.fx-theme-runes .fx-theme-rune-2 { left: 68%; top: 10%; rotate: 22deg; animation-delay: 250ms; }
+@keyframes theme-rune-rise { 0% { opacity: 0; transform: translateY(35%) scale(.5); } 35% { opacity: .95; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-25%) scale(1.05); } }
+.fx-theme-clock { position: absolute; inset: -12%; width: 124%; height: 124%; opacity: 0; animation: theme-clock 1100ms ease-out both; }
+.fx-theme-clock-hand { transform-origin: 50px 50px; animation: theme-clock-back 950ms cubic-bezier(.2,.8,.3,1) both; }
+@keyframes theme-clock { 0% { opacity: 0; transform: scale(1.3); } 25%, 70% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(.7); } }
+@keyframes theme-clock-back { from { transform: rotate(0deg); } to { transform: rotate(-540deg); } }
+.fx-theme-rewind-echo { position: absolute; inset: 8%; border: 2px dashed currentColor; border-radius: 18%; opacity: 0; animation: theme-rewind-echo 900ms ease-out both; }
+.fx-theme-rewind-echo-b { animation-delay: 160ms; }
+@keyframes theme-rewind-echo { 0% { opacity: 0; transform: translate(20%,-15%) scale(1.2); } 50% { opacity: .45; transform: translate(0,0) scale(1); } 100% { opacity: 0; transform: scale(.9); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .fx-theme *, .fx-theme *::before, .fx-theme *::after { animation: none !important; opacity: 0 !important; }
+    .hero-link-frost .hero-link-flow { animation: none; }
+}

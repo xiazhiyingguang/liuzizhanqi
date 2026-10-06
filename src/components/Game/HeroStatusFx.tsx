@@ -11,6 +11,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { Hero } from '../../types/game';
 import { resolveHeroStatusFx, type HeroStatusFxKind } from '../../core/hero-status-fx';
+import { HeroMechanismState } from './HeroMechanismState';
 
 /** 环绕点：n 粒沿圆环均分布点并整体旋转 */
 function Orbit({ count, className = '' }: { count: number; className?: string }) {
@@ -219,10 +220,18 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                     <Orbit count={2} className="sfx-orbit-inlay" />
                 </>
             );
-        case 'way':
+        case 'longshi':
+            // 龙势：原画墨龙贴住发顶，呼吸时不向上漂离；矢量精修见 refine-zhenxiao-dragon.mjs。
             return (
                 <>
-                    <i className="sfx-ring sfx-way-ring" />
+                    <i className="sfx-ring sfx-longshi-ring" />
+                    <img
+                        className="sfx-longshi-dragon"
+                        src={`${import.meta.env.BASE_URL}fx/zhenxiao-dragon-crown.svg`}
+                        alt=""
+                        aria-hidden="true"
+                        draggable={false}
+                    />
                     <Rise count={2} />
                 </>
             );
@@ -290,7 +299,7 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                 </>
             );
         case 'mirror-blade':
-            return <Orbit count={3} className="sfx-orbit-blade" />;
+            return <Orbit count={Math.max(0, hero?.counters['破镜之刃'] ?? 0)} className="sfx-orbit-blade" />;
         case 'momentum':
             return <Rise count={3} />;
         case 'drunk':
@@ -331,9 +340,9 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
 
 export function HeroStatusFx({ hero }: { hero: Hero }) {
     const kinds = resolveHeroStatusFx(hero);
-    if (kinds.length === 0) return null;
     return (
         <>
+            <HeroMechanismState hero={hero} />
             {kinds.map(kind => (
                 <span key={kind} className={`status-fx sfx-${kind}`} aria-hidden="true">
                     {partsFor(kind, hero)}

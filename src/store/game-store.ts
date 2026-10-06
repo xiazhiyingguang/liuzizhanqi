@@ -1,7 +1,11 @@
 ﻿import { create } from 'zustand';
-import { nextBattleLogId } from '../core/battle-log-id';
+import { nextBattleLogId, battleLogSeq } from '../core/battle-log-id';
+import { sharesFormShiftCast, collectFormShiftLogIds } from '../core/mechanism-fx-events';
 import { BOARD_SIZE, GameState, Hero, Position, BattleLogEntry, HeroState, Player } from '../types/game';
-import { AVAILABLE_HERO_IDS, createHero, createWukongClone, getMirrorOwnerIdFromCloneId } from '../data/heroes';
+import { AVAILABLE_HERO_IDS, applyHeroWeapon, createHero, createWukongClone, getMirrorOwnerIdFromCloneId, getWukongCritRate } from '../data/heroes';
+import { isWeaponImplemented } from '../data/weapon-codex';
+import { applyWeaponOnArrival } from '../core/weapon-effects';
+import { applyZhizhiForMode, heroXRedirectCost, zhizhiValue } from '../core/hero-zhizhi';
 import { getSkill } from '../data/skills';
 import { MovementSystem } from '../core/movement-system';
 import { SkillSystem } from '../core/skill-system';
@@ -10,11 +14,13 @@ import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
 import { sendPlayerAction, syncGameState } from '../services/socket-service';
 import { noteReplayStep } from '../services/battle-replay';
+import { fxLayerLimit } from '../core/render-quality';
 import { checkYinyangLinks, isJinghongReleaseWindow, syncPositionAnchoredEffects, takeBenchHeroHp, getHnyFanPositions } from '../data/extended-heroes';
 import {
     castBloodSweep,
     castLiaoyuanHundredSlash,
     castLiehuoBurn,
+    castZhiguangKaleidoscope,
     drainPendingSkillFxRequests,
     getDilanFrontRect,
     getDilanSkill1Cells,
@@ -22,23 +28,27 @@ import {
     getLibaiFrontRect,
     getYunyingChargeCells,
     getYunyingTianweiLandings,
+    getZhiguangTianweiLandings,
     grantLingxiAssist,
     hasShangguanDashOption,
     jinghuaSwapLocked,
     performShangguanDashSegment,
     pickYunyingTianweiLanding,
+    pickZhiguangTianweiLanding,
+    publishSkillFxAnchor,
     requestYunyingTianweiLanding,
     resolveJinghuaSwapMove,
     settleXubaiOrbs,
     takeYunyingQueuedLiehuo,
     takeYunyingQueuedTianwei,
+    traceZhiguangBeam,
     triggerXubaiEntrance,
-    ZUIYI_MAX,
+    ZHIGUANG_DIRECTION_DELTAS,
+    zuiyiCap,
 } from '../data/extended-skills';
 import { recordBattleSkillUse } from '../core/battle-statistics';
 import { soundManager } from '../core/sound-manager';
 import { audioManager } from '../audio/audio-manager';
-import { getSkillSound } from '../data/skill-sounds';
 import {
     boundsFromCells,
     collectImpactPositions,
@@ -50,6 +60,7 @@ import {
     type SkillFxEvent,
 } from '../core/skill-fx';
 import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
+import { hookThrowLandings, hookThrowLocked, releaseHookThrowLock, resolveHookThrow } from '../core/water-marsh';
 
 /** 技能特效事件的自增序号（仅本地视觉层使用） */
 let skillFxSeq = 0;
@@ -140,13 +151,8 @@ function countWukongClonesOnBoard(gameState: GameState, wukongId: string): numbe
     return getWukongClonesOnBoard(gameState, wukongId).length;
 }
 
-function computeWukongCritRate(wukong: Hero): number {
-    const lingxi = wukong.counters['灵犀'] ?? 0;
-    return Math.min(1, 0.2 + lingxi * 0.2);
-}
-
 function syncWukongCritToSelfAndClones(wukong: Hero, gameState: GameState): void {
-    const critRate = computeWukongCritRate(wukong);
+    const critRate = getWukongCritRate(wukong);
     EffectManager.removeEffectByName(wukong, '悟空暴击率');
     EffectManager.addEffect(wukong, {
         type: 'buff',
@@ -255,14 +261,9 @@ function findNextWukongCloneIndex(
     return idx;
 }
 
-/** 读取李太白的历史位置（上次/上上次停留位置，可能为空） */
+/** 读取李太白的历史位置（上次/上上次停留位置，可能为空）——与 AI 判据共用引擎里那一份口径 */
 function getLibaiHistoryPositions(hero: Hero): Position[] {
-    const positions: Position[] = [];
-    const prev = hero.counters['__libai_prev_pos'];
-    const prev2 = hero.counters['__libai_prev2_pos'];
-    if (prev !== undefined) positions.push([Math.floor(prev / 6), prev % 6]);
-    if (prev2 !== undefined) positions.push([Math.floor(prev2 / 6), prev2 % 6]);
-    return positions;
+    return GameEngine.libaiHistoryPositions(hero);
 }
 
 /** 李太白归位：瞬移回主位置并结束行动 */
@@ -277,22 +278,15 @@ function finalizeLibaiChain(
         const [homeRow, homeCol] = chain.home;
         const moved = homeRow !== hero.position[0] || homeCol !== hero.position[1];
         if (moved) {
+            // 醉步归位是李太白自己的技能位移，不吃羽化
             const [oldRow, oldCol] = hero.position;
-            const oldPosition: Position = [oldRow, oldCol];
             if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
             hero.position = [homeRow, homeCol];
             state.board[homeRow][homeCol] = hero;
-            DamageCalculator.applyDilanMovementDamage(
-                hero,
-                MovementSystem.getManhattanDistance(oldPosition, hero.position),
-                state
-            );
             addLog({
                 type: 'passive',
                 player: hero.owner,
-                message: hero.state === HeroState.ALIVE
-                    ? `${hero.name}醉步归位到(${homeRow + 1},${homeCol + 1})`
-                    : `${hero.name}醉步归位时触发羽化伤害并阵亡`
+                message: `${hero.name}醉步归位到(${homeRow + 1},${homeCol + 1})`
             });
         }
     }
@@ -312,6 +306,9 @@ function finalizeLibaiChain(
  * continueTurnFlow 等会 mutate 回合流程状态的代码路径，其收尾 set 必须展开本片段。
  */
 function syncEngineFlowFields(state: GameState): Partial<GameStore> {
+    // 流程一变动先收一次鱼钩的尾：钩主如果在有人答落点之前被冻住/眩晕/下场，
+    // 这一手就永远没人能答（表现为整局卡死），当场作废比悬着好。
+    abandonHookPickIfOwnerBlocked(state);
     return {
         currentPlayer: state.currentPlayer,
         actionsThisTurn: state.actionsThisTurn,
@@ -354,13 +351,30 @@ function syncEngineFlowFields(state: GameState): Partial<GameStore> {
  *
  * 因此：凡调用 GameEngine.endHeroAction / startNewTurn / advancePastBlockedPlayer 的路径，
  * 收尾 set 必须用本片段而不是手写 battleLog 展开。
+ *
+ * "哪些算引擎那边新写的"必须按 id 记账判断，不能只看当前数组里有没有：
+ * 战报有 200 条环形上限，早期日志会被挤掉，用"不在界面上"当"没发布过"
+ * 就会在到达上限后把整批老日志重新贴回末尾（表现为顺序大乱）。
  */
-function mergeEngineLogs(captured: GameState): Partial<GameStore> {
+const publishedLogIds = new Set<string>();
+
+/** 导出给战报回归测试：合并规则（已发布记账 + 按创建序号归位）正是那条缺陷的落点 */
+export function mergeEngineLogs(captured: GameState): Partial<GameStore> {
     const current = useGameStore.getState().battleLog;
-    const seen = new Set(current.map(entry => entry.id));
-    const fromEngine = captured.battleLog.filter(entry => !seen.has(entry.id));
-    if (fromEngine.length === 0) return { battleLog: [...current] };
-    return { battleLog: [...current, ...fromEngine].slice(-200) };
+    for (const entry of current) publishedLogIds.add(entry.id);
+
+    const fresh = captured.battleLog.filter(entry => !publishedLogIds.has(entry.id));
+    if (fresh.length === 0) return { battleLog: [...current] };
+    for (const entry of fresh) publishedLogIds.add(entry.id);
+    // 补进来的引擎条目要按创建序号归位：它们是在 addLog 换数组之前 push 进旧数组的，
+    // 直接追加到末尾会把"先发生的结算"排到"后写的说明"之后
+    return { battleLog: [...current, ...fresh].sort((a, b) => battleLogSeq(a.id) - battleLogSeq(b.id)).slice(-200) };
+}
+
+/** 换一局就重新记账，否则上一局的 id 会一直占着集合（内容不会串，只是白占内存） */
+function resetPublishedLogIds(log: BattleLogEntry[]): void {
+    publishedLogIds.clear();
+    for (const entry of log) publishedLogIds.add(entry.id);
 }
 
 /**
@@ -388,6 +402,12 @@ export function getPendingActionCells(
         return ([[row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]] as Position[])
             .filter(([r, c]) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE);
     }
+    // 折光天威「万华镜」的落点：场上任意空格（含她自己脚下那一格），与点击判定共用一份口径
+    if (pending.type === 'zhiguang-tianwei') {
+        return hero ? getZhiguangTianweiLandings(hero, state) : [];
+    }
+    // 姜太公的鱼钩：上钩者可以抛到场上任意空格（钩子已经把他钉住，落点只受"空不空"约束）
+    if (pending.type === 'jiangtaigong-hook') return hookThrowLandings(state);
     // 血契/薛定谔的落点只认空格（站着别人的格点了也只会被告知"只能跃向空格"），
     // 高亮就得和点击判定同口径，别把友军脚下也涂成可选
     return Array.from(
@@ -429,6 +449,33 @@ function canLocalOperatePending(state: PendingChoiceContext, heroId: string, byC
  * 返回 false 表示这次挂起并不扣着她的行动（例如被镜花回声代打触发），只清槽不替别人收尾。
  */
 function abandonYunyingLiehuo(state: GameState, hero: Hero): boolean {
+    state.battleLog = useGameStore.getState().battleLog;
+    state.pendingBoardAction = undefined;
+    const heldAction = state.currentPlayer === hero.owner && state.selectedHero?.id === hero.id;
+    if (heldAction) GameEngine.endHeroAction(hero, state);
+    useGameStore.setState({
+        ...syncEngineFlowFields(state),
+        ...mergeEngineLogs(state),
+        pendingBoardAction: undefined,
+        board: state.board.map(row => [...row]),
+        player1Heroes: [...state.player1Heroes],
+        player2Heroes: [...state.player2Heroes],
+        highlightedPositions: [],
+        skillRange: [],
+        moveRange: [],
+        selectedHero: heldAction ? state.activeHero : state.selectedHero,
+        activeHero: state.activeHero,
+    });
+    sendOnlineStateIfNeeded(useGameStore.getState());
+    return heldAction;
+}
+
+/**
+ * 通用作废出口：清掉挂起，并且只有"这次挂起确实扣着主人自己的行动"时才替她放行。
+ * 血契·血誓不熄与薛定谔·叠加态这两类天威原先在 abandonPendingBoardAction 里没有分支，
+ * 挂起一旦漂到无人可答的局面，玩家连"结束行动"这条兜底路都走不通（表现为整局卡住）。
+ */
+function abandonGenericPendingPick(state: GameState, hero: Hero): boolean {
     state.battleLog = useGameStore.getState().battleLog;
     state.pendingBoardAction = undefined;
     const heldAction = state.currentPlayer === hero.owner && state.selectedHero?.id === hero.id;
@@ -508,6 +555,117 @@ function finishYunyingTianweiPick(
     return true;
 }
 
+/**
+ * 天威「万华镜」的落点落定后统一收尾（玩家点选、电脑点选、行动收尾兜底三条出口共用）。
+ * landing=null 即作废这次天威：不降落也不铺棱，只把扣住的行动放行。
+ * 返回值表示"这次行动的结局已由本函数定下"，调用方不该再自己 endHeroAction。
+ */
+function finishZhiguangTianweiPick(
+    state: GameState,
+    hero: Hero,
+    landing: Position | null
+): boolean {
+    state.battleLog = useGameStore.getState().battleLog;
+    if (landing) castZhiguangKaleidoscope(hero, state, landing);
+    state.pendingBoardAction = undefined;
+    // 只有这次挂起确实扣着她当前行动时才在此结束行动；被镜花回声代打之类触发的天威，
+    // 行动归属还在别人手里，不能替别人收尾
+    if (state.currentPlayer === hero.owner && state.selectedHero?.id === hero.id) {
+        GameEngine.endHeroAction(hero, state);
+    } else {
+        return false;
+    }
+    useGameStore.setState({
+        ...syncEngineFlowFields(state),
+        ...mergeEngineLogs(state),
+        pendingBoardAction: undefined,
+        board: state.board.map(row => [...row]),
+        boardEffects: [...(state.boardEffects ?? [])],
+        player1Heroes: [...state.player1Heroes],
+        player2Heroes: [...state.player2Heroes],
+        highlightedPositions: [],
+        skillRange: [],
+        moveRange: [],
+        selectedHero: state.activeHero,
+        activeHero: state.activeHero,
+    });
+    sendOnlineStateIfNeeded(useGameStore.getState());
+    return true;
+}
+
+/**
+ * 收尾兜底：钩主在被冻住/眩晕/下场之后答不了"把这个人丢到哪一格"。
+ * 与其把这个挂起悬在盘上让整局卡死，不如当场作废——钩子已经消耗，人留在原地不抛。
+ * 由 `syncEngineFlowFields` 在每次流程变动时调用，所以任何一条交接路径都跑得到。
+ */
+function abandonHookPickIfOwnerBlocked(state: GameState): void {
+    const pending = state.pendingBoardAction;
+    if (pending?.type !== 'jiangtaigong-hook') return;
+    const caster = [...state.player1Heroes, ...state.player2Heroes].find(hero => hero.id === pending.heroId);
+    if (caster && caster.state === HeroState.ALIVE && !EffectManager.isStunned(caster)) return;
+    state.pendingBoardAction = undefined;
+    state.battleLog = useGameStore.getState().battleLog;
+    useGameStore.getState().addLog({
+        type: 'system',
+        player: caster?.owner ?? state.currentPlayer,
+        message: `${caster?.name ?? '姜太公'}动弹不得，这一钩先放过去`,
+    });
+}
+
+/**
+ * 鱼钩抛掷落点落定后的统一收尾，三条出口共用（玩家点选、电脑点选、没人点就作废）。
+ * landing=null 即不抛：只把槽位清掉，被钩的人留在原地。
+ *
+ * 挂起的主人未必是当前的行动方——敌人自己走位踩响钩子时，扣着的是对面那一手；
+ * 姜太公技能二把人拖过钩子时，扣着的才是他自己这一手。两种情况都要认，
+ * 否则要么替别人把行动提前结束掉，要么控制权永远交不出去。
+ */
+function finishHookThrowPick(state: GameState, caster: Hero, landing: Position | null): void {
+    state.battleLog = useGameStore.getState().battleLog;
+    const targetId = state.pendingBoardAction?.hookTargetId;
+    const target = [...state.player1Heroes, ...state.player2Heroes].find(hero => hero.id === targetId);
+    state.pendingBoardAction = undefined;
+    if (landing && target?.position && target.state === HeroState.ALIVE) {
+        resolveHookThrow(state, caster, target, landing);
+    }
+
+    const heldByCaster = state.currentPlayer === caster.owner && state.selectedHero?.id === caster.id;
+    if (heldByCaster) {
+        GameEngine.endHeroAction(caster, state);
+    } else if (target && target.state !== HeroState.ALIVE &&
+        state.currentPlayer === target.owner && state.selectedHero?.id === target.id) {
+        // 这一抛把人送走了：行动者已阵亡，按引擎口径当场收尾，否则控制权卡在尸体手里
+        GameEngine.endHeroAction(target, state);
+    }
+    useGameStore.setState({
+        ...syncEngineFlowFields(state),
+        ...mergeEngineLogs(state),
+        pendingBoardAction: undefined,
+        board: state.board.map(row => [...row]),
+        player1Heroes: [...state.player1Heroes],
+        player2Heroes: [...state.player2Heroes],
+        highlightedPositions: [],
+        skillRange: [],
+        moveRange: [],
+        ...(heldByCaster || target?.state !== HeroState.ALIVE
+            ? { selectedHero: state.activeHero, activeHero: state.activeHero }
+            : {}),
+    });
+    sendOnlineStateIfNeeded(useGameStore.getState());
+}
+
+/**
+ * 折光技能二的方向格：周身八格之一 → 方向编号（与 ZHIGUANG_DIRECTION_DELTAS 同序）。
+ * 点得比邻格更远、或正点在她自己脚下，都算没选到方向。
+ */
+function zhiguangDirectionCodeFromCell(from: Position, target: Position): number | null {
+    if (Math.abs(target[0] - from[0]) > 1 || Math.abs(target[1] - from[1]) > 1) return null;
+    const dr = Math.sign(target[0] - from[0]);
+    const dc = Math.sign(target[1] - from[1]);
+    const index = ZHIGUANG_DIRECTION_DELTAS.findIndex(([sr, sc]) => sr === dr && sc === dc);
+    return index >= 0 ? index : null;
+}
+
 interface GameStore extends GameState {
     // 新增状态
     moveRange: Position[];
@@ -539,12 +697,21 @@ interface GameStore extends GameState {
     confirmHeroSelection: () => void;
     confirmHeroSelectionForPlayer: (playerKey: Player) => boolean;
 
+    // 武装（仅经典模式）：一器一主，开关本方英雄的专属武器
+    toggleWeapon: (templateId: string) => void;
+    toggleWeaponForPlayer: (playerKey: Player, templateId: string) => boolean;
+    confirmWeaponSelection: () => void;
+    confirmWeaponSelectionForPlayer: (playerKey: Player) => boolean;
+
     // 部署
     deployHero: (heroId: string, position: Position) => void;
     deployHeroForPlayer: (playerKey: Player, heroId: string, position: Position) => boolean;
     /** 布阵阶段调整已上阵英雄位置：目标空格为移动，目标为己方英雄则交换 */
     repositionDeployHero: (heroId: string, position: Position) => void;
     repositionDeployHeroForPlayer: (playerKey: Player, heroId: string, position: Position) => boolean;
+    /** 布阵阶段撤下一名已上阵英雄，使其回到候选席重新选择（确认部署后失效） */
+    undeployHero: (heroId: string) => void;
+    undeployHeroForPlayer: (playerKey: Player, heroId: string) => boolean;
     confirmDeployment: () => void;
     confirmDeploymentForPlayer: (playerKey: Player) => boolean;
 
@@ -615,6 +782,8 @@ export function createOnlineStateSnapshot(state: GameStore) {
         highlightedPositions: state.highlightedPositions,
         selectedSkill: state.selectedSkill,
         battleLog: state.battleLog,
+        // 结算分支与真实路径在 executeSkill 包装层消费之前发送，供对端重建相同表现。
+        skillFxExtras: state.skillFxExtras,
         battleStatistics: state.battleStatistics,
         deathCounters: state.deathCounters,
         player1SelectedHeroIds: state.player1SelectedHeroIds,
@@ -624,6 +793,11 @@ export function createOnlineStateSnapshot(state: GameStore) {
         player2ReadyHeroSelect: state.player2ReadyHeroSelect,
         player1ReadyDeploy: state.player1ReadyDeploy,
         player2ReadyDeploy: state.player2ReadyDeploy,
+        gameMode: state.gameMode,
+        player1WeaponIds: state.player1WeaponIds,
+        player2WeaponIds: state.player2WeaponIds,
+        player1ReadyWeaponSelect: state.player1ReadyWeaponSelect,
+        player2ReadyWeaponSelect: state.player2ReadyWeaponSelect,
         player1BenchHeroIds: state.player1BenchHeroIds,
         player2BenchHeroIds: state.player2BenchHeroIds,
         player1BenchHp: state.player1BenchHp,
@@ -717,6 +891,11 @@ const createInitialState = (): GameState => ({
     player2ReadyHeroSelect: false,
     player1ReadyDeploy: false,
     player2ReadyDeploy: false,
+    gameMode: 'standard',
+    player1WeaponIds: {},
+    player2WeaponIds: {},
+    player1ReadyWeaponSelect: false,
+    player2ReadyWeaponSelect: false,
     player1BenchHeroIds: [],
     player1BenchHp: {},
     player2BenchHp: {},
@@ -730,6 +909,8 @@ const createInitialState = (): GameState => ({
     onlineRoomId: undefined,
     localPlayerNumber: undefined,
     localPlayerName: undefined,
+    onlineSelfReconnecting: false,
+    onlineOpponentOfflineUntil: undefined,
     isAiMode: false,
     aiPlayer: undefined,
     aiDifficulty: undefined,
@@ -784,6 +965,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
             isAiMode: onlineContext.isAiMode,
             aiPlayer: onlineContext.aiPlayer,
             aiDifficulty: onlineContext.aiDifficulty,
+            // 模式是"入口"决定的，不在这里重列就会被 createInitialState 抹回标准模式
+            gameMode: onlineContext.gameMode ?? 'standard',
             activeHero: null,
             moveRange: [],
             skillRange: [],
@@ -822,6 +1005,38 @@ export const useGameStore = create<GameStore>((set, get) => ({
             set({ selectingPlayer: 'player2' });
         }
         sendOnlineActionIfNeeded(get(), { type: 'confirm-hero-selection', data: {} });
+    },
+
+    toggleWeapon: (templateId: string) => {
+        const state = get();
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localPlayerKey = getLocalPlayerKey(state);
+            if (!localPlayerKey) return;
+            const changed = get().toggleWeaponForPlayer(localPlayerKey, templateId);
+            if (changed) sendOnlineActionIfNeeded(get(), { type: 'toggle-weapon', data: { heroId: templateId } });
+            return;
+        }
+        const changed = get().toggleWeaponForPlayer(state.selectingPlayer, templateId);
+        if (changed) sendOnlineActionIfNeeded(get(), { type: 'toggle-weapon', data: { heroId: templateId } });
+    },
+
+    confirmWeaponSelection: () => {
+        const state = get();
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localPlayerKey = getLocalPlayerKey(state);
+            if (!localPlayerKey) return;
+            const changed = get().confirmWeaponSelectionForPlayer(localPlayerKey);
+            if (changed) sendOnlineActionIfNeeded(get(), { type: 'confirm-weapon-selection', data: {} });
+            return;
+        }
+        const selectingPlayer = state.selectingPlayer;
+        const changed = get().confirmWeaponSelectionForPlayer(selectingPlayer);
+        if (!changed) return;
+        // 热座：玩家一武装完交给玩家二，两边都确认过才进布阵
+        if (selectingPlayer === 'player1') {
+            set({ selectingPlayer: 'player2' });
+        }
+        sendOnlineActionIfNeeded(get(), { type: 'confirm-weapon-selection', data: {} });
     },
 
     deployHero: (heroId: string, position: Position) => {
@@ -901,6 +1116,55 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const nextPlayer2Ready = playerKey === 'player2' ? true : state.player2ReadyHeroSelect;
 
         if (nextPlayer1Ready && nextPlayer2Ready) {
+            // 经典模式多一道"武装"，标准模式保持现行流转（旧测试与脚本零改动）
+            const classic = (state.gameMode ?? 'standard') === 'classic';
+            updates.phase = classic ? 'weapon-select' : 'deploy';
+            updates.selectingPlayer = 'player1';
+            updates.player1ReadyDeploy = false;
+            updates.player2ReadyDeploy = false;
+            if (classic) {
+                updates.player1ReadyWeaponSelect = false;
+                updates.player2ReadyWeaponSelect = false;
+                updates.player1WeaponIds = {};
+                updates.player2WeaponIds = {};
+            }
+        }
+
+        set(updates);
+        return true;
+    },
+
+    toggleWeaponForPlayer: (playerKey: Player, templateId: string) => {
+        const state = get();
+        if (state.phase !== 'weapon-select') return false;
+        const readyKey = playerKey === 'player1' ? 'player1ReadyWeaponSelect' : 'player2ReadyWeaponSelect';
+        if (state[readyKey]) return false;
+        const selectedIds = playerKey === 'player1'
+            ? state.player1SelectedHeroIds
+            : state.player2SelectedHeroIds;
+        // 只许武装自己点过将、且效果已实装的专属器（一器一主：武器 id 就是模板 id）
+        if (!selectedIds.includes(templateId) || !isWeaponImplemented(templateId)) return false;
+
+        const mapKey = playerKey === 'player1' ? 'player1WeaponIds' : 'player2WeaponIds';
+        const weapons = { ...(state[mapKey] ?? {}) };
+        weapons[templateId] = weapons[templateId] ? null : templateId;
+        set({ [mapKey]: weapons } as Partial<GameStore>);
+        return true;
+    },
+
+    confirmWeaponSelectionForPlayer: (playerKey: Player) => {
+        const state = get();
+        if (state.phase !== 'weapon-select') return false;
+        const readyKey = playerKey === 'player1' ? 'player1ReadyWeaponSelect' : 'player2ReadyWeaponSelect';
+        if (state[readyKey]) return false;
+
+        const updates: Partial<GameStore> = {
+            [readyKey]: true
+        };
+        const nextPlayer1Ready = playerKey === 'player1' ? true : state.player1ReadyWeaponSelect;
+        const nextPlayer2Ready = playerKey === 'player2' ? true : state.player2ReadyWeaponSelect;
+
+        if (nextPlayer1Ready && nextPlayer2Ready) {
             updates.phase = 'deploy';
             updates.selectingPlayer = 'player1';
             updates.player1ReadyDeploy = false;
@@ -932,7 +1196,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 首发硬上限 4 人：UI 已禁用替补按钮，此处兜底拦截联机消息等旁路上阵
         if (currentHeroes.length >= 4) return false;
 
-        const hero = createHero(heroId, playerKey, position);
+        const hero = applyZhizhiForMode(applyHeroWeapon(createHero(heroId, playerKey, position),
+            playerKey === 'player1' ? state.player1WeaponIds : state.player2WeaponIds), state.gameMode);
+        applyWeaponOnArrival(hero);
         const newBoard = state.board.map(r => [...r]);
         newBoard[row][col] = hero;
 
@@ -997,7 +1263,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return true;
     },
 
-    // ===== 布阵阶段位置调整：空格=移动，己方英雄=交换，无需撤下重放 =====
+    // ===== 布阵阶段位置调整：空格=移动，己方英雄=交换，撤下=退回候选席重新分配 =====
 
     repositionDeployHero: (heroId: string, position: Position) => {
         const state = get();
@@ -1062,6 +1328,48 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return true;
     },
 
+    undeployHero: (heroId: string) => {
+        const state = get();
+        // 与 reposition-deploy-hero 一致：线上只传模板 ID，实例 ID 两端各自生成不可复用
+        const wireHeroId = heroId.replace(/-(player1|player2)-\d+$/, '');
+        if (state.isOnlineMode && !state.suppressOnlineBroadcast) {
+            const localPlayerKey = getLocalPlayerKey(state);
+            if (!localPlayerKey) return;
+            const changed = get().undeployHeroForPlayer(localPlayerKey, heroId);
+            if (changed) sendOnlineActionIfNeeded(get(), { type: 'undeploy-hero', data: { heroId: wireHeroId } });
+            return;
+        }
+        const changed = get().undeployHeroForPlayer(state.selectingPlayer, heroId);
+        if (changed) sendOnlineActionIfNeeded(get(), { type: 'undeploy-hero', data: { heroId: wireHeroId } });
+    },
+
+    undeployHeroForPlayer: (playerKey: Player, heroId: string) => {
+        const state = get();
+        if (state.phase !== 'deploy') return false;
+        const readyKey = playerKey === 'player1' ? 'player1ReadyDeploy' : 'player2ReadyDeploy';
+        if (state[readyKey]) return false;
+
+        const isPlayer1 = playerKey === 'player1';
+        const heroListKey = isPlayer1 ? 'player1Heroes' : 'player2Heroes';
+        const currentHeroes = state[heroListKey];
+        // 本地传实例 ID，对端消息传模板 ID
+        const hero = currentHeroes.find(h => h.id === heroId)
+            ?? currentHeroes.find(h => h.id.startsWith(`${heroId}-${playerKey}-`));
+        if (!hero) return false;
+
+        const newBoard = state.board.map(r => [...r]);
+        if (hero.position) {
+            const [row, col] = hero.position;
+            if (newBoard[row]?.[col]?.id === hero.id) newBoard[row][col] = null;
+        }
+
+        set({
+            board: newBoard,
+            [heroListKey]: currentHeroes.filter(h => h.id !== hero.id)
+        });
+        return true;
+    },
+
     // ===== 替补制补员：阵亡后立即上场（本方半场任选空位，当轮即可行动）=====
 
     selectReinforcementHero: (heroId: string) => {
@@ -1105,7 +1413,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 口径与调度一致：「场上存活+暂时阵亡」已满编4人则不再放行
         if (!GameEngine.hasReinforcementNeed(state, player)) return false;
 
-        const hero = createHero(heroId, player, position);
+        const hero = applyZhizhiForMode(applyHeroWeapon(createHero(heroId, player, position),
+            player === 'player1' ? state.player1WeaponIds : state.player2WeaponIds), state.gameMode);
+        applyWeaponOnArrival(hero);
         // 曾被临时拉上场又退回候补席的，按离场那一刻的血量入场，而不是又开满血新号
         const carriedHp = takeBenchHeroHp(state, player, heroId);
         if (carriedHp !== undefined && carriedHp > 0) {
@@ -1443,6 +1753,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         } else {
             delete hero.counters['__jinghua_swap_no_undo'];
         }
+        // 重新抬脚走路就重新拿到"撤回这一步"的权利；若这一步又踩响鱼钩，抛掷会重新上锁
+        releaseHookThrowLock(hero);
 
         if (success) {
             if (hero.name === '琉璃') {
@@ -1471,8 +1783,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     );
                 if (drunkAlly) {
                     drunkAlly.counters['醉意'] = (drunkAlly.counters['醉意'] ?? 0) - 1;
-                    // 满层时照常交换与再次移动，超出上限的 1 层作废
-                    hero.counters['醉意'] = Math.min(ZUIYI_MAX, (hero.counters['醉意'] ?? 0) + 1);
+                    // 满层时照常交换与再次移动，超出上限的 1 层作废（致知3 把上限抬到 5 层）
+                    hero.counters['醉意'] = Math.min(zuiyiCap(hero), (hero.counters['醉意'] ?? 0) + 1);
                     hero.hasMovedThisTurn = false;
                     get().addLog({
                         type: 'passive',
@@ -1483,15 +1795,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
 
             const [toRow, toCol] = to;
-            // 踏座归场不写"移动到"：踏座者其实被让位安置到别处，
-            // 真正的故事由「携月之倒影归场」那条日志讲
-            if (jinghuaSwap !== 'moonseat') {
-                get().addLog({
-                    type: 'move',
-                    player: hero.owner,
-                    message: `${hero.name}移动到(${toRow + 1},${toCol + 1})`
-                });
-            }
+            get().addLog({
+                type: 'move',
+                player: hero.owner,
+                message: jinghuaSwap === 'moonseat'
+                    ? `${hero.name}踏上月座（${toRow + 1},${toCol + 1}），镜花·水月等他这手打完再归场`
+                    : `${hero.name}移动到(${toRow + 1},${toCol + 1})`
+            });
 
             // 位置一变即重算"以单位为中心/为半径"的持续效果：
             // 阴阳线超出两格当场断开，血契的禁足圈跟着本体重铺
@@ -1521,29 +1831,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 return;
             }
 
-            // 踏月座召还是整份交付：队友让位的一刻这手棋就用完了，
-            // 行动当场收尾，不留"已移动、干等手动结束"的悬空状态
-            if (jinghuaSwap === 'moonseat') {
-                GameEngine.endHeroAction(hero, state);
-                set({
-                    ...syncEngineFlowFields(state),
-                    ...mergeEngineLogs(state),
-                    board: state.board.map(row => [...row]),
-                    player1Heroes: [...state.player1Heroes],
-                    player2Heroes: [...state.player2Heroes],
-                    selectedHero: state.activeHero,
-                    activeHero: state.activeHero,
-                    highlightedPositions: [],
-                    moveRange: [],
-                    skillRange: [],
-                });
-                sendOnlineStateIfNeeded(get());
-                return;
-            }
+            // 李太白「醉步留痕」：他自己走完一次移动才算停过这一格，
+            // 强制位移（击退/拖拽/换位）不走这里，因此不会污染瞬移链的历史落点
+            GameEngine.recordLibaiStay(hero);
+
+            // 踏月座只是"踩响"，不在这里收尾：队友这一手还要用技能或攻击，
+            // 归场由 GameEngine.endHeroAction 里的 settleJinghuaSeatReturn 兑现
+            // （手动点"结束行动"同样走到那里）。
+
+            // 走位途中被姜太公的鱼钩钩住：这一步已经走完，但落点要由钩主来点。
+            // 高亮必须在这里就按挂起态推出来，否则玩家看见人没了动静，只能靠猜去点格子。
+            const hookCells = state.pendingBoardAction?.type === 'jiangtaigong-hook'
+                ? getPendingActionCells(state)
+                : [];
 
             set({
                 board: [...state.board],
-                highlightedPositions: [],
+                boardEffects: state.boardEffects ? [...state.boardEffects] : undefined,
+                highlightedPositions: hookCells,
+                skillRange: hookCells,
                 moveRange: [],
                 activeHero: hero  // 锁定当前英雄，防止切换到其他英雄
             });
@@ -1588,6 +1894,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 type: 'system',
                 player: hero.owner,
                 message: `${hero.name}的镜中交换已经落定，无法撤回移动`
+            });
+            return;
+        }
+        // 姜太公的鱼钩把人抛出去之后不许反悔：撤回会连人带位置退回踩钩之前，等于白吃 10 点
+        if (hookThrowLocked(hero)) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}被鱼钩抛到了这里，落点已定，无法撤回移动`
             });
             return;
         }
@@ -1893,6 +2208,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        if (skill.id === 'zhiguang_skill2') {
+            // 棱光千折有八个朝向：亮出周身八格当方向标（含斜向），点哪格就往哪边射
+            if (!hero.position) return;
+            delete hero.counters['__zhiguang_skill2_dir'];
+            const ringPositions: Position[] = [];
+            for (const [dr, dc] of ZHIGUANG_DIRECTION_DELTAS) {
+                const row = hero.position[0] + dr;
+                const col = hero.position[1] + dc;
+                if (row >= 0 && row < 6 && col >= 0 && col < 6) ringPositions.push([row, col]);
+            }
+            set({
+                selectedSkill: skill,
+                highlightedPositions: ringPositions,
+                skillRange: ringPositions,
+                moveRange: [],
+                activeHero: hero,
+            });
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: '请选择棱光千折的射出方向（周身八格之一，含斜向）',
+            });
+            return;
+        }
+
         if (
             skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2'
             || skill.id === 'nanfeng_skill2' || skill.id === 'yunying_skill2'
@@ -2131,7 +2471,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     selectHeroXRedirectTarget: (heroId: string) => {
         const state = get();
         const caster = state.selectedHero;
-        if (!caster || caster.passiveId !== 'hero_x_passive' || (caster.counters['增势'] ?? 0) < 3) return;
+        if (!caster || caster.passiveId !== 'hero_x_passive' || (caster.counters['增势'] ?? 0) < heroXRedirectCost(caster)) return;
         const allies = caster.owner === 'player1' ? state.player1Heroes : state.player2Heroes;
         const target = allies.find(hero => hero.id === heroId && hero.state === HeroState.ALIVE && hero.id !== caster.id);
         if (!target) return;
@@ -2203,10 +2543,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
         }
 
-        // 技能音效：所有校验通过、技能真正开始结算时播放（单机/AI/联机回放均经过此处）
-        // 优先播放技能专属合成音效，未收录的技能回落到共享音效映射
-        soundManager.playSkill(skill.id, getSkillSound(skill.id));
-
         if (skill.id === 'wukong_skill1' && hero.name === '孙悟空') {
             if (!hero.position) return;
             const [r, c] = targetPos;
@@ -2227,7 +2563,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 return;
             }
 
-            const clone = createWukongClone(hero.owner, hero.id, targetPos, 10);
+            // 致知2：分身生命 10 → 12
+            const clone = createWukongClone(hero.owner, hero.id, targetPos, zhizhiValue(hero, 2, 10, 12));
             state.board[r][c] = clone;
 
             if (hero.counters['灵犀'] === undefined) {
@@ -2302,6 +2639,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 return;
             }
             recordBattleSkillUse(state, hero, skill.id);
+            state.skillFxExtras = { fxVariant: 'dai_revive', targetPos: [...targetPos] };
             get().addLog({
                 type: 'skill',
                 player: hero.owner,
@@ -2447,7 +2785,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                         return;
                     }
 
-                    const ok = MovementSystem.moveHero(hero, targetPos, state, undefined, { ignoreBindingZone: true });
+                    const ok = MovementSystem.moveHero(hero, targetPos, state, undefined, { ignoreBindingZone: true, skillMovement: true });
                     if (!ok) {
                         get().addLog({
                             type: 'system',
@@ -2726,7 +3064,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     const movable = getAdjacentEmptyPositions(currentClone.position, state);
                     const isMovePos = movable.some(([mr, mc]) => mr === r && mc === c);
                     if (isMovePos) {
-                        const ok = MovementSystem.moveHero(currentClone, targetPos, state, 1, { ignoreBindingZone: true });
+                        const ok = MovementSystem.moveHero(currentClone, targetPos, state, 1, { ignoreBindingZone: true, skillMovement: true });
                         if (ok) {
                             const cloneMovedById = { ...wState.cloneMovedById, [currentClone.id]: true };
                             const nextAttackable = currentClone.position ? getEnemyPositionsInArea(currentClone.position, hero.owner, state) : [];
@@ -3020,6 +3358,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
             set({ highlightedPositions: ray, skillRange: ray, moveRange: [] });
         }
 
+        // 折光技能二「棱光千折」：点周身八格之一即定方向，同一次点击立刻把光束射出去
+        if (skill.id === 'zhiguang_skill2' && hero.counters['__zhiguang_skill2_dir'] === undefined) {
+            if (!hero.position) return;
+            const dirCode = zhiguangDirectionCodeFromCell(hero.position, targetPos);
+            if (dirCode === null) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '请点击折光周围八格之一，决定棱光千折射向哪一边',
+                });
+                return;
+            }
+            hero.counters['__zhiguang_skill2_dir'] = dirCode;
+            const beam = traceZhiguangBeam(hero, get(), dirCode).cells;
+            set({ highlightedPositions: beam, skillRange: beam, moveRange: [] });
+        }
+
         // 南风技能2：第一步定风向，第二步点任意格子决定风道所在行/列
         if (skill.id === 'nanfeng_skill2' && hero.counters['__nanfeng_skill2_dir'] === undefined) {
             if (!hero.position) return;
@@ -3191,6 +3546,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (hero.passiveId === 'huanongying_passive') {
             delete hero.counters['__hny_dir'];
         }
+        if (hero.passiveId === 'zhiguang_passive') {
+            delete hero.counters['__zhiguang_skill2_dir'];
+        }
 
         // 李太白被动链：技能成功后瞬移到历史位置继续攻击，全部用完自动归位
         if (hero.passiveId === 'libai_passive') {
@@ -3351,6 +3709,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
         if (pending.type === 'yunying-liehuo') abandonYunyingLiehuo(state, hero);
         else if (pending.type === 'yunying-tianwei') finishYunyingTianweiPick(state, hero, null);
+        else if (pending.type === 'zhiguang-tianwei') finishZhiguangTianweiPick(state, hero, null);
+        else if (pending.type === 'jiangtaigong-hook') finishHookThrowPick(state, hero, null);
+        else if (pending.type === 'xueqi-tianwei' || pending.type === 'schrodinger-tianwei') {
+            // 这两类天威没有"作废"分支可比照：不跃/不重排，只把扣住的控制权还回去
+            abandonGenericPendingPick(state, hero);
+        }
         else return false;
         return !get().pendingBoardAction;
     },
@@ -3363,7 +3727,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!hero) return;
         if (hero.state !== HeroState.ALIVE || !hero.position) {
             // 主人在选向前就已不在场上：作废这次挂起并放行被扣住的行动，否则控制权永远交不出去
-            if (pending.type !== 'yunying-tianwei') {
+            if (pending.type === 'jiangtaigong-hook') {
+                // 姜太公本人下场了也要把这一次抛掷收尾：钩子可能扣着对面那一手，
+                // 走通用分支会对着一个不是行动方的英雄调 endHeroAction，把行动序号算错
+                finishHookThrowPick(state, hero, null);
+            } else if (pending.type !== 'yunying-tianwei') {
                 state.pendingBoardAction = undefined;
                 GameEngine.endHeroAction(hero, state);
                 set({
@@ -3391,6 +3759,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        if (pending.type === 'jiangtaigong-hook') {
+            const target = [...state.player1Heroes, ...state.player2Heroes]
+                .find(item => item.id === pending.hookTargetId);
+            if (!target?.position || target.state !== HeroState.ALIVE) {
+                // 上钩的人已经没了（被补员换下、被别的结算带走）：作废这次抛掷
+                finishHookThrowPick(state, hero, null);
+                return;
+            }
+            if (!hookThrowLandings(state).some(([row, col]) => row === targetPos[0] && col === targetPos[1])) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '鱼钩只能把人对上抛向空格，那一格已经站了人',
+                });
+                return;
+            }
+            finishHookThrowPick(state, hero, targetPos);
+            return;
+        }
+
         if (pending.type === 'yunying-liehuo') {
             const [cr, cc] = hero.position;
             const isDirUp = targetPos[0] === cr - 1 && targetPos[1] === cc;
@@ -3408,6 +3796,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
             const dirCode = isDirUp ? 0 : isDirDown ? 1 : isDirLeft ? 2 : 3;
             const ray = getDilanSkill1Cells(hero, dirCode);
+            // 燎原的火焰是"点完方向才结算"，日志基线要在这里取，才能差出这一次新写的日志
+            const liehuoLogIdsBefore = new Set(get().battleLog.map(entry => entry.id));
             const burn = castLiehuoBurn(hero, state, dirCode);
             // 燎原烧穿敌人时天威嵌在这次燃烧里触发，但挂起槽要到此刻才空得出来：
             // 按"先天威、后燎原"排不下的那一半改为烧完再挂落点选择，有落点就继续扣住行动
@@ -3439,6 +3829,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             for (const line of burn.log) {
                 get().addLog({ type: 'skill', player: hero.owner, message: line });
             }
+            // 燎原这一击可能把她自己打死（反击、死亡羁绊、烧到残血换命）：
+            // 阵亡者不再写特效与锚点，联机状态照常同步，否则这里会拿 null 坐标算角度直接崩
+            if (!hero.position) {
+                sendOnlineStateIfNeeded(get());
+                return;
+            }
             const angleDeg = computeFxAngleDeg(hero.position, targetPos);
             get().pushSkillFx({
                 profile: resolveSkillFx('yunying_liehuo'),
@@ -3451,6 +3847,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 // 火墙要铺满整条射线，因此给区域层一份射线包围盒（1×N 长条）
                 areaBounds: boundsFromCells(ray) ?? undefined,
             });
+            // 同一份描述挂到这次新写的日志上：联机对端只收状态，不重跑这一步，
+            // 不锚定就只有出手方看得见这条火墙
+            state.battleLog = get().battleLog;
+            publishSkillFxAnchor({
+                skillId: 'yunying_liehuo',
+                owner: hero.owner,
+                fromPos: [...hero.position] as Position,
+                targetPos,
+                impactPositions: [],
+                coveredPositions: ray,
+                areaBounds: boundsFromCells(ray) ?? undefined,
+                logIds: get().battleLog
+                    .filter(entry => !liehuoLogIdsBefore.has(entry.id))
+                    .map(entry => entry.id),
+            }, state);
             sendOnlineStateIfNeeded(get());
             return;
         }
@@ -3474,6 +3885,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        if (pending.type === 'zhiguang-tianwei') {
+            const landings = getZhiguangTianweiLandings(hero, state);
+            if (landings.length === 0) {
+                // 挂起之后整盘都被占满：作废这次天威并放行行动，不许留下无人可解的挂起
+                finishZhiguangTianweiPick(state, hero, null);
+                return;
+            }
+            if (!landings.some(([row, col]) => row === targetPos[0] && col === targetPos[1])) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '请点击高亮空格：万华镜只能落到没有人的那一格',
+                });
+                return;
+            }
+            finishZhiguangTianweiPick(state, hero, targetPos);
+            return;
+        }
+
         if (pending.type === 'xueqi-tianwei') {
             const landingRow = targetPos[0];
             const landingCol = targetPos[1];
@@ -3485,6 +3915,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
             const casterFromPos: Position = [...hero.position] as Position;
             const moved = casterFromPos[0] !== landingRow || casterFromPos[1] !== landingCol;
+            const xueqiLogIdsBefore = new Set(get().battleLog.map(entry => entry.id));
             get().addLog({
                 type: 'skill',
                 player: hero.owner,
@@ -3495,31 +3926,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             state.battleLog = get().battleLog;
 
             if (moved) {
+                // 天威跃击是血契自己的技能位移，不吃羽化，落地必然还在
                 state.board[casterFromPos[0]][casterFromPos[1]] = null;
                 hero.position = [landingRow, landingCol];
                 state.board[landingRow][landingCol] = hero;
-                DamageCalculator.applyDilanMovementDamage(
-                    hero,
-                    MovementSystem.getManhattanDistance(casterFromPos, targetPos),
-                    state
-                );
-            }
-
-            if (hero.state !== HeroState.ALIVE) {
-                // 落点途中被羽化等移动伤害打死：只结算位移，横扫不再发生
-                state.pendingBoardAction = undefined;
-                set({
-                    ...syncEngineFlowFields(state),
-                    pendingBoardAction: undefined,
-                    board: state.board.map(boardRow => [...boardRow]),
-                    player1Heroes: [...state.player1Heroes],
-                    player2Heroes: [...state.player2Heroes],
-                    highlightedPositions: [],
-                    skillRange: [],
-                    battleLog: [...state.battleLog]
-                });
-                sendOnlineStateIfNeeded(get());
-                return;
             }
 
             // 横扫以落点为中心：血契人在哪里，血誓就扫哪里
@@ -3549,6 +3959,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 direction: computeFxDirection(angleDeg),
                 coveredPositions: sweep.fxCoveredPositions,
             });
+            // 天威落点的横扫同样只在这一次点击里存在：锚到本击新写的日志，对端才重建得出
+            state.battleLog = get().battleLog;
+            publishSkillFxAnchor({
+                skillId: 'xueqi_skill1',
+                owner: hero.owner,
+                fromPos: [...targetPos] as Position,
+                targetPos: [...targetPos] as Position,
+                impactPositions: [],
+                coveredPositions: sweep.fxCoveredPositions,
+                logIds: get().battleLog
+                    .filter(entry => !xueqiLogIdsBefore.has(entry.id))
+                    .map(entry => entry.id),
+            }, state);
             sendOnlineStateIfNeeded(get());
             return;
         }
@@ -3560,32 +3983,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
         const [oldRow, oldCol] = hero.position;
-        const oldPosition: Position = [oldRow, oldCol];
         if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
         hero.position = targetPos;
         state.board[row][col] = hero;
         syncPositionAnchoredEffects(state);
-        DamageCalculator.applyDilanMovementDamage(
-            hero,
-            MovementSystem.getManhattanDistance(oldPosition, targetPos),
-            state
-        );
-        if (hero.state !== HeroState.ALIVE) {
-            state.pendingBoardAction = undefined;
-            set({
-                pendingBoardAction: undefined,
-                board: state.board.map(boardRow => [...boardRow]),
-                player1Heroes: [...state.player1Heroes],
-                player2Heroes: [...state.player2Heroes],
-                highlightedPositions: [],
-                skillRange: [],
-                selectedHero: null,
-                activeHero: null,
-                battleLog: [...state.battleLog]
-            });
-            sendOnlineStateIfNeeded(get());
-            return;
-        }
+        // 量子跃迁是薛定谔自己的技能位移，不吃羽化
 
         const affected = MovementSystem.getPositionsInRange(targetPos, 2);
         DamageCalculator.asOneAttack(() => {
@@ -3647,36 +4049,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             get().addLog({ type: 'system', player: hero.owner, message: '该位置已被占用，无法瞬移' });
             return;
         }
-        // 瞬移
+        // 瞬移：李太白自己的技能位移，不吃羽化
         const [oldRow, oldCol] = hero.position;
-        const oldPosition: Position = [oldRow, oldCol];
         if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
         hero.position = [position[0], position[1]];
         state.board[position[0]][position[1]] = hero;
         syncPositionAnchoredEffects(state);
-        DamageCalculator.applyDilanMovementDamage(
-            hero,
-            MovementSystem.getManhattanDistance(oldPosition, position),
-            state
-        );
-        if (hero.state !== HeroState.ALIVE) {
-            state.libaiChainState = undefined;
-            set({
-                libaiChainState: undefined,
-                board: state.board.map(row => [...row]),
-                player1Heroes: [...state.player1Heroes],
-                player2Heroes: [...state.player2Heroes],
-                highlightedPositions: [],
-                skillRange: [],
-                moveRange: [],
-                selectedSkill: null,
-                selectedHero: null,
-                activeHero: null,
-                battleLog: [...state.battleLog]
-            });
-            sendOnlineStateIfNeeded(get());
-            return;
-        }
         const pending = chain.pending.filter((_, i) => i !== idx);
         state.libaiChainState = { ...chain, pending, awaitingPosition: false };
         set({
@@ -3875,6 +4253,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 .find(item => item.id === hang.heroId);
             if (hungHero) {
                 abandonYunyingLiehuo(state, hungHero);
+                return;
+            }
+        }
+        // 万华镜同理：她始终没点降落点，就按盘面自动挑照到人最多的一格，挑不出就作废放行
+        if (hang?.type === 'zhiguang-tianwei') {
+            const hungHero = [...state.player1Heroes, ...state.player2Heroes]
+                .find(item => item.id === hang.heroId);
+            if (hungHero && finishZhiguangTianweiPick(
+                state, hungHero, pickZhiguangTianweiLanding(hungHero, state))) {
                 return;
             }
         }
@@ -4079,6 +4466,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 施法前的位置快照：瞬移/移动类技能会改写 hero.position，
         // 必须在执行前捕获起手格
         const casterFromPos: Position = hero?.position ?? targetPos;
+        // 风廊的轴由玩家选定的风向决定，与施法者到落点的角度无关。
+        const windLaneAngle = skill?.id === 'nanfeng_skill2'
+            ? [-90, 90, 180, 0][hero?.counters['__nanfeng_skill2_dir'] ?? -1]
+            : undefined;
 
         get().executeSkillBase(targetPos);
 
@@ -4106,13 +4497,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         // 技能 execute 回传给本层的多格特效位置：读取后立即清除，避免残留到下一次
         // 施法或被联机快照带走过期数据。coveredPositions 由技能自报真实作用格；
-        // splashPositions / chainLinks 仍无人写入。
+        // 扩展字段由真实执行分支上报，不再由视觉层猜测。
         const skillFxExtras = afterCast.skillFxExtras;
         if (skillFxExtras) {
             set({ skillFxExtras: undefined });
         }
 
-        const angleDeg = computeFxAngleDeg(casterFromPos, targetPos);
+        const fxFrom = skillFxExtras?.fromPos ?? casterFromPos;
+        const fxTarget = skillFxExtras?.targetPos ?? targetPos;
+        const angleDeg = windLaneAngle ?? computeFxAngleDeg(fxFrom, fxTarget);
         // 多格反馈：命中格取本次施法新增的 damage/heal 日志（每条都带受害者当时的格子）；
         // 区域格优先用技能自报的真实作用格，没上报的才按技能几何推导兜底
         const profile = resolveSkillFx(skill.id);
@@ -4120,22 +4513,35 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const fxVariantProfile = skillFxExtras?.fxVariant
             ? SKILL_FX_PROFILES[skillFxExtras.fxVariant]
             : undefined;
-        const impacts = collectImpactPositions(freshLogs, targetPos);
+        const ownLogs = freshLogs.filter(entry => !entry.details?.skillFxRequest &&
+            (!entry.details?.sourceHeroId || entry.details.sourceHeroId === hero.id));
+        const impacts = collectImpactPositions(ownLogs, fxTarget);
         const coveredPositions = skillFxExtras?.coveredPositions?.length
             ? skillFxExtras.coveredPositions
-            : computeFxCoveredPositions(skill, casterFromPos, targetPos, profile);
+            : computeFxCoveredPositions(skill, fxFrom, fxTarget, profile);
         const effectiveProfile = fxVariantProfile ?? profile;
         get().pushSkillFx({
             profile: effectiveProfile,
+            skillId: skill.id,
+            sourceHeroId: hero.id,
+            logIds: skill.id === 'jetzmi_skill2'
+                ? [...ownLogs.map(entry => entry.id), ...collectFormShiftLogIds(freshLogs, hero.id)]
+                : ownLogs.map(entry => entry.id),
+            damagePositions: impacts.damagePositions ?? [],
+            empowered: skillFxExtras?.empowered,
             owner: hero.owner,
-            fromPos: casterFromPos,
-            targetPos,
+            fromPos: fxFrom,
+            targetPos: fxTarget,
             angleDeg,
             direction: computeFxDirection(angleDeg),
             splashPositions: skillFxExtras?.splashPositions,
             chainLinks: skillFxExtras?.chainLinks,
-            impactPositions: impacts.impactPositions,
-            softImpactPositions: impacts.softImpactPositions,
+            impactPositions: ['coin-blessing', 'chord-aura', 'chord-notes'].includes(effectiveProfile.kind)
+                ? mergeFxPositions(impacts.impactPositions, coveredPositions)
+                : impacts.impactPositions,
+            softImpactPositions: effectiveProfile.recovery === 'sonata'
+                ? mergeFxPositions(impacts.softImpactPositions, coveredPositions)
+                : impacts.softImpactPositions,
             coveredPositions,
             // AOE 整体特效的覆盖范围：区域格包围盒；全场伤害技（暗夜燎原等）回退整盘。
             // 档案声明 fxArea:'none' 的技能（如醉影换位这类"全场选点、局部结算"的位移技）
@@ -4147,11 +4553,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     },
 
     pushSkillFx: (event) => {
+        // 同一手技能二触发切形时保留切形演出，避免两个完整王冠在同格叠放。
+        const current = get().skillFx;
+        if (event.skillId === 'jetzmi_skill2' && current.some(other => sharesFormShiftCast(event, other))) return;
+        const fx: SkillFxEvent = { ...event, id: ++skillFxSeq, bornAt: Date.now() };
         const next: SkillFxEvent[] = [
-            ...get().skillFx,
-            { ...event, id: ++skillFxSeq, bornAt: Date.now() }
-        ].slice(-6);
+            ...current.filter(other => !sharesFormShiftCast(event, other)),
+            fx
+        ].slice(-fxLayerLimit());
         set({ skillFx: next });
+        soundManager.playSkillFx(fx);
     },
 
     dismissSkillFx: (id) => {
@@ -4167,12 +4578,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         };
 
         set({
-            battleLog: [...state.battleLog, newEntry].slice(-200)
+            battleLog: [...state.battleLog, newEntry].sort((a, b) => battleLogSeq(a.id) - battleLogSeq(b.id)).slice(-200)
         });
+        publishedLogIds.add(newEntry.id);
     },
 
     clearLogs: () => {
         set({ battleLog: [] });
+        publishedLogIds.clear();
     },
 
     resetGame: () => {
@@ -4186,6 +4599,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             suppressNextSkillFx: undefined,
             suppressOnlineBroadcast: false
         });
+        resetPublishedLogIds([]);
     }
 }));
 
@@ -4195,20 +4609,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
  * 于是人类行动、人机 AI 与结束行动链上的补击都有同样的画面与音效。
  * `pushSkillFx` 自身也会触发本订阅，但队列已被取空，不会递归。
  */
-useGameStore.subscribe(() => {
+useGameStore.subscribe((state, previous) => {
+    if (state.skillFx !== previous.skillFx) soundManager.retainSkillFx(new Set(state.skillFx.map(event => event.id)));
     const requests = drainPendingSkillFxRequests();
     for (const request of requests) {
-        soundManager.playSkill(request.skillId, getSkillSound(request.skillId));
         const angleDeg = computeFxAngleDeg(request.fromPos, request.targetPos);
         useGameStore.getState().pushSkillFx({
             profile: resolveSkillFx(request.skillId),
+            skillId: request.skillId,
+            sourceHeroId: request.sourceHeroId,
+            logIds: request.logIds,
+            damagePositions: request.damagePositions,
+            softImpactPositions: request.softImpactPositions,
             owner: request.owner,
             fromPos: request.fromPos,
             targetPos: request.targetPos,
             angleDeg,
             direction: computeFxDirection(angleDeg),
             impactPositions: request.impactPositions,
-            coveredPositions: request.impactPositions,
+            coveredPositions: request.coveredPositions ?? request.impactPositions,
         });
     }
 });

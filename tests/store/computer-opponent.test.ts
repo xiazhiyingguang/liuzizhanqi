@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { runComputerOpponentStep } from '../../src/hooks/useComputerOpponent';
+import { battleActorFor, runComputerOpponentStep } from '../../src/hooks/useComputerOpponent';
 import { useGameStore } from '../../src/store/game-store';
-import { HeroState } from '../../src/types/game';
+import { HeroState, type GameState, type Hero } from '../../src/types/game';
 import { GameEngine } from '../../src/core/game-engine';
 
 /** 替补制：人类玩家补员辅助——点选替补席首位英雄并部署到本方半场第一个空格。 */
@@ -163,5 +163,36 @@ describe('computer opponent integration', () => {
         state = useGameStore.getState();
         expect(matchGuard).toBeLessThan(900);
         expect(state.phase === 'ended' || state.roundNumber >= 6).toBe(true);
+    });
+});
+
+describe('battleActorFor：这一手该由哪一侧答', () => {
+    const heroOf = (id: string, owner: 'player1' | 'player2') =>
+        ({ id, owner }) as unknown as Hero;
+
+    it('鱼钩在对手回合被踩响：步进对象切给钩主，而不是当前行动方', () => {
+        // 裁定口径——钩是对手走位时踩响的，落点却归钩主点，所以钩主那一刻不是行动方。
+        // 两侧都由电脑代打时（跑批 / AI 接管），步进器若只走 currentPlayer，
+        // 这一手永远没人答：实测 50 局里 6 局停在这里。
+        expect(battleActorFor({
+            currentPlayer: 'player2',
+            reinforcingPlayer: undefined,
+            player1Heroes: [heroOf('jiangtaigong-player1-1', 'player1')],
+            player2Heroes: [heroOf('moran-player2-1', 'player2')],
+            pendingBoardAction: { type: 'jiangtaigong-hook', heroId: 'jiangtaigong-player1-1' },
+        } as unknown as GameState)).toBe('player1');
+    });
+
+    it('挂起属于当前行动方自己时不改变归属；补员优先', () => {
+        const shared = {
+            reinforcingPlayer: undefined,
+            player1Heroes: [heroOf('jiangtaigong-player1-1', 'player1')],
+            player2Heroes: [heroOf('moran-player2-1', 'player2')],
+            pendingBoardAction: { type: 'jiangtaigong-hook', heroId: 'moran-player2-1' },
+        };
+        expect(battleActorFor({ ...shared, currentPlayer: 'player2' } as unknown as GameState)).toBe('player2');
+        expect(battleActorFor({
+            ...shared, currentPlayer: 'player2', reinforcingPlayer: 'player1',
+        } as unknown as GameState)).toBe('player1');
     });
 });

@@ -1,0 +1,98 @@
+[
+  {
+    "key": "ice",
+    "title": "Ice cracking",
+    "author": "timbreknight",
+    "source": "https://freesound.org/people/timbreknight/sounds/342546/",
+    "preview": "https://cdn.freesound.org/previews/342/342546_3562222-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "b0fc5db758c884ed597de16c9c9093d3d91741dc02891f0f02ec0485861e8546",
+    "bytes": 148296
+  },
+  {
+    "key": "metal",
+    "title": "Metal Clang sound",
+    "author": "kermite607",
+    "source": "https://freesound.org/people/kermite607/sounds/362625/",
+    "preview": "https://cdn.freesound.org/previews/362/362625_3165091-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "a8be20d01dddd4531e8763a2327ada175dbfb55309caea26b2691b9b0b12c7bc",
+    "bytes": 35136
+  },
+  {
+    "key": "steel",
+    "title": "Tube hit 08, high+ringing",
+    "author": "dersinnsspace",
+    "source": "https://freesound.org/people/dersinnsspace/sounds/435223/",
+    "preview": "https://cdn.freesound.org/previews/435/435223_8224400-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "31df9825e40130797b1b2d09cbd04197496d9bd766c3a0e7c8bd737bb85233a8",
+    "bytes": 114851
+  },
+  {
+    "key": "heavy-metal",
+    "title": "ANI Big Pipe Hit",
+    "author": "ani_music",
+    "source": "https://freesound.org/people/ani_music/sounds/244983/",
+    "preview": "https://cdn.freesound.org/previews/244/244983_3008343-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "ff93844c194107290b677462bcda2c0c7fc972975a3e747a3d6fae75b181e740",
+    "bytes": 24318
+  },
+  {
+    "key": "splash",
+    "title": "Water drop / Splash",
+    "author": "bxyorna",
+    "source": "https://freesound.org/people/bxyorna/sounds/410335/",
+    "preview": "https://cdn.freesound.org/previews/410/410335_7963426-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "2ba6f2dc5f1575eed55f333dcc4ee1f0d8b79963effec78766a75d567bd281da",
+    "bytes": 27239
+  },
+  {
+    "key": "wind",
+    "title": "wind_howling_04.wav",
+    "author": "Fasolt",
+    "source": "https://freesound.org/people/Fasolt/sounds/113176/",
+    "preview": "https://cdn.freesound.org/previews/113/113176_1493935-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "6068291f2557b1a3f97a9c4612cd3a4223a0c410b70623f62ba496be81a6abd9",
+    "bytes": 171778
+  },
+  {
+    "key": "fire",
+    "title": "fire-crackling.wav",
+    "author": "jmehlferber",
+    "source": "https://freesound.org/people/jmehlferber/sounds/370938/",
+    "preview": "https://cdn.freesound.org/previews/370/370938_6621799-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "1618ec3144c17b6772ae047f531f0a19eee1333ad7e613e86acbab7b33e6d767",
+    "bytes": 666669
+  },
+  {
+    "key": "waves",
+    "title": "Waves Close-Up",
+    "author": "SKrafft",
+    "source": "https://freesound.org/people/SKrafft/sounds/681374/",
+    "preview": "https://cdn.freesound.org/previews/681/681374_5752443-hq.mp3",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "downloadedFormat": "Freesound HQ MP3 preview",
+    "sha256": "a4bc00739bfe33cc5f0645d010ee5a888b4bc7f0619ee6ebab737b080ed370a8",
+    "bytes": 4847952
+  }
+]

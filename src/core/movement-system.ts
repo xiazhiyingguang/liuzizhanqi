@@ -3,8 +3,10 @@ import { BOARD_SIZE, Position, Hero, GameState, HeroState } from '../types/game'
 import { getMirrorOwnerIdFromCloneId } from '../data/heroes';
 import { isFreeWindLaneStep } from './wind-lane';
 import { EffectManager } from './effect-manager';
+import { zhizhiValue } from './hero-zhizhi';
 import { DamageCalculator } from './damage-calculator';
 import { markYoujunKnifeSpot, processWindBladeEntry } from './wind-blade';
+import { triggerHookBite } from './water-marsh';
 
 /**
  * 移动范围计算选项。
@@ -13,6 +15,8 @@ import { markYoujunKnifeSpot, processWindBladeEntry } from './wind-blade';
  */
 export interface MoveOptions {
     ignoreBindingZone?: boolean;
+    /** 这次 moveHero 是技能/连击造成的位移，而非行动阶段的主动走格：不吃羽化逐格伤害 */
+    skillMovement?: boolean;
 }
 
 /**
@@ -600,7 +604,14 @@ export class MovementSystem {
         );
         if (crystal) {
             gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => effect.id !== crystal.id);
-            const gained = EffectManager.addIceArmor(hero, crystal.sourceHeroId);
+            // 冰甲的减伤按"施术者寒江雪的致知3"结算，捡的人自己不带这个层级
+            const caster = [...gameState.player1Heroes, ...gameState.player2Heroes]
+                .find(candidate => candidate.id === crystal.sourceHeroId);
+            const gained = EffectManager.addIceArmor(
+                hero,
+                crystal.sourceHeroId,
+                zhizhiValue(caster, 3, 0.2, 0.4)
+            );
             if (gameState.battleLog) {
                 gameState.battleLog.push({
                     id: nextBattleLogId(),
@@ -621,13 +632,16 @@ export class MovementSystem {
         const hpBeforeMoveDamage = hero.currentHp;
         const hpBeforePartnerDamage = partner?.currentHp ?? 0;
 
-        DamageCalculator.applyDilanMovementDamage(hero, movePath.length, gameState);
-        if (partner && partnerFrom && partnerTo && partner.state === HeroState.ALIVE) {
-            DamageCalculator.applyDilanMovementDamage(
-                partner,
-                this.getManhattanDistance(partnerFrom, partnerTo),
-                gameState
-            );
+        // 只有行动阶段的主动走格吃羽化；技能借道 moveHero 的位移（血契瞬移、悟空连击走位）不算
+        if (!options?.skillMovement) {
+            DamageCalculator.applyDilanMovementDamage(hero, movePath.length, gameState);
+            if (partner && partnerFrom && partnerTo && partner.state === HeroState.ALIVE) {
+                DamageCalculator.applyDilanMovementDamage(
+                    partner,
+                    this.getManhattanDistance(partnerFrom, partnerTo),
+                    gameState
+                );
+            }
         }
 
         // 游隼：累计本回合移动路径（疾掠的「上回合移动距离」倍率读取项）；
@@ -638,6 +652,14 @@ export class MovementSystem {
         if (gameState.boardEffects?.some(effect => effect.type === 'wind-blade')) {
             for (const cell of movePath) {
                 processWindBladeEntry(hero, cell, gameState);
+                if (hero.state !== HeroState.ALIVE) break;
+            }
+        }
+        // 姜太公的鱼钩：敌人经过那一格即刻上钩（同一次移动最多钩一次，剩下的钩子留着）。
+        // 抛到哪一格由姜太公那侧点选，挂起在 game-store 的 resolvePendingBoardAction 里兑现。
+        if (gameState.boardEffects?.some(effect => effect.type === 'fish-hook')) {
+            for (const cell of movePath) {
+                if (triggerHookBite(gameState, hero, cell)) break;
                 if (hero.state !== HeroState.ALIVE) break;
             }
         }

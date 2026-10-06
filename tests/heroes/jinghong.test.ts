@@ -4,7 +4,7 @@ import { GameEngine } from '../../src/core/game-engine';
 import { SkillSystem } from '../../src/core/skill-system';
 import { createHero } from '../../src/data/heroes';
 import { jinghongSkill1, jinghongSkill2 } from '../../src/data/extended-skills';
-import { GameState, Hero } from '../../src/types/game';
+import { GameState, Hero, HeroState } from '../../src/types/game';
 import { addHero, makeGameState } from '../helpers/game-state';
 
 /**
@@ -16,7 +16,7 @@ import { addHero, makeGameState } from '../helpers/game-state';
  * 3. 技能1的绕后走正常移动，羽化/风刃/冰晶等位移连带结算照常触发，并占用本回合移动额度；
  *    身后越界或被占据时只攻击、不位移；
  * 4. 被动阈值边界（恰好50%）归给防御形态，避免一半血时既吃增伤又吃免伤；
- * 5. 天威暂未设计，不接入。
+ * 5. 天威·惊鸿再振（2026-09 补设计）：击杀敌人时立即获得2层惊鸿，上限3层。
  */
 
 function setup(): { state: GameState; hero: Hero; foe: Hero } {
@@ -35,7 +35,7 @@ describe('惊鸿·止水', () => {
     beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
     afterEach(() => vi.restoreAllMocks());
 
-    it('模板字段与资源初始化，天威不接入', () => {
+    it('模板字段与资源初始化，天威接入惊鸿再振', () => {
         const hero = createHero('jinghong', 'player1', [0, 0]);
         expect(hero.name).toBe('惊鸿·止水');
         expect(hero.class).toBe('武曲');
@@ -43,9 +43,28 @@ describe('惊鸿·止水', () => {
         expect(hero.moveRange).toBe(2);
         expect(hero.skill1Id).toBe('jinghong_skill1');
         expect(hero.skill2Id).toBe('jinghong_skill2');
-        expect(hero.tianweiId).toBeUndefined();
+        expect(hero.tianweiId).toBe('jinghong_tianwei');
         expect(hero.counters['惊鸿']).toBe(0);
         expect(hero.counters['jinghong_charge_round']).toBe(-1);
+    });
+
+    it('天威·惊鸿再振：击杀瞬间回充2层，叠上命中自带的那层正好到顶3', () => {
+        const { state, hero, foe } = setup();
+        foe.currentHp = 1;
+
+        const result = cast1(hero, state, [2, 3]);
+        expect(result.success).toBe(true);
+        expect(foe.state).toBe(HeroState.DEAD);
+        expect(EffectManager.getCounter(hero, '惊鸿')).toBe(3);
+        expect(state.battleLog.some(entry => entry.message.includes('惊鸿再振'))).toBe(true);
+    });
+
+    it('天威只在击杀时响：未击杀只按命中+1层，不播再振', () => {
+        const { state, hero } = setup();
+
+        cast1(hero, state, [2, 3]);
+        expect(EffectManager.getCounter(hero, '惊鸿')).toBe(1);
+        expect(state.battleLog.some(entry => entry.message.includes('惊鸿再振'))).toBe(false);
     });
 
     it('技能1：命中3×3单体并落到目标身后一格，同时标记已移动', () => {

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGameStore } from '../../store/game-store';
 import { WEAPON_CODEX, type WeaponCodexEntry } from '../../data/weapon-codex';
+import { getWeaponImage } from '../../data/weapon-assets';
 import { HERO_CLASSES } from '../../data/hero-codex';
 import { HIDDEN_HERO_IDS } from '../../data/heroes';
 import { getSkill } from '../../data/skills';
@@ -33,45 +34,45 @@ function OwnerCard({ weapon }: { weapon: WeaponCodexEntry }) {
     const theme = classTheme(weapon.system);
     const skills = skillNames(weapon);
     return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="relative">
+        <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
                 <span
                     className="absolute inset-[-18%] rounded-full"
                     style={{ backgroundColor: `${theme.color}14`, filter: 'blur(18px)' }}
                 />
                 <div
-                    className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-ink/[0.08] sm:h-32 sm:w-32"
+                    className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-ink/[0.08] sm:h-20 sm:w-20"
                     style={{ backgroundColor: theme.soft }}
                 >
                     <HeroAvatar
                         heroId={weapon.heroId}
                         heroName={weapon.heroName}
-                        size={128}
+                        size={80}
                         eager
                         className="h-full w-full rounded-full object-cover"
                         fallbackClassName="text-ink-light"
                     />
                 </div>
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
                 <div className="text-[10px] tracking-[.2em] text-ink-faint">专属英雄</div>
-                <div className="mt-0.5 flex items-baseline justify-center gap-2">
-                    <h4 className="font-title text-2xl text-ink">{weapon.heroName}</h4>
-                    <span className="text-xs" style={{ color: theme.color }}>{weapon.system}</span>
+                <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <h4 className="font-title text-xl text-ink">{weapon.heroName}</h4>
+                    <span className="shrink-0 text-xs" style={{ color: theme.color }}>{weapon.system}</span>
                 </div>
+                {skills.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                        {skills.map(name => (
+                            <span
+                                key={name}
+                                className="rounded-full border border-ink/10 bg-white/50 px-2.5 py-1 text-[11px] text-ink-light"
+                            >
+                                {name}
+                            </span>
+                        ))}
+                    </div>
+                )}
             </div>
-            {skills.length > 0 && (
-                <div className="flex flex-wrap justify-center gap-1.5">
-                    {skills.map(name => (
-                        <span
-                            key={name}
-                            className="rounded-full border border-ink/10 bg-white/50 px-2.5 py-1 text-[11px] text-ink-light"
-                        >
-                            {name}
-                        </span>
-                    ))}
-                </div>
-            )}
         </div>
     );
 }
@@ -79,11 +80,12 @@ function OwnerCard({ weapon }: { weapon: WeaponCodexEntry }) {
 function WeaponDetail({ weapon }: { weapon: WeaponCodexEntry }) {
     const theme = classTheme(weapon.system);
     const drafted = weapon.effects.length > 0;
+    const weaponImage = getWeaponImage(weapon.id);
 
     return (
         <div key={weapon.id} className="animate-fade-up">
             <section
-                className="relative grid min-h-[280px] items-center gap-5 overflow-hidden rounded-2xl border border-ink/[0.07] p-6 sm:p-8 lg:grid-cols-[minmax(0,1fr)_minmax(230px,32%)]"
+                className="relative grid min-h-[280px] items-center gap-5 overflow-hidden rounded-2xl border border-ink/[0.07] p-5 sm:p-6 lg:grid-cols-[minmax(0,.85fr)_minmax(0,1.15fr)]"
                 style={{ background: `linear-gradient(125deg, rgba(255,255,255,.72), ${theme.soft})` }}
             >
                 <span className="pointer-events-none absolute -right-3 -top-14 select-none font-title text-[10rem] text-ink/[0.025]">
@@ -103,13 +105,22 @@ function WeaponDetail({ weapon }: { weapon: WeaponCodexEntry }) {
                         </span>
                     </div>
                     <h2 className="font-title text-4xl leading-tight text-ink sm:text-5xl">{weapon.name}</h2>
-                    <p className="mt-3 max-w-2xl text-sm leading-7 text-ink-faint">
-                        一器一主，因人而鸣。此页收录武器的专属归属与当前策划构想。
-                    </p>
+                    <div className="mt-5 rounded-xl border border-ink/[0.07] bg-white/45 p-4">
+                        <OwnerCard weapon={weapon} />
+                    </div>
                 </div>
-                <div className="relative z-10 rounded-xl border border-ink/[0.07] bg-white/45 p-5">
-                    <OwnerCard weapon={weapon} />
-                </div>
+                {weaponImage && (
+                    <figure className="relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-xl border border-ink/[0.07] bg-[#f6f0e7]">
+                        <img
+                            src={weaponImage}
+                            alt={`${weapon.heroName}专属武器「${weapon.name}」`}
+                            width={1254}
+                            height={1254}
+                            decoding="async"
+                            className="h-auto max-h-[340px] w-full object-contain"
+                        />
+                    </figure>
+                )}
             </section>
 
             <section className="mt-5 rounded-xl border border-ink/[0.07] bg-white/35 p-4">
@@ -167,6 +178,7 @@ function WeaponDetail({ weapon }: { weapon: WeaponCodexEntry }) {
 }
 
 export default function WeaponCodex() {
+    const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [selectedSystem, setSelectedSystem] = useState('全部');
     const [selectedWeaponId, setSelectedWeaponId] = useState(VISIBLE_WEAPONS[0].id);
@@ -194,7 +206,7 @@ export default function WeaponCodex() {
     };
 
     return (
-        <main className="relative flex h-full w-full flex-col overflow-hidden bg-rice">
+        <main className={`codex-page${mobileDetailOpen ? ' mobile-detail-open' : ''} relative flex h-full w-full flex-col overflow-hidden bg-rice`}>
             <span className="pointer-events-none absolute right-[7%] top-[8%] select-none font-title text-[18rem] text-ink/[0.018]">兵</span>
             <header className="relative z-10 shrink-0 border-b border-ink/[0.07] bg-rice-light/75 px-4 py-3 backdrop-blur-md sm:px-7">
                 <div className="mx-auto flex max-w-[1480px] items-center gap-4">
@@ -213,14 +225,17 @@ export default function WeaponCodex() {
                             <span className="hidden text-xs tracking-[.18em] text-ink-faint sm:inline">神兵入卷 · 各择其主</span>
                         </div>
                     </div>
-                    <div className="rounded-full border border-vermillion/20 bg-vermillion/[0.05] px-3 py-1.5 text-xs text-vermillion">
+                    <button className="mobile-only codex-view-toggle" onClick={() => setMobileDetailOpen(value => !value)}>
+                        {mobileDetailOpen ? '武器列表' : '查看详情'}
+                    </button>
+                    <div className="codex-count rounded-full border border-vermillion/20 bg-vermillion/[0.05] px-3 py-1.5 text-xs text-vermillion">
                         已收录 {VISIBLE_WEAPONS.length} 件
                     </div>
                 </div>
             </header>
 
-            <div className="relative z-10 mx-auto grid min-h-0 w-full max-w-[1480px] flex-1 gap-4 p-4 sm:p-6 lg:grid-cols-[390px_minmax(0,1fr)]">
-                <aside className="flex min-h-[280px] flex-col overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/35 shadow-[0_8px_32px_rgba(26,26,26,.05)]">
+            <div className="codex-workspace relative z-10 mx-auto grid min-h-0 w-full max-w-[1480px] flex-1 gap-4 p-4 sm:p-6 lg:grid-cols-[390px_minmax(0,1fr)]">
+                <aside className="codex-list flex min-h-[280px] flex-col overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/35 shadow-[0_8px_32px_rgba(26,26,26,.05)]">
                     <div className="shrink-0 border-b border-ink/[0.06] p-4">
                         <label className="relative block">
                             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint">⌕</span>
@@ -263,7 +278,7 @@ export default function WeaponCodex() {
                                             key={weapon.id}
                                             type="button"
                                             data-sfx="tab"
-                                            onClick={() => setSelectedWeaponId(weapon.id)}
+                                            onClick={() => { setSelectedWeaponId(weapon.id); setMobileDetailOpen(true); }}
                                             className={`group flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${
                                                 selected
                                                     ? 'border-gold/40 bg-gold/[0.07] shadow-[inset_3px_0_0_#d4a843]'
@@ -310,7 +325,7 @@ export default function WeaponCodex() {
                     </div>
                 </aside>
 
-                <section className="light-scrollbar min-h-0 overflow-y-auto rounded-2xl border border-ink/[0.07] bg-rice-light/50 p-4 shadow-[0_8px_32px_rgba(26,26,26,.05)] sm:p-6">
+                <section className="codex-detail light-scrollbar min-h-0 overflow-y-auto rounded-2xl border border-ink/[0.07] bg-rice-light/50 p-4 shadow-[0_8px_32px_rgba(26,26,26,.05)] sm:p-6">
                     <WeaponDetail weapon={selectedWeapon} />
                     <p className="mt-7 text-center text-[10px] tracking-[.15em] text-ink-faint">
                         武器效果尚未接入战斗 · 一器一主随英雄图鉴同步

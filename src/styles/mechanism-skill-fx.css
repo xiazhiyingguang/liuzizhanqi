@@ -1,0 +1,10 @@
+.mechanism-viewport { position: absolute; inset: 0; pointer-events: none; }
+.mechanism-canvas { position: absolute; pointer-events: none; animation: mechanism-clock var(--mechanism-duration,1800ms) linear both; }
+@keyframes mechanism-clock { from { opacity: 1; } to { opacity: 1; } }
+.hero-mechanism-state { position: absolute; inset: 0; z-index: 26; pointer-events: none; }
+.hero-mechanism-state svg { position: absolute; overflow: visible; }
+.hero-mechanism-crown { width: 24%; height: 20%; top: -10%; right: 5%; filter: drop-shadow(0 1px 1px #302638); }
+.hero-mechanism-embers { width: 100%; height: 100%; inset: 0; }
+.hero-mechanism-seal { width: 18%; height: 30%; top: 4%; right: -5%; filter: drop-shadow(0 1px 1px #345b51); }
+.hero-mechanism-way { width: 27%; height: 10%; bottom: 1%; left: 36%; }
+@media (prefers-reduced-motion: reduce) { .mechanism-canvas { animation: none !important; visibility: hidden; } }

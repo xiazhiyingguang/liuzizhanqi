@@ -1,0 +1,70 @@
+/* 恢复物象：清晰轮廓、克制底光、中心留白。所有动画只影响瞬态视觉层。 */
+.recovery-fx { color: var(--fx-c1); --recovery-hit: var(--fx-hit-ms, 180ms); }
+.recovery-motif { width: 100%; height: 100%; overflow: visible; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.recovery-secondary { stroke: var(--fx-c2); stroke-width: 3; }
+.recovery-solid { fill: currentColor; stroke: none; }
+.recovery-source { position: absolute; inset: 4%; opacity: 0; animation: recovery-source 950ms ease-out both; }
+@keyframes recovery-source { 0% { opacity: 0; transform: translateY(12%) scale(.7); } 25%, 50% { opacity: .8; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-15%) scale(1.06); } }
+.recovery-source-glint { position: absolute; inset: 30%; border: 1px solid currentColor; border-radius: 50%; opacity: 0; animation: recovery-source 450ms ease-out both; }
+.recovery-stream { position: absolute; left: 50%; top: calc(50% - 15px); width: calc(var(--fx-dist) * (var(--board-cell-size) + 6px)); height: 30px; transform: rotate(var(--fx-rot)); transform-origin: 0 50%; }
+.recovery-stream svg { width: 100%; height: 100%; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 220; animation: recovery-flow-line 1000ms ease-out both; }
+.recovery-stream i { position: absolute; top: 12px; width: 6px; height: 6px; border-radius: 50%; background: var(--fx-c2); box-shadow: 0 0 4px currentColor; opacity: 0; animation: recovery-stream-drop var(--recovery-hit) ease-in-out both; }
+@keyframes recovery-flow-line { 0% { stroke-dashoffset: 220; opacity: 0; } 20% { opacity: .7; } 50% { stroke-dashoffset: 0; opacity: .6; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes recovery-stream-drop { 0% { left: 0; opacity: 0; } 25%, 90% { opacity: .9; } 100% { left: 100%; opacity: 0; } }
+.recovery-floor { position: absolute; inset: 66% -10% 3%; border: 1.5px solid currentColor; border-radius: 50%; box-shadow: 0 2px 0 var(--fx-c2); opacity: 0; animation: recovery-floor 950ms ease-out var(--recovery-hit) both; }
+@keyframes recovery-floor { 0% { opacity: 0; transform: scale(.45); } 30% { opacity: .65; transform: scale(1); } 100% { opacity: 0; transform: scale(1.2); } }
+.recovery-clouds { position: absolute; inset: -12%; }
+.recovery-clouds .recovery-motif { position: absolute; width: 76%; height: 55%; left: -10%; top: 47%; opacity: 0; animation: recovery-cloud 950ms ease-out var(--recovery-hit) both; }
+.recovery-clouds .recovery-motif + .recovery-motif { left: 43%; top: 4%; transform: rotate(180deg); animation-delay: calc(var(--recovery-hit) + 100ms); }
+@keyframes recovery-cloud { 0% { opacity: 0; translate: -12% 12%; scale: .7; } 28%, 65% { opacity: .9; translate: 0 0; scale: 1; } 100% { opacity: 0; translate: 8% -10%; scale: 1.08; } }
+.recovery-dew i { position: absolute; top: -6%; left: calc(14% + var(--recovery-i) * 24%); width: 4%; height: 9%; border-radius: 80% 10% 70% 30%; background: var(--fx-c2); border: 1px solid currentColor; opacity: 0; animation: recovery-dew 650ms ease-in calc(var(--recovery-hit) + var(--recovery-i) * 65ms) both; }
+@keyframes recovery-dew { 0% { opacity: 0; translate: 0 -8px; } 25% { opacity: .9; } 80% { opacity: .8; } 100% { opacity: 0; translate: 0 42px; scale: .25; } }
+.recovery-lotus { position: absolute; inset: 30% -18% -22%; opacity: 0; animation: recovery-lotus 1150ms ease-out var(--recovery-hit) both; }
+.recovery-petal { fill: var(--fx-c2); fill-opacity: .14; stroke-dasharray: 200; stroke-dashoffset: 200; animation: recovery-petal 650ms ease-out calc(var(--recovery-hit) + var(--recovery-i) * 55ms) both; }
+@keyframes recovery-petal { to { stroke-dashoffset: 0; } }
+@keyframes recovery-lotus { 0% { opacity: 0; transform: scaleX(.25) scaleY(.45) translateY(20%); } 28%, 72% { opacity: .95; transform: scale(1) translateY(0); } 100% { opacity: 0; transform: scale(1.1) translateY(-5%); } }
+.recovery-dust i { position: absolute; left: calc(3% + var(--recovery-i) * 18%); top: calc(68% + var(--recovery-i) * 3%); width: 3px; height: 3px; background: var(--fx-c2); box-shadow: 0 0 3px var(--fx-c1); border-radius: 50%; opacity: 0; animation: recovery-dust 700ms ease-out calc(var(--recovery-hit) + var(--recovery-i) * 50ms) both; }
+.recovery-dust-petals i { width: 8%; height: 4%; border-radius: 100% 0; background: var(--fx-c2); border: 1px solid var(--fx-c1); box-shadow: none; }
+@keyframes recovery-dust { 0% { opacity: 0; transform: translateY(0) scale(.6); } 20% { opacity: .8; } 100% { opacity: 0; transform: translateY(-45px) rotate(50deg) scale(.3); } }
+.recovery-sonata .recovery-source, .recovery-chorus .recovery-source { inset: -5% 6%; }
+.recovery-string { stroke: var(--fx-c2); stroke-width: 1.5; animation: recovery-string 350ms ease-in-out calc(var(--recovery-i) * 60ms) 2 alternate; }
+@keyframes recovery-string { to { translate: 2px 0; } }
+.recovery-score { position: absolute; inset: 36% -32% -8%; width: 164%; height: 72%; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.3; opacity: 0; animation: recovery-score 1000ms ease-out var(--recovery-hit) both; }
+.recovery-score path { stroke-dasharray: 200; stroke-dashoffset: 200; animation: recovery-petal 500ms ease-out calc(var(--recovery-hit) + var(--recovery-i) * 40ms) both; }
+.skill-fx-caster .recovery-score { animation-delay: 0ms; opacity: 0; }
+.recovery-notes > span { position: absolute; left: calc(-5% + var(--recovery-i) * 41%); top: calc(30% - var(--recovery-i) * 12%); width: 30%; height: 42%; opacity: 0; animation: recovery-note 950ms ease-out calc(var(--recovery-hit) + var(--recovery-i) * 90ms) both; }
+.recovery-chorus .recovery-notes > span { width: 34%; height: 46%; }
+@keyframes recovery-score { 0% { opacity: 0; transform: translateX(-12%) scaleY(.5); } 30%, 65% { opacity: .6; transform: translateX(0) scaleY(1); } 100% { opacity: 0; transform: translateX(15%) scaleY(1); } }
+@keyframes recovery-note { 0% { opacity: 0; transform: translateY(28%) rotate(-15deg) scale(.7); } 25%, 60% { opacity: .9; transform: translateY(0) rotate(0deg) scale(1); } 100% { opacity: 0; transform: translateY(-40%) rotate(12deg) scale(.7); } }
+.recovery-purify-plumes > span { position: absolute; width: 55%; height: 75%; left: 23%; top: 18%; transform-origin: 50% 70%; opacity: 0; animation: recovery-plume 950ms ease-out calc(var(--recovery-hit) + var(--recovery-i) * 60ms) both; }
+@keyframes recovery-plume { 0% { opacity: 0; transform: rotate(calc(var(--recovery-i) * 120deg - 60deg)) translateY(30%) scale(.5); } 30%, 65% { opacity: .85; transform: rotate(calc(var(--recovery-i) * 120deg)) translateY(-35%) scale(1); } 100% { opacity: 0; transform: rotate(calc(var(--recovery-i) * 120deg + 35deg)) translateY(-55%) scale(.8); } }
+.recovery-wash { position: absolute; inset: -10%; width: 120%; height: 120%; fill: none; stroke: var(--fx-c2); stroke-width: 6; stroke-linecap: round; filter: drop-shadow(0 0 1px var(--fx-c1)); stroke-dasharray: 170; opacity: 0; animation: recovery-wash 800ms ease-out var(--recovery-hit) both; }
+@keyframes recovery-wash { 0% { stroke-dashoffset: 170; opacity: 0; } 25% { opacity: .8; } 65% { stroke-dashoffset: 0; opacity: .8; } 100% { stroke-dashoffset: -100; opacity: 0; } }
+.recovery-pearls { position: absolute; inset: -7%; }
+.recovery-pearls > i { position: absolute; left: 42%; top: 42%; width: 16%; height: 16%; border-radius: 50%; border: 1px solid var(--fx-c1); background: var(--fx-c1); box-shadow: inset -2px -2px 3px #0003, 0 0 2px var(--fx-c2); opacity: 0; animation: recovery-pearl-form 1200ms ease-out calc(var(--recovery-i) * 65ms) both; }
+.recovery-pearls > i.is-white { background: var(--fx-c2); }
+.recovery-pearls > i b { position: absolute; left: 23%; top: 18%; width: 26%; height: 22%; border-radius: 50%; background: #fff; opacity: .75; }
+@keyframes recovery-pearl-form { 0% { opacity: 0; transform: rotate(calc(var(--recovery-i) * 120deg)) translateY(-64px) scale(.2); } 30%, 70% { opacity: 1; transform: rotate(calc(var(--recovery-i) * 120deg + 30deg)) translateY(calc(var(--board-cell-size) * -.48)) scale(1); } 100% { opacity: 0; transform: rotate(calc(var(--recovery-i) * 120deg + 90deg)) translateY(calc(var(--board-cell-size) * -.48)) scale(.8); } }
+.recovery-pearls.is-returning > i { animation-name: recovery-pearl-return; animation-duration: 950ms; animation-delay: calc(var(--recovery-hit) + var(--recovery-i) * 100ms); }
+@keyframes recovery-pearl-return { 0% { opacity: 0; transform: rotate(calc(var(--recovery-i) * 120deg)) translateY(calc(var(--board-cell-size) * -.6)); } 20% { opacity: 1; } 65% { opacity: .9; transform: rotate(calc(var(--recovery-i) * 120deg + 70deg)) translateY(-5px) scale(.4); } 100% { opacity: 0; transform: scale(.05); } }
+.recovery-pearls svg { width: 100%; height: 100%; fill: none; stroke: var(--fx-c1); stroke-width: 1; stroke-dasharray: 2 7; opacity: 0; animation: recovery-floor 1050ms ease-out both; }
+.recovery-shell { position: absolute; inset: 25% 0 -15%; opacity: 0; animation: recovery-shell 1050ms ease-out var(--recovery-hit) both; }
+@keyframes recovery-shell { 0% { opacity: 0; transform: translateY(20%) scale(.5); } 35%, 65% { opacity: .7; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-10%) scale(1.1); } }
+.recovery-tide-lines { position: absolute; inset: 20% -25% -10%; width: 150%; height: 90%; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; opacity: 0; animation: recovery-tide 950ms ease-in-out var(--recovery-hit) both; }
+@keyframes recovery-tide { 0% { opacity: 0; transform: translateX(20%) scaleY(.5); } 35%, 60% { opacity: .8; transform: translateX(0) scaleY(1); } 100% { opacity: 0; transform: translateX(-20%) translateY(-12%); } }
+.recovery-time-dial { position: absolute; inset: -13%; opacity: 0; animation: recovery-time 1150ms ease-out both; }
+@keyframes recovery-time { 0% { opacity: 0; transform: scale(1.35) rotate(45deg); } 25%, 75% { opacity: .85; transform: scale(1) rotate(-90deg); } 100% { opacity: 0; transform: scale(.85) rotate(-150deg); } }
+.recovery-time-shards i { position: absolute; inset: 8%; border: 1.5px solid currentColor; border-radius: 18%; opacity: 0; clip-path: inset(calc(var(--recovery-i) * 25%) 0 calc(75% - var(--recovery-i) * 25%) 0); animation: recovery-time-shard 850ms ease-out calc(var(--recovery-hit) + var(--recovery-i) * 70ms) both; }
+@keyframes recovery-time-shard { 0% { opacity: 0; transform: translateX(30%) scale(1.35); } 45%, 75% { opacity: .65; transform: translateX(0) scale(1); } 100% { opacity: 0; transform: scale(.95); } }
+.recovery-sun { position: absolute; inset: -5%; opacity: 0; animation: recovery-time 1150ms ease-out both; }
+.recovery-rebirth-frame { position: absolute; inset: -25% -10% -6%; opacity: 0; animation: recovery-rebirth 1250ms ease-out var(--recovery-hit) both; }
+.recovery-time-gate .recovery-rebirth-frame { inset: -35% -7% -3%; }
+.recovery-bone-soul .recovery-rebirth-frame { inset: -7%; }
+.recovery-lantern .recovery-rebirth-frame { inset: -36% 20% 22%; }
+@keyframes recovery-rebirth { 0% { opacity: 0; transform: translateY(24%) scaleY(.1); } 35%, 70% { opacity: .85; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-10%) scale(1.08); } }
+.recovery-rise-lines { position: absolute; inset: -25% -12% 0; width: 124%; height: 125%; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-dasharray: 110; opacity: 0; animation: recovery-rise 1150ms ease-out var(--recovery-hit) both; }
+@keyframes recovery-rise { 0% { stroke-dashoffset: 110; opacity: 0; } 35% { stroke-dashoffset: 0; opacity: .8; } 80% { opacity: .4; } 100% { stroke-dashoffset: -110; opacity: 0; } }
+.recovery-soul-flames i { position: absolute; left: calc(-7% + var(--recovery-i) * 51%); top: 60%; width: 13%; height: 22%; border-radius: 70% 5% 50% 50%; background: linear-gradient(35deg, transparent, var(--fx-c2)); border-left: 1px solid currentColor; opacity: 0; animation: recovery-dust 800ms ease-out calc(var(--recovery-hit) + var(--recovery-i) * 90ms) both; }
+@media (prefers-reduced-motion: reduce) {
+    .recovery-fx *, .recovery-fx *::before, .recovery-fx *::after { animation: none !important; opacity: 0 !important; }
+}

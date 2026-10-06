@@ -13,13 +13,12 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import {
-    PREVIEW_GRID_COLS,
-    PREVIEW_GRID_ROWS,
-    buildPreviewFxEvent,
+    buildSkillPreviewScene,
     previewCellVariants,
 } from '../../core/skill-fx-preview';
-import { SKILL_FX_KIND_LABELS, resolveSkillFx } from '../../core/skill-fx';
-import { SkillFxVisual } from '../Game/SkillFxLayer';
+import { computeFxTailMs, SKILL_FX_KIND_LABELS, resolveSkillFx } from '../../core/skill-fx';
+import { SkillAreaFx, SkillFxVisual } from '../Game/SkillFxLayer';
+import { MOBILE_LAYOUT_QUERY } from '../../hooks/useMobileLayout';
 
 /** 一轮特效播完后到下一轮的静默间隔 */
 const LOOP_GAP_MS = 500;
@@ -29,20 +28,16 @@ const HOVER_DWELL_MS = 600;
 const CLOSE_GRACE_MS = 240;
 
 const PANEL_WIDTH = 304;
-const PANEL_HEIGHT_BUDGET = 300;
+const PANEL_HEIGHT_BUDGET = 370;
 const EDGE_GAP = 12;
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
-const CELLS = Array.from({ length: PREVIEW_GRID_ROWS * PREVIEW_GRID_COLS }, (_, index) => [
-    Math.floor(index / PREVIEW_GRID_COLS),
-    index % PREVIEW_GRID_COLS,
-] as const);
-
 /** 特效舞台本体：演示棋盘 + 档案行 + 重播（图鉴卡内不直接展示，只在浮层里出现） */
 export function SkillFxStage({ skillId, accent }: { skillId: string; accent: string }) {
     const profile = resolveSkillFx(skillId);
-    const event = useMemo(() => buildPreviewFxEvent(profile), [profile]);
+    const { event, cols, rows } = useMemo(() => buildSkillPreviewScene(skillId), [skillId]);
+    const cells = useMemo(() => Array.from({ length: cols * rows }, (_, index) => [Math.floor(index / cols), index % cols] as const), [cols, rows]);
     const [cycle, setCycle] = useState(0);
     const [reducedMotion, setReducedMotion] = useState(false);
     const [tabHidden, setTabHidden] = useState(false);
@@ -67,20 +62,20 @@ export function SkillFxStage({ skillId, accent }: { skillId: string; accent: str
         if (reducedMotion || tabHidden) return;
         const timer = window.setTimeout(
             () => setCycle(current => current + 1),
-            profile.durationMs + LOOP_GAP_MS
+            profile.durationMs + computeFxTailMs(event) + LOOP_GAP_MS
         );
         return () => window.clearTimeout(timer);
-    }, [cycle, profile, reducedMotion, tabHidden]);
+    }, [cycle, profile, event, reducedMotion, tabHidden]);
 
     const isSelfCast = event.fromPos[0] === event.targetPos[0] && event.fromPos[1] === event.targetPos[1];
 
     return (
-        <div className="skill-fx-stage" style={{ '--codex-fx-accent': accent } as CSSProperties}>
+        <div className="skill-fx-stage" style={{ '--codex-fx-accent': accent, '--fx-preview-cols': cols, '--fx-preview-rows': rows, '--codex-fx-cell': cols === 6 ? '32px' : '56px' } as CSSProperties}>
             {reducedMotion ? (
                 <p className="skill-fx-stage-note">系统已开启减弱动态效果，特效预览暂停播放。</p>
             ) : (
                 <div className="skill-fx-stage-grid" aria-hidden="true">
-                    {CELLS.map(([row, col]) => {
+                    {cells.map(([row, col]) => {
                         const showCaster = event.fromPos[0] === row && event.fromPos[1] === col;
                         const showTarget = !isSelfCast && event.targetPos[0] === row && event.targetPos[1] === col;
                         return (
@@ -102,6 +97,7 @@ export function SkillFxStage({ skillId, accent }: { skillId: string; accent: str
                             </div>
                         );
                     })}
+                    <SkillAreaFx key={`area-${cycle}`} event={event} />
                 </div>
             )}
 
@@ -159,7 +155,7 @@ export default function SkillFxPreview({
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const panelId = `skill-fx-peek-${useId().replace(/:/g, '')}`;
     const [open, setOpen] = useState(false);
-    const [position, setPosition] = useState({ left: 0, top: 0, above: false });
+    const [position, setPosition] = useState<{ left: number; top: number; above: boolean; maxHeight?: number }>({ left: 0, top: 0, above: false });
 
     const clearTimer = useCallback(() => {
         if (timerRef.current) clearTimeout(timerRef.current);
@@ -169,9 +165,24 @@ export default function SkillFxPreview({
     const updatePosition = useCallback(() => {
         const rect = triggerRef.current?.getBoundingClientRect();
         if (!rect) return;
+        if (window.matchMedia(MOBILE_LAYOUT_QUERY).matches) {
+            const viewport = window.visualViewport;
+            const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
+            const width = viewport?.width ?? window.innerWidth, height = viewport?.height ?? window.innerHeight;
+            const renderedWidth = Math.min(PANEL_WIDTH, width - EDGE_GAP * 2);
+            const maxHeight = height - EDGE_GAP * 2;
+            const panelHeight = Math.min(panelRef.current?.scrollHeight ?? PANEL_HEIGHT_BUDGET, maxHeight);
+            setPosition({
+                left: Math.max(left + EDGE_GAP, Math.min(rect.left, left + width - renderedWidth - EDGE_GAP)),
+                top: Math.max(top + EDGE_GAP, Math.min(rect.bottom + 8, top + height - panelHeight - EDGE_GAP)),
+                above: false, maxHeight
+            });
+            return;
+        }
         // 默认向下展开；下方空间不够时翻到上方
         const belowRoom = window.innerHeight - rect.bottom;
-        const above = belowRoom < PANEL_HEIGHT_BUDGET && rect.top > belowRoom;
+        const panelHeight = panelRef.current?.getBoundingClientRect().height ?? PANEL_HEIGHT_BUDGET;
+        const above = belowRoom < panelHeight + EDGE_GAP && rect.top > belowRoom;
         setPosition({
             left: Math.max(EDGE_GAP, Math.min(
                 rect.left + rect.width / 2 - PANEL_WIDTH / 2,
@@ -205,6 +216,7 @@ export default function SkillFxPreview({
 
     useEffect(() => {
         if (!open) return;
+        updatePosition();
         const onResize = () => updatePosition();
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') setOpen(false);
@@ -216,11 +228,15 @@ export default function SkillFxPreview({
         };
         window.addEventListener('resize', onResize);
         window.addEventListener('scroll', onResize, true);
+        window.visualViewport?.addEventListener('resize', onResize);
+        window.visualViewport?.addEventListener('scroll', onResize);
         window.addEventListener('keydown', onKeyDown);
         document.addEventListener('pointerdown', onOutsidePointer);
         return () => {
             window.removeEventListener('resize', onResize);
             window.removeEventListener('scroll', onResize, true);
+            window.visualViewport?.removeEventListener('resize', onResize);
+            window.visualViewport?.removeEventListener('scroll', onResize);
             window.removeEventListener('keydown', onKeyDown);
             document.removeEventListener('pointerdown', onOutsidePointer);
         };
@@ -236,10 +252,11 @@ export default function SkillFxPreview({
                 style={{ color: accent, borderColor: `${accent}44` }}
                 aria-label={`${skillName} 的技能特效`}
                 aria-describedby={open ? panelId : undefined}
-                onMouseEnter={scheduleShow}
-                onMouseLeave={scheduleHide}
-                onFocus={showNow}
-                onBlur={scheduleHide}
+                onMouseEnter={() => { if (!window.matchMedia(MOBILE_LAYOUT_QUERY).matches) scheduleShow(); }}
+                onMouseLeave={() => { if (!window.matchMedia(MOBILE_LAYOUT_QUERY).matches) scheduleHide(); }}
+                onFocus={() => { if (!window.matchMedia(MOBILE_LAYOUT_QUERY).matches) showNow(); }}
+                onBlur={() => { if (!window.matchMedia(MOBILE_LAYOUT_QUERY).matches) scheduleHide(); }}
+                onClick={() => { if (window.matchMedia(MOBILE_LAYOUT_QUERY).matches) showNow(); }}
             >
                 <SparkIcon />
             </button>
@@ -254,13 +271,15 @@ export default function SkillFxPreview({
                         left: position.left,
                         top: position.top,
                         width: PANEL_WIDTH,
+                        maxHeight: position.maxHeight,
                         transform: position.above ? 'translateY(-100%)' : undefined,
                     }}
                     onMouseEnter={clearTimer}
-                    onMouseLeave={scheduleHide}
+                    onMouseLeave={() => { if (!window.matchMedia(MOBILE_LAYOUT_QUERY).matches) scheduleHide(); }}
                 >
                     <div className="skill-fx-peek-heading">
                         <span className="skill-fx-peek-title">{skillName}</span>
+                        <button type="button" className="mobile-only skill-fx-peek-close" aria-label="关闭特效预览" onClick={() => setOpen(false)}>关闭</button>
                         <span className="skill-fx-peek-hint">施法格 → 目标格循环演示</span>
                     </div>
                     <SkillFxStage skillId={skillId} accent={accent} />

@@ -1,0 +1,64 @@
+/* 泠汐·涌潮拍岸：纸扇起势，宽幅潮头沿前方矩形推进，白沫破碎后退潮。 */
+.lx-tide-source { position: absolute; inset: 0; pointer-events: none; --lt-pitch: calc(var(--board-cell-size, 76px) + 6px); }
+.lx-tide-aim { position: absolute; inset: 0; transform: rotate(var(--lt-angle)); }
+.lx-tide-fan {
+    position: absolute; left: 50%; top: 50%;
+    width: calc(var(--lt-pitch) * 1.08); height: calc(var(--lt-pitch) * 1.34);
+    margin-left: calc(var(--lt-pitch) * -.1944); margin-top: calc(var(--lt-pitch) * -.67);
+}
+.lx-tide-fan svg {
+    display: block; width: 100%; height: 100%; overflow: visible;
+    transform-origin: 18% 50%; opacity: 0;
+    animation: lx-tide-fan-sweep 540ms ease-out both;
+}
+.lx-tide-fan-paint { fill: none; stroke: #64979b; stroke-width: 1.2; opacity: .5; }
+@keyframes lx-tide-fan-sweep {
+    0% { opacity: 0; transform: rotate(-28deg) scaleX(.08); }
+    16% { opacity: .92; }
+    38% { opacity: .95; transform: rotate(-18deg) scaleX(1); }
+    72% { opacity: .72; transform: rotate(22deg) scaleX(.96); }
+    100% { opacity: 0; transform: rotate(30deg) scaleX(.72); }
+}
+.lx-tide-lane {
+    position: absolute; left: 50%; top: 50%;
+    width: calc(var(--lt-pitch) * 2.8); height: calc(var(--lt-pitch) * 3);
+    margin-top: calc(var(--lt-pitch) * -1.5); overflow: visible;
+}
+.lx-tide-front {
+    transform-box: view-box; transform-origin: 0 50%; opacity: 0;
+    animation: lx-tide-surf var(--lt-travel) linear both;
+    animation-delay: calc(var(--lt-launch) + var(--lt-wave-index) * var(--lt-gap));
+}
+.lx-tide-wake, .lx-tide-crest, .lx-tide-foam, .lx-tide-lace { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.lx-tide-wake { stroke: #619aa3; stroke-width: .8; opacity: .32; }
+.lx-tide-crest { stroke-width: 2.7; }
+.lx-tide-foam { stroke: #f5f7eb; stroke-width: 1.5; stroke-dasharray: 3.8 1.2 .4 1.8 6.2 2.6 1.4 2.1; stroke-dashoffset: calc(var(--lt-wave-index) * 13); }
+.lx-tide-lace { stroke: #e1eee4; stroke-width: .9; opacity: .8; }
+@keyframes lx-tide-surf {
+    0% { opacity: 0; transform: translateX(24px) scaleY(.44); }
+    12% { opacity: .92; }
+    40% { transform: translateX(118.4px) scaleY(1); opacity: .94; }
+    72% { opacity: .75; }
+    100% { opacity: 0; transform: translateX(260px) scaleY(1.03); }
+}
+.skill-fx-kind-lingxi-fan.skill-fx-impact { transform: none; opacity: 1; }
+.lx-tide-impact { position: absolute; inset: 0; transform: rotate(var(--lt-angle)); pointer-events: none; }
+.lx-tide-impact svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lx-tide-splash {
+    transform-origin: 50% 50%; opacity: 0;
+    animation: lx-tide-break 440ms ease-out both; animation-delay: var(--lt-hit);
+}
+.lx-tide-splash-wash { fill: #73a5aa; opacity: .16; }
+.lx-tide-splash-ink { fill: none; stroke: #548995; stroke-width: 1.9; stroke-linecap: round; opacity: .62; }
+.lx-tide-splash-foam { fill: none; stroke: #f6f7ed; stroke-width: 1.1; stroke-linecap: round; }
+.lx-tide-splash-drops { fill: #82b2b6; opacity: .62; }
+@keyframes lx-tide-break {
+    0% { opacity: 0; transform: translateX(-4px) scale(.7); }
+    18% { opacity: .9; }
+    55% { opacity: .6; transform: translateX(3px) scale(1.02); }
+    100% { opacity: 0; transform: translateX(7px) scale(1.12); }
+}
+.fx-lite .lx-tide-lace { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .lx-tide-source, .lx-tide-impact { display: none; }
+}

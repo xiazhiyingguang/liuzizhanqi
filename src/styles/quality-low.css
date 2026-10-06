@@ -1,0 +1,100 @@
+/*
+ * 低画质降级层（只在 <html data-quality="low"> 下生效：触屏、四核以下 CPU，或玩家手动切换）。
+ *
+ * 写法约束：每条选择器的末级都必须是类名。`[data-quality="low"] *` 这种通配末级会被
+ * Blink 放进"所有元素都要试一次"的规则桶，实测把施法窗的样式重算从 449ms 顶到 738ms，
+ * 降级层自己反而成了瓶颈。
+ *
+ * 判据来自实测（scripts/e2e/mobile-ab.mjs，5× CPU 降频、390×844@3x）：
+ * 一次范围施法同屏 93 个动画，其中区域底光/印记这类"逐格复制"的零件占了一半以上，
+ * 所以这里砍的是同屏动画数量与光栅面积，配色、轮廓、节奏都保留。
+ */
+
+/* 磨砂玻璃：面板背后就是会动的棋盘，每帧都要重新采样并模糊一整块区域 */
+[data-quality="low"] .ink-panel,
+[data-quality="low"] .backdrop-blur-sm,
+[data-quality="low"] .backdrop-blur-md,
+[data-quality="low"] .main-menu-actions,
+[data-quality="low"] .skill-fx-peek-panel {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* 关掉了磨砂，半透面板会透出棋盘格子，补一层接近原观感的纸色底 */
+[data-quality="low"] .ink-panel {
+    background: rgba(250, 246, 238, 0.92);
+}
+
+/*
+ * 全屏宣纸颗粒是一张 feTurbulence 现算的 SVG 噪声图：手机内存吃紧时位图瓦片会被丢弃，
+ * 重新解码噪声图正好砸在施法那一帧上。低画质留纯色纸底，颗粒在六寸屏上本就看不出来。
+ */
+[data-quality="low"] .ink-paper {
+    background-image: none;
+}
+
+/* 把重绘矩形收在棋盘内部：特效闪一下不该牵动顶栏和两侧面板 */
+[data-quality="low"] .battle-board-grid {
+    contain: layout paint;
+}
+
+/* 云雾漂移常年占着一整块合成面，观感收益最低 */
+[data-quality="low"] .animate-cloud-float,
+[data-quality="low"] .animate-cloud-float-slow {
+    animation: none;
+}
+
+/*
+ * 呼吸类动画动的是 box-shadow / filter：这两个属性交不了合成器，等于每帧重算样式并重绘。
+ * 降级成等价的静态光晕——还是"亮着"，只是不再"呼吸"。
+ */
+[data-quality="low"] .animate-pulse-glow {
+    animation: none;
+    box-shadow: 0 0 8px rgba(212, 168, 67, 0.28);
+}
+
+[data-quality="low"] .ice-crystal-snow {
+    animation: none;
+    opacity: 0.95;
+    filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.7));
+}
+
+/* 棋盘常驻标记（刃痕/暗夜法阵/风道/游隼风刃）：去呼吸，保留本体形状与配色 */
+[data-quality="low"] .bf-blade-mark,
+[data-quality="low"] .bf-dark-circle,
+[data-quality="low"] .wind-lane-band,
+[data-quality="low"] .bf-wind-blade {
+    animation: none;
+}
+
+[data-quality="low"] .kill-announcement__portrait-ring {
+    animation: none;
+    opacity: 0.8;
+}
+
+/*
+ * 特效散件：光环外的粒子环、火花、晶屑、烟尘、雾、绕转碎片。
+ * 每个特效事件的主体（刃光/环/闪光/法阵）都保留，只去掉"撒出去的小点"——
+ * 它们是逐格复制时数量涨得最快的一族，砍掉不影响判断"打到了谁、打了几个"。
+ * React 侧另有 scaleParticleCount() 减半，这里兜住那些写死在 JSX 里的散件。
+ */
+[data-quality="low"] .fx-lite .fx-orbit,
+[data-quality="low"] .fx-lite .fxp-orbit,
+[data-quality="low"] .fx-lite .fxp-spark,
+[data-quality="low"] .fx-lite .fxp-shard,
+[data-quality="low"] .fx-lite .fxp-smoke,
+[data-quality="low"] .fx-lite .fxp-rune,
+[data-quality="low"] .fx-lite .fxp-tendril,
+[data-quality="low"] .fx-lite .fxp-note,
+[data-quality="low"] .fx-lite .fx-shard,
+[data-quality="low"] .fx-lite .fx-iceshard,
+[data-quality="low"] .fx-lite .fx-dust,
+[data-quality="low"] .fx-lite .fx-mist,
+[data-quality="low"] .fx-lite .fx-smoke,
+[data-quality="low"] .fx-lite .fx-wisp,
+[data-quality="low"] .fx-lite .fx-staff-spark,
+[data-quality="low"] .fx-lite .fx-mw-wisp,
+[data-quality="low"] .fx-lite .fx-mw-splat,
+[data-quality="low"] .fx-lite .fx-theme-chip {
+    display: none;
+}

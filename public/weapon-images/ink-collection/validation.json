@@ -1,0 +1,365 @@
+{
+  "count": 44,
+  "expectedCount": 44,
+  "completeCoverage": true,
+  "allOpaque": true,
+  "consistentDimensions": true,
+  "originalFivePreserved": true,
+  "distinctImages": true,
+  "selectedPngCount": 44,
+  "rootPngCount": 49,
+  "images": [
+    {
+      "id": "moran",
+      "file": "moran.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "7b6eb9fc1385250a4f97e9cc37038988796f3b7e1ca9217ae61de3278fd38497"
+    },
+    {
+      "id": "zhenxiao",
+      "file": "zhenxiao.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "d15923fb34534769afa8c071f9e67f8a1e059972e1b80e4ff9381e968b2e1542"
+    },
+    {
+      "id": "wukong",
+      "file": "wukong.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "6c2abb4eabe960780e22eb917d517bd73d24fb6ccd55c03272bd73b83ce93f9d"
+    },
+    {
+      "id": "wangshu",
+      "file": "wangshu.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "f3b99da8c39d187fd1364a62545bd9756737bdf829df71f56e3a3c046a4cde83"
+    },
+    {
+      "id": "xueqi",
+      "file": "xueqi.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "2468ad647fda6be4d04ffe4a2201436efa36ed69a441d81459fa77b8e3fdcdbb"
+    },
+    {
+      "id": "huifeng",
+      "file": "huifeng.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "a2e719a2ab27ff5847f61b5a2a6ecff86db1caa3f5e73522f595a6828e77ce56"
+    },
+    {
+      "id": "xuanxiao",
+      "file": "xuanxiao.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "25d0997dc0f6292ca7bb30e4cc0556c24b47c511c438b2e006dcaa38cd2039bd"
+    },
+    {
+      "id": "nightowl",
+      "file": "nightowl-v2.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "3c56e238df597f18caf3ea3aac95bb0a08a7ca02875e2e93281b7a50299ccea4"
+    },
+    {
+      "id": "liuli",
+      "file": "liuli.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "b37fcee8db68352b877ab8cf832be18369898b16d476d01fc4936a744414d68f"
+    },
+    {
+      "id": "baize",
+      "file": "baize.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "55cc91926c10129322b7d0c9080ab41d1c57930446a02f7493a9924857c4a6b7"
+    },
+    {
+      "id": "changli",
+      "file": "changli.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "54a4fcd6375f73d47e1ebc7ce446f95cd2e7d1b82b903c2581161c0d63f9aaee"
+    },
+    {
+      "id": "mirror",
+      "file": "mirror.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "db224fdbda7765694e13a057825f226b827dbb3f4d311511b71db8122d32b9c0"
+    },
+    {
+      "id": "mowen",
+      "file": "mowen.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "a43be2fcfdd885a55e6e79f9e1e382748489672a07524f394fe9eaf4f4bd4272"
+    },
+    {
+      "id": "guying",
+      "file": "guying.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "3c77144d63b1ed31c93c837d78ef6479cf7dfbf40cf0e73dae37ef853b3b889a"
+    },
+    {
+      "id": "hanjiangxue",
+      "file": "hanjiangxue.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "f176a437fdd5dbbc097ff6d3863a3ad417ea66c85adffd6cf8211da5ce374752"
+    },
+    {
+      "id": "skeletonking",
+      "file": "skeletonking.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "ac8bc7d18a0ba79d88fba08d1ac28c3f4d66f4935ba24cf62bcf5083e5e68d3d"
+    },
+    {
+      "id": "jetzmi",
+      "file": "jetzmi.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "d7656934d52268019f0e68e6faabb9a806c775e6b1810bbcd48aa1c0c19c0728"
+    },
+    {
+      "id": "pipa",
+      "file": "pipa.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "dd5bdf5446d5a2a0a8ade0a503535ebe40e316a1af7504790436232265556e5a"
+    },
+    {
+      "id": "bounty",
+      "file": "bounty-v2.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "e67ee63103ca6f9ec52d347c514c647d79b94d7913e577036fcc2e4c717b86bb"
+    },
+    {
+      "id": "yinyang",
+      "file": "yinyang.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "b07565009634822cc0ce130e6065608161fe65e82e70d63d9e8070f13b18e99b"
+    },
+    {
+      "id": "soul_lamp",
+      "file": "soul_lamp.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "4837d1bfb14fa5827cbd53f1a55886698eaaf912900d2dcfb98f1c4c879972fa"
+    },
+    {
+      "id": "bard",
+      "file": "bard.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "8fc4cef41b46d9f8a843e69f7dc3da8aacbb1b5c2950299ec15087b1df249979"
+    },
+    {
+      "id": "wither_lord",
+      "file": "wither_lord-v2.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "1d8c455652f6513250e9fe852da6ed8da72ef7e37a4753408bf3fc90b9416126"
+    },
+    {
+      "id": "t_painting",
+      "file": "t_painting.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "45d253ebfb3de3b03f3a5d9fdb5644d2d031440156ee31284670f0db307465d0"
+    },
+    {
+      "id": "feynman",
+      "file": "feynman.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "343a3416389b800c382a33eeb7248a7b36518e346798d313175323ca0092ecf9"
+    },
+    {
+      "id": "wangcai",
+      "file": "wangcai.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "ec2c313a413d85920597ce712f958f5335b5439eda3c1eca3e3bc4d082cae381"
+    },
+    {
+      "id": "lilith",
+      "file": "lilith.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "a6bce71fc74db1b22657316eb42a246ec222f1fb5dee97ab8fcc5cc3665e6a92"
+    },
+    {
+      "id": "libai",
+      "file": "libai.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "9033933e4e1a29ca62cd8f34a442b8479f2049e3a4f9037479819bbb054aa306"
+    },
+    {
+      "id": "zuizhendao",
+      "file": "zuizhendao.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "d83b625dea7ef1e24f167bf13cbea2631968317bcbc9b38c7029132f94f3c3c4"
+    },
+    {
+      "id": "feixue",
+      "file": "feixue.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "d9ee940c50b268387eab9ca6d41e7dd324a3758de98156acff651bdd0899c3bd"
+    },
+    {
+      "id": "fengling",
+      "file": "fengling.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "e44e3bdfdafe12246e497a808389ef640c1466a10a8990ebb56f00ba0198640a"
+    },
+    {
+      "id": "dilan",
+      "file": "dilan.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "008d6cc8c98996fa925e13cf39882b836e1d74c63a9c47b432f1c42a8a809734"
+    },
+    {
+      "id": "nanfeng",
+      "file": "nanfeng.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "aee2a70f2eb0e04b1f4586ab50e3cf218c3a44b10f636d608cf0c9a699d12370"
+    },
+    {
+      "id": "shangguan",
+      "file": "shangguan.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "9a46c88d20af572aaaca0d91b8e539a88b3478f45c4d8afb64cdc758d2975dcd"
+    },
+    {
+      "id": "chenyuan",
+      "file": "chenyuan-v2.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "5cba4b3817d53913865f0b02b2eeb938a1aaf3d0f5401cbba23118063996b029"
+    },
+    {
+      "id": "dai",
+      "file": "dai.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "477c29400ea2be9f9fa4da939b767a98adfb027d2be90a7a06df5230f837d144"
+    },
+    {
+      "id": "youjun",
+      "file": "youjun.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "bbdfad378309f24acbf66d797e9a7d191406725345b9d173292fbf8aa21c2c34"
+    },
+    {
+      "id": "xubai",
+      "file": "xubai.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "9c92e7182063c48a61b4badbc25b63e2f8900c67031999ffc06635ec9a6fd94b"
+    },
+    {
+      "id": "lingxi",
+      "file": "lingxi.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "3555b66300af0476e0129972eebeb0077564d508689ce37e728f3143cad229cb"
+    },
+    {
+      "id": "yunying",
+      "file": "yunying.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "a188957f38e274e3d907260dc2fce20ad4e1e065a96a70694f92b4de062c1d15"
+    },
+    {
+      "id": "jinghong",
+      "file": "jinghong.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "ba7740b7f5862b99fad1fdcb0b7c02df56e6db0633c706f9e980df04dba2301f"
+    },
+    {
+      "id": "jinghua",
+      "file": "jinghua.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "31c09643bc91599e58a014c65b1193b849535f56ca5b6ea9c0834b01c40d5471"
+    },
+    {
+      "id": "huanongying",
+      "file": "huanongying.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "3f5e62ac49ef3403487b71e7642bbd5e7669aaa97fd7794461c230c3eff35845"
+    },
+    {
+      "id": "zhiguang",
+      "file": "zhiguang.png",
+      "width": 1254,
+      "height": 1254,
+      "nonOpaquePixels": 0,
+      "sha256": "e01fdbbe6054738bcbc040d5a02132a47466c6f44c1804faa7908a6c83fa0c96"
+    }
+  ]
+}

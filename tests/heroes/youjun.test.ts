@@ -4,6 +4,8 @@ import { SkillSystem } from '../../src/core/skill-system';
 import { createWindLane } from '../../src/core/wind-lane';
 import { youjunSkill1, youjunSkill2 } from '../../src/data/extended-skills';
 import { youjunTianwei } from '../../src/data/heroes';
+import { xuanxiaoSkill2 } from '../../src/data/skills';
+import { GameEngine } from '../../src/core/game-engine';
 import { addHero, makeGameState } from '../helpers/game-state';
 
 /** 场上所有游隼风刃的坐标集合，便于断言「落在哪几格」 */
@@ -34,7 +36,7 @@ describe('游隼完整机制', () => {
         const state = makeGameState();
         const youjun = addHero(state, 'youjun', 'player1', [2, 2]);
         expect(youjun.name).toBe('游隼');
-        expect(youjun.class).toBe('猎户');
+        expect(youjun.class).toBe('武曲');
         expect(youjun.maxHp).toBe(44);
         expect(youjun.moveRange).toBe(3);
         expect(youjun.skill1Id).toBe('youjun_skill1');
@@ -336,5 +338,36 @@ describe('游隼完整机制', () => {
         SkillSystem.executeSkill(youjun, youjunSkill1, [[2, 3]], state);
         // 上限6：5×(1+0.3)×(1+0.6)=10.4 → 10点
         expect(enemy.currentHp).toBe(enemy.maxHp - 10);
+    });
+
+    it('玄霄给的再动是完整一次行动：不再被扣成"只能移动"', () => {
+        const state = makeGameState();
+        const xuanxiao = addHero(state, 'xuanxiao', 'player1', [0, 0]);
+        const youjun = addHero(state, 'youjun', 'player1', [1, 0]);
+        addHero(state, 'baize', 'player2', [1, 2]);
+        youjun.hasActedThisTurn = true;
+
+        SkillSystem.executeSkill(xuanxiao, xuanxiaoSkill2, [[1, 0]], state);
+        GameEngine.endHeroAction(xuanxiao, state);   // 再动在玄霄这次行动收尾时才发放
+
+        expect(youjun.hasActedThisTurn).toBe(false);
+        expect(youjun.counters['youjun_extra_move_only']).toBeUndefined();
+        expect(SkillSystem.canUseSkill(youjun, youjunSkill2, state)).toBe(true);
+    });
+
+    it('游隼自己"收势再起"那一手仍然只许移动（自标记发放时被消费）', () => {
+        const state = makeGameState();
+        const youjun = addHero(state, 'youjun', 'player1', [1, 0]);
+        const ally = addHero(state, 'moran', 'player1', [0, 0]);
+        addHero(state, 'baize', 'player2', [1, 2]);
+        youjun.hasActedThisTurn = true;
+        youjun.counters['__youjun_self_extra'] = 1;
+        state.pendingExtraActionHeroIds = { player1: youjun.id };
+
+        GameEngine.endHeroAction(ally, state);
+
+        expect(youjun.counters['youjun_extra_move_only']).toBe(1);
+        expect(youjun.counters['__youjun_self_extra']).toBeUndefined();
+        expect(SkillSystem.canUseSkill(youjun, youjunSkill2, state)).toBe(false);
     });
 });

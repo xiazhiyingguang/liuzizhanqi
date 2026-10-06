@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
     computeFxAngleDeg,
     computeFxDirection,
+    computeFxImpactDelayMs,
+    type SkillFxEvent,
     isImpactFxKind,
     isPerTargetFxKind,
     resolveSkillFx,
@@ -10,22 +12,68 @@ import {
 import { SKILL_SOUND_MAP } from '../../src/data/skill-sounds';
 
 describe('resolveSkillFx', () => {
+    it('大圣合击在落棒时触发命中反馈，次格保留相同的落棒与爆点间隔', () => {
+        const event: SkillFxEvent = { id: 1, bornAt: 0, profile: resolveSkillFx('wukong_skill2'), owner: 'player1',
+            fromPos: [2, 2], targetPos: [2, 3], angleDeg: 0, direction: 'E' };
+        expect(computeFxImpactDelayMs(event, [2, 3])).toBe(250);
+        expect(computeFxImpactDelayMs(event, [3, 4])).toBe(295);
+        expect(resolveSkillFx('wukong_skill999').impactMs).toBe(250);
+    });
     it('技能级档案精确命中各自的专属特效', () => {
         expect(resolveSkillFx('wukong_skill1').kind).toBe('wukong-clone');
         expect(resolveSkillFx('wukong_skill2').kind).toBe('wukong-staff');
         expect(resolveSkillFx('feixue_skill1').kind).toBe('feixue-blade');
-        expect(resolveSkillFx('feixue_skill2').kind).toBe('feixue-stomp');
+        expect(resolveSkillFx('feixue_skill2').kind).toBe('feixue-bond');
         expect(resolveSkillFx('soul_lamp_skill1').kind).toBe('soul-lamp-array');
         expect(resolveSkillFx('soul_lamp_skill2').kind).toBe('soul-lamp-cycle');
         expect(resolveSkillFx('libai_skill1').kind).toBe('libai-slash');
         expect(resolveSkillFx('libai_skill2').kind).toBe('libai-flurry');
         expect(resolveSkillFx('feynman_skill1').kind).toBe('feynman-beam');
         expect(resolveSkillFx('feynman_skill2').kind).toBe('feynman-burst');
-        expect(resolveSkillFx('moran_skill1').kind).toBe('magic-array');
+        expect(resolveSkillFx('moran_skill1').kind).toBe('moran-inkway');
         expect(resolveSkillFx('dai_skill2').kind).toBe('phase-swap');
         expect(resolveSkillFx('fengling_skill1').kind).toBe('fengling-claw');
         // 天威「猎砂追击」的闪袭档案（由战报标记派发，不是技能）
         expect(resolveSkillFx('fengling_pounce').kind).toBe('fengling-pounce');
+    });
+
+    it('恢复类技能各归各的原型，不再共用一套祝福光环', () => {
+        // 单体治疗：光丝向内收拢，与"向外扩环"的增益读法相反
+        expect(resolveSkillFx('baize_skill1').kind).toBe('heal-single');
+        expect(resolveSkillFx('xubai_skill1').kind).toBe('heal-single');
+        // 群体恢复：同心波自施法者荡开，每格各起一根光柱
+        expect(resolveSkillFx('bard_skill2').kind).toBe('heal-wave');
+        expect(resolveSkillFx('liuli_skill2').kind).toBe('heal-wave');
+        expect(resolveSkillFx('pipa_skill1').kind).toBe('chord-aura');
+        // 持续/延迟回血：挂在既有专属档案旁边的辅助档案，映射待定稿
+        expect(resolveSkillFx('xubai_regen').kind).toBe('regen-orb');
+        expect(resolveSkillFx('lingxi_regen').kind).toBe('regen-orb');
+        // 复活：走同一套唤回仪式
+        expect(resolveSkillFx('baize_skill2').kind).toBe('revive-rise');
+        expect(resolveSkillFx('skeletonking_skill2').kind).toBe('bone-slash');
+        expect(resolveSkillFx('dai_skill1').kind).toBe('rewind-state');
+        expect(resolveSkillFx('dai_revive').kind).toBe('revive-rise');
+        // 护盾援护：六边形罩面
+        expect(resolveSkillFx('liuli_skill1').kind).toBe('shield-ward');
+        expect(resolveSkillFx('jinghua_skill1').kind).toBe('shield-ward');
+        // 既有专属原型一个都没被删掉，仍在原技能上
+        expect(resolveSkillFx('xubai_skill2').kind).toBe('xubai-pearls');
+        expect(resolveSkillFx('lingxi_skill1').kind).toBe('lingxi-wave');
+        expect(resolveSkillFx('lingxi_skill2').kind).toBe('lingxi-fan');
+        expect(resolveSkillFx('bard_skill1').kind).toBe('chord-notes');
+        // 各主题保留展开与收尾时间，治疗与复活都控制在两秒以内。
+        expect(resolveSkillFx('baize_skill2').durationMs).toBeLessThanOrEqual(1700);
+        expect(resolveSkillFx('bard_skill2').durationMs).toBeLessThanOrEqual(1500);
+        // 只有群体恢复是"每格各出一份本体"，其余恢复类都是单格
+        expect(isPerTargetFxKind('heal-wave')).toBe(true);
+        expect(isPerTargetFxKind('heal-single')).toBe(false);
+        expect(isPerTargetFxKind('regen-orb')).toBe(false);
+        expect(isPerTargetFxKind('revive-rise')).toBe(false);
+        expect(isPerTargetFxKind('shield-ward')).toBe(false);
+        // 恢复类都不该震屏闪白
+        for (const kind of ['heal-single', 'heal-wave', 'regen-orb', 'revive-rise', 'shield-ward'] as const) {
+            expect(isImpactFxKind(kind), `${kind} 不该触发震屏`).toBe(false);
+        }
     });
 
     it('醉枕刀专属原型：冲刺光轨与太刀旋斩', () => {

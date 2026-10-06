@@ -56,6 +56,8 @@ describe('AOE 整体特效：逐格原型 → 区域原型映射', () => {
 
     it('召唤/法阵/增益类映射到守护法阵，未知原型兜底冲击波', () => {
         expect(resolveAreaFxKind('magic-array')).toBe('runearray');
+        // 入道的十字范围与脚下墨环同一套语汇，走符阵底光
+        expect(resolveAreaFxKind('moran-inkway')).toBe('runearray');
         expect(resolveAreaFxKind('light-summon')).toBe('runearray');
         expect(resolveAreaFxKind('wukong-clone')).toBe('runearray');
         expect(resolveAreaFxKind('blessing')).toBe('runearray');

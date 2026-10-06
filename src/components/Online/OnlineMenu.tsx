@@ -17,6 +17,7 @@ import {
     type RecentPlayer
 } from '../../services/player-profile';
 import { useGameStore } from '../../store/game-store';
+import { applyResumePayload } from '../../services/online-state';
 import InkButton from '../ui/InkButton';
 import InkCard from '../ui/InkCard';
 import InkDivider from '../ui/InkDivider';
@@ -39,13 +40,28 @@ export default function OnlineMenu() {
 
     const enterOnlineGame = useCallback((result: RoomJoinResponse, startImmediately = false) => {
         if (!result.roomId || !result.playerNumber) return;
+        const localMode = useGameStore.getState().gameMode ?? 'standard';
+        const roomMode = result.gameMode ?? (result as any).room?.gameMode ?? localMode;
+        if (roomMode !== localMode) {
+            // 模式由房间定：不提醒的话，玩家会以为自己选的经典局却打成了标准局
+            setNotice(`本房间为${roomMode === 'classic' ? '经典' : '标准'}模式，已跟随房主`);
+        }
         useGameStore.setState({
             isOnlineMode: true,
             onlineRoomId: result.roomId,
             localPlayerNumber: result.playerNumber,
-            localPlayerName: identity.label
+            localPlayerName: identity.label,
+            // 模式以房间为准：客机本地菜单选的和房主不一致时，跟着房间走，
+            // 否则双方确认选将后的下一阶段会一个跳武装、一个跳布阵
+            gameMode: roomMode
         });
         if (result.opponent) setRecentPlayers(rememberRecentPlayer(result.opponent));
+        // 刷新页面后重新输入同一个房间码：服务端把保留的席位还回来，
+        // 这里必须按权威数据重建局面，而不是从选将界面重新开始。
+        if (result.resumed && result.resume) {
+            applyResumePayload(result.resume);
+            return;
+        }
         if (result.gameState) useGameStore.setState(result.gameState as any);
         if (startImmediately || result.playerNumber === 2) useGameStore.getState().initGame();
     }, [identity.label]);
@@ -106,7 +122,7 @@ export default function OnlineMenu() {
         setLoading(true);
         setError('');
         setNotice('');
-        const result = await enterRoomCode(code, identity);
+        const result = await enterRoomCode(code, identity, useGameStore.getState().gameMode ?? 'standard');
         setLoading(false);
         if (!result.success || !result.roomId || !result.playerNumber) {
             setError(result.error || '进入房间失败');
@@ -139,7 +155,7 @@ export default function OnlineMenu() {
     const handleInvitePlayer = async (player: LobbyPlayer | RecentPlayer) => {
         setNotice('');
         setError('');
-        const result = await inviteLobbyPlayer(player.id);
+        const result = await inviteLobbyPlayer(player.id, useGameStore.getState().gameMode ?? 'standard');
         if (result.success) setNotice(`已邀请 ${player.label}，等待回应…`);
         else setError(result.error || '邀请发送失败');
     };
@@ -155,7 +171,7 @@ export default function OnlineMenu() {
     const availablePlayers = onlinePlayers.filter(player => player.status === 'idle');
 
     return (
-        <div className="w-full h-full flex items-center justify-center relative overflow-y-auto py-8">
+        <div className="online-page w-full h-full flex items-center justify-center relative overflow-y-auto py-8">
             <span className="absolute font-title text-[14rem] text-ink/[0.02] select-none pointer-events-none left-[-1rem] bottom-[5%]">
                 联
             </span>

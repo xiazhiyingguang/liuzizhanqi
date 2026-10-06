@@ -3,11 +3,13 @@ import { DamageCalculator } from '../../src/core/damage-calculator';
 import { chooseComputerSkillPlan } from '../../src/core/computer-ai';
 import { MovementSystem } from '../../src/core/movement-system';
 import { SkillSystem } from '../../src/core/skill-system';
+import { EffectManager } from '../../src/core/effect-manager';
 import {
     addDilanFeather,
     getDilanFeatherStacks,
+    DILAN_FEATHER_DURATION,
 } from '../../src/data/extended-heroes';
-import { dilanSkill1, dilanSkill2, zuizhendaoSkill2 } from '../../src/data/extended-skills';
+import { chenyuanSkill1, dilanSkill1, dilanSkill2, zuizhendaoSkill2 } from '../../src/data/extended-skills';
 import { useGameStore } from '../../src/store/game-store';
 import { addHero, makeGameState } from '../helpers/game-state';
 
@@ -106,7 +108,7 @@ describe('帝兰完整机制', () => {
         expect(guardian.currentHp).toBe(guardian.maxHp);
     });
 
-    it('交换位置的双方都按位移格数触发羽化', () => {
+    it('己方技能造成的换位不再触发羽化', () => {
         const state = makeGameState();
         const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
         const caster = addHero(state, 'zuizhendao', 'player2', [0, 0]);
@@ -119,8 +121,38 @@ describe('帝兰完整机制', () => {
         expect(output.success).toBe(true);
         expect(caster.position).toEqual([0, 3]);
         expect(ally.position).toEqual([0, 0]);
-        expect(caster.currentHp).toBe(caster.maxHp - 3);
-        expect(ally.currentHp).toBe(ally.maxHp - 3);
+        expect(caster.currentHp, '换身是醉枕刀自己放技能挪的位，不该吃羽化').toBe(caster.maxHp);
+        expect(ally.currentHp).toBe(ally.maxHp);
+    });
+
+    it('位移归属方决定羽化是否记账：羽化来源同队才算', () => {
+        const state = makeGameState();
+        const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
+        const enemy = addHero(state, 'baize', 'player2', [0, 0]);
+        addDilanFeather(enemy, dilan, 2);
+
+        // 被"敌方"（目标自己那侧）的技能挪动：不算
+        expect(DamageCalculator.applyDilanMovementDamage(enemy, 2, state, 'player2')).toBe(0);
+        expect(enemy.currentHp).toBe(enemy.maxHp);
+
+        // 被羽化来源那侧推出去：每格 1 点
+        expect(DamageCalculator.applyDilanMovementDamage(enemy, 2, state, 'player1')).toBe(2);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 2);
+    });
+
+    it('沉渊把羽化目标拖过来时按拖拽格数触发羽化', () => {
+        const state = makeGameState();
+        const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
+        const chenyuan = addHero(state, 'chenyuan', 'player1', [0, 0]);
+        const enemy = addHero(state, 'baize', 'player2', [0, 3]);
+        addDilanFeather(enemy, dilan, 2);
+
+        const output = SkillSystem.executeSkill(chenyuan, chenyuanSkill1, [[0, 3]], state);
+
+        expect(output.success).toBe(true);
+        expect(enemy.position).toEqual([0, 1]);
+        // 被拖 2 格 → 2 点羽化固定伤害，再加渊引本身的 6 点
+        expect(enemy.currentHp).toBe(enemy.maxHp - 2 - 6);
     });
 
     it('3层羽化在下次技能命中时引爆并清空，致知1按4×3结算', () => {
@@ -334,5 +366,46 @@ describe('帝兰完整机制', () => {
         expect(enemy.counters['__move_damage_hp'], '账本应随撤回清空').toBeUndefined();
         // 撤回等于"这步没走"：归位不再结算羽化，正向那一步吃掉的伤害也要退回来
         expect(enemy.currentHp).toBe(enemy.maxHp);
+    });
+});
+
+describe('羽化的持续与刷新', () => {
+    beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
+    afterEach(() => vi.restoreAllMocks());
+
+    it('种下时带三回合，三回合后自然消散', () => {
+        const state = makeGameState();
+        const dilan = addHero(state, 'dilan', 'player1', [2, 2]);
+        const target = addHero(state, 'moran', 'player2', [2, 3]);
+
+        addDilanFeather(target, dilan);
+        expect(target.effects.find(effect => effect.name === '羽化')?.duration)
+            .toBe(DILAN_FEATHER_DURATION);
+
+        EffectManager.updateEffectDurations(state);
+        expect(getDilanFeatherStacks(target)).toBe(1);
+        EffectManager.updateEffectDurations(state);
+        expect(getDilanFeatherStacks(target)).toBe(1);
+        EffectManager.updateEffectDurations(state);
+        expect(target.effects.some(effect => effect.name === '羽化')).toBe(false);
+    });
+
+    it('被帝兰或南风再次施加会刷新回三回合，层数继续叠加且归属不变', () => {
+        const state = makeGameState();
+        const dilan = addHero(state, 'dilan', 'player1', [2, 2]);
+        const nanfeng = addHero(state, 'nanfeng', 'player1', [1, 2]);
+        const target = addHero(state, 'moran', 'player2', [2, 3]);
+
+        addDilanFeather(target, dilan);
+        EffectManager.updateEffectDurations(state);
+        EffectManager.updateEffectDurations(state);
+        expect(target.effects.find(effect => effect.name === '羽化')?.duration).toBe(1);
+
+        addDilanFeather(target, nanfeng, 2);
+        const feather = target.effects.find(effect => effect.name === '羽化')!;
+        expect(feather.duration).toBe(DILAN_FEATHER_DURATION);
+        expect(getDilanFeatherStacks(target)).toBe(3);
+        // 刷新只续回合数：逐格伤害仍归属当初种下羽化的人
+        expect(feather.sourceHeroId).toBe(dilan.id);
     });
 });

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DamageCalculator } from '../../src/core/damage-calculator';
 import { EffectManager } from '../../src/core/effect-manager';
 import { GameEngine } from '../../src/core/game-engine';
+import { grantZhizhi } from '../../src/core/hero-zhizhi';
 import { SkillSystem } from '../../src/core/skill-system';
 import { feixueSkill1, feixueSkill2 } from '../../src/data/extended-skills';
 import { HeroState } from '../../src/types/game';
@@ -135,12 +136,12 @@ describe('绯雪', () => {
         expect(DamageCalculator.getHantianStackCount(splashTarget)).toBe(1);
     });
 
-    it('致知二只把破冰爆炸由6提升为8', () => {
+    it('致知二把技能一主目标由8抬到10，破冰爆震由6抬到8', () => {
         const state = makeGameState();
         const caster = addHero(state, 'feixue', 'player1', [2, 0]);
         const target = addHero(state, 'moran', 'player2', [2, 2]);
         const splashTarget = addHero(state, 'baize', 'player2', [1, 2]);
-        caster.counters['talent_2'] = 1;
+        grantZhizhi(caster, 2);
         EffectManager.addEffect(target, {
             type: 'stun', name: '冰冻', duration: 1,
             sourceHeroId: caster.id, description: '测试冰冻',
@@ -148,15 +149,16 @@ describe('绯雪', () => {
 
         SkillSystem.executeSkill(caster, feixueSkill1, [[2, 2]], state);
 
-        expect(target.currentHp).toBe(target.maxHp - 8);
+        expect(target.currentHp).toBe(target.maxHp - 10);
         expect(splashTarget.currentHp).toBe(splashTarget.maxHp - 8);
     });
 
-    it('致知一在开局生效一次，使生命45提升到53', () => {
+    it('致知一登场生效一次，使生命45提升到53', () => {
         const state = makeGameState();
         const caster = addHero(state, 'feixue', 'player1', [2, 2]);
         addHero(state, 'moran', 'player2', [4, 4]);
-        caster.counters['talent_1'] = 1;
+        grantZhizhi(caster, 1);
+        grantZhizhi(caster, 1);
 
         GameEngine.startNewTurn(state);
         GameEngine.startNewTurn(state);

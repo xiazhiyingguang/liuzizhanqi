@@ -2,8 +2,10 @@ import { Skill, Hero, GameState, SkillExecuteResult, HeroState, Position } from 
 import { DamageCalculator } from '../core/damage-calculator';
 import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
-import { createMirrorClone, getMirrorOwnerIdFromCloneId, GUYING_DUANXUE } from '../data/heroes';
+import { createMirrorClone, getMirrorOwnerIdFromCloneId, GUYING_DUANXUE, spendZhenxiaoBlood } from '../data/heroes';
 import { MovementSystem } from '../core/movement-system';
+import { enterNightowlStealth } from '../core/nightowl-stealth';
+import { hasZhizhi, zhizhiValue } from '../core/hero-zhizhi';
 import { EXTENDED_SKILLS } from './extended-skills';
 import { createHuifengStrikeContext, executeHuifengCombo, huifengMarkStrike, pickHuifengMarkTargets, HUIFENG_COMBO_BASE, HUIFENG_MARK_BASE, type HuifengStrikeContext } from '../core/huifeng-marks';
 
@@ -73,9 +75,15 @@ export const baizeSkill1: Skill = {
         }
 
         const power = EffectManager.getCounter(target, '白泽之力');
-        const bonus = Math.min(0.5, power * 0.1);
+        // 致知2：每层白泽之力的回复提升 10% → 15%，上限 50% → 60%
+        const bonus = Math.min(
+            zhizhiValue(caster, 2, 0.5, 0.6),
+            power * zhizhiValue(caster, 2, 0.1, 0.15)
+        );
         const healAmount = Math.floor(8 * (1 + bonus));
         const actualHeal = DamageCalculator.applyHeal(target, healAmount, gameState, caster);
+
+        gameState.skillFxExtras = { targetPos: target.position ? [...target.position] as Position : undefined };
 
         EffectManager.addCounter(target, '白泽之力', 1);
         EffectManager.addCounter(caster, '天禄', 1);
@@ -125,6 +133,7 @@ export const baizeSkill2: Skill = {
 
                 if (reviveTarget) {
                     EffectManager.consumeCounter(caster, '天禄', 3);
+                    gameState.skillFxExtras = { targetPos: reviveTarget.position ? [...reviveTarget.position] as Position : undefined };
                     result.log.push(`${caster.name}消耗3层天禄，复活了${reviveTarget.name}`);
                     return result;
                 } else {
@@ -145,7 +154,8 @@ export const baizeSkill2: Skill = {
         }
 
         const power = EffectManager.getCounter(target, '白泽之力');
-        const healAmount = Math.floor((caster.currentHp / 3) * (1 + power / 10));
+        const healAmount = Math.floor((caster.currentHp / 3) * (1 + power * zhizhiValue(caster, 2, 0.1, 0.15)));
+        gameState.skillFxExtras = { fxVariant: 'baize_heal', targetPos: target.position ? [...target.position] as Position : undefined };
         const actualHeal = DamageCalculator.applyHeal(target, healAmount, gameState, caster);
 
         result.healingDone?.push(actualHeal);
@@ -201,13 +211,8 @@ export const wukongSkill2: Skill = {
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
 
         result.damageDealt?.push(damageResult.finalDamage);
-        result.log.push(
-            `${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}`
-        );
-
-        if (damageResult.killed) {
-            result.log.push(`${target.name}被击杀！`);
-        }
+        // 数额、暴击与击杀由引擎的 damage/kill 日志统一播报（还带飘字与特效），
+        // 这里再补一行"使用技能N对X造成N点伤害"只会让战报重复且读起来像先结算后施法
 
         return result;
     }
@@ -291,10 +296,12 @@ export const xuanxiaoSkill1: Skill = {
     execute: (caster, targets) => {
         const target = targets[0];
         if (!target) return { success: false, log: [`${caster.name}没有找到友方目标`] };
+        // 致知1：暴击与暴伤的两项从 20% 抬到 30%（增伤项不变）
+        const critRate = zhizhiValue(caster, 1, 0.2, 0.3);
         for (const [name, value] of [
             ['玄霄增伤提升', 0.2],
-            ['玄霄暴击率提升', 0.2],
-            ['玄霄暴伤提升', 0.2]
+            ['玄霄暴击率提升', critRate],
+            ['玄霄暴伤提升', critRate]
         ] as const) {
             EffectManager.removeEffectByName(target, name);
             EffectManager.addEffect(target, {
@@ -327,6 +334,25 @@ export const xuanxiaoSkill2: Skill = {
         }
         target.counters['__extra_preActed'] = target.hasActedThisTurn ? 1 : 0;
         target.counters['__extra_preMoved'] = target.hasMovedThisTurn ? 1 : 0;
+        // 致知2：再动之前先把 30% 暴击、30% 暴伤挂上（与技能一同名，重复施放即刷新）
+        if (hasZhizhi(caster, 2)) {
+            for (const [name, value] of [
+                ['玄霄暴击率提升', 0.3],
+                ['玄霄暴伤提升', 0.3],
+            ] as const) {
+                EffectManager.removeEffectByName(target, name);
+                EffectManager.addEffect(target, {
+                    type: 'buff',
+                    name,
+                    duration: 1,
+                    value,
+                    sourceHeroId: caster.id,
+                    description: '玄霄惊鸿再舞的强化'
+                });
+            }
+        }
+        // 玄霄给的是完整一次行动：清掉游隼"收势再起=纯移动"的自标记，否则会被误扣成只能跑
+        delete target.counters['__youjun_self_extra'];
         gameState.pendingExtraActionHeroIds ??= {};
         gameState.pendingExtraActionHeroIds[target.owner] = target.id;
         return { success: true, log: [`${caster.name}令${target.name}立即再动`] };
@@ -362,7 +388,8 @@ export const changliSkill1: Skill = {
         if (enemies.length === 0) return { success: false, log: [`${caster.name}没有找到敌人`] };
         DamageCalculator.asOneAttack(() => {
             for (const target of enemies) {
-                const damage = DamageCalculator.calculate(caster, target, 3, false);
+                // 致知1：长夜星火 3 → 4 点
+                const damage = DamageCalculator.calculate(caster, target, zhizhiValue(caster, 1, 3, 4), false);
                 DamageCalculator.applyDamage(target, damage, caster, gameState, true);
                 result.damageDealt?.push(damage.finalDamage);
             }
@@ -395,7 +422,9 @@ export const changliSkill2: Skill = {
         const starfire = EffectManager.getCounter(caster, '暗夜星火');
         const distance = MovementSystem.getManhattanDistance(caster.position, target.position);
         // 每层暗夜星火 +10% 伤害，每格距离 +10% 伤害；0 层也能放，此时只吃距离加成
-        const baseDamage = Math.floor(8 * (1 + starfire * 0.1) * (1 + distance * 0.1));
+        // 致知2：每层暗夜星火的增伤 10% → 12%
+        const starfireRate = zhizhiValue(caster, 2, 0.1, 0.12);
+        const baseDamage = Math.floor(8 * (1 + starfire * starfireRate) * (1 + distance * 0.1));
         const damage = DamageCalculator.calculate(caster, target, baseDamage, false);
         DamageCalculator.applyDamage(target, damage, caster, gameState);
         // 消耗一半：奇数层向下取整，多出来的那一层留给下一发
@@ -456,12 +485,9 @@ export const moranSkill1: Skill = {
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
 
         result.damageDealt?.push(damageResult.finalDamage);
-        result.log.push(
-            `${caster.name}使用技能1对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}${burstText}`
-        );
-
-        if (damageResult.killed) {
-            result.log.push(`${target.name}被击杀！`);
+        // 数额/暴击/击杀交给引擎的 damage 与 kill 日志，这里只补一句这一击多吃了什么
+        if (burstText) {
+            result.log.push(`${caster.name}为道爆发：本次技能伤害+40%${damageResult.isCrit ? '，且这一击暴击' : ''}`);
         }
 
         // 施加"为道"状态（如果还没有的话）
@@ -535,12 +561,8 @@ export const moranSkill2: Skill = {
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
 
         result.damageDealt?.push(damageResult.finalDamage);
-        result.log.push(
-            `${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}${burstText}`
-        );
-
-        if (damageResult.killed) {
-            result.log.push(`${target.name}被击杀！`);
+        if (burstText) {
+            result.log.push(`${caster.name}为道爆发：本次技能伤害+40%${damageResult.isCrit ? '，且这一击暴击' : ''}`);
         }
 
         return result;
@@ -551,12 +573,12 @@ export const moranSkill2: Skill = {
  * 震霄的技能
  */
 
-// 震霄技能1：消耗20%生命，直线攻击造成8伤害
+// 震霄技能1：消耗20%生命（致知1为15%），对面前一格的三格横/竖排造成8伤害
 export const zhenxiaoSkill1: Skill = {
     id: 'zhenxiao_skill1',
     name: '雷血开锋',
     type: 'damage',
-    description: '消耗当前生命20%，对一个方向造成8点伤害',
+    description: '消耗当前生命20%（致知1降至15%），对选定方向面前一格的三格排造成8点伤害；属基础攻击，吃增伤等一切增益',
     rangeType: 'line', // 实际上是特殊范围，但在UI上可能复用line的选择逻辑
     range: 1, // 距离1
     targetType: 'enemy',
@@ -576,8 +598,7 @@ export const zhenxiaoSkill1: Skill = {
         };
 
         // 消耗生命
-        const hpCost = Math.floor(caster.currentHp * 0.2);
-        caster.currentHp = Math.max(1, caster.currentHp - hpCost);
+        const hpCost = spendZhenxiaoBlood(caster);
         result.log.push(`${caster.name}消耗了${hpCost}点生命`);
 
         DamageCalculator.asOneAttack(() => {
@@ -586,11 +607,6 @@ export const zhenxiaoSkill1: Skill = {
                 DamageCalculator.applyDamage(target, damageResult, caster, gameState, true);
 
                 result.damageDealt?.push(damageResult.finalDamage);
-                result.log.push(`${caster.name}使用技能1对${target.name}造成${damageResult.finalDamage}点伤害`);
-
-                if (damageResult.killed) {
-                    result.log.push(`${target.name}被击杀！`);
-                }
             }
         });
 
@@ -603,7 +619,7 @@ export const zhenxiaoSkill2: Skill = {
     id: 'zhenxiao_skill2',
     name: '金银错',
     type: 'special',
-    description: '消耗当前生命20%，以自身为中心布下束缚格（圈内敌人无法靠移动脱身，技能位移可离开），并进入"金银错"状态',
+    description: '消耗当前生命20%（致知1降至15%），以自身为中心布下束缚格（圈内敌人无法靠移动脱身，技能位移可离开），并进入"金银错"状态：受到敌方英雄伤害后回击6点（致知3为8点）并吸血50%，回击同样吃增伤等增益',
     rangeType: 'area',
     range: 1,
     areaSize: 3,
@@ -622,8 +638,7 @@ export const zhenxiaoSkill2: Skill = {
         };
 
         // 消耗生命
-        const hpCost = Math.floor(caster.currentHp * 0.2);
-        caster.currentHp = Math.max(1, caster.currentHp - hpCost);
+        const hpCost = spendZhenxiaoBlood(caster);
         result.log.push(`${caster.name}消耗了${hpCost}点生命`);
 
         // 进入"金银错"状态
@@ -671,17 +686,16 @@ export const zhenxiaoSkill2: Skill = {
  * 琉璃的技能
  */
 
-// 琉璃技能1：援护周围一格范围内的所有友方
+// 琉璃技能1：援护周围一格内点到的那一名友方
 export const liuliSkill1: Skill = {
     id: 'liuli_skill1',
     name: '映月承锋',
     type: 'buff',
-    description: '援护周围一格范围内的友方受到的任意伤害一回，添加1"禅定"',
-    rangeType: 'area',
+    description: '援护周围一格内的一名友方受到的任意伤害一回，添加1"禅定"',
+    rangeType: 'single',
     range: 1,
-    areaSize: 3,
     targetType: 'ally',
-    targetCount: 'all',
+    targetCount: 1,
 
     execute: (caster: Hero, targets: Hero[], gameState: GameState): SkillExecuteResult => {
         void gameState;
@@ -694,31 +708,30 @@ export const liuliSkill1: Skill = {
             log: []
         };
 
-        if (targets.length === 0) {
+        const target = targets[0];
+        if (!target) {
             result.success = false;
             result.log.push(`${caster.name}没有找到可援护的目标`);
             return result;
         }
 
-        for (const target of targets) {
-            // 先移除目标身上旧的援护效果（如果有的话）
-            target.effects = target.effects.filter(e => e.name !== '援护');
+        // 先移除目标身上旧的援护效果（如果有的话）
+        target.effects = target.effects.filter(e => e.name !== '援护');
 
-            // 添加援护标记
-            // duration: -1 表示持续到琉璃下次出手时移除
-            EffectManager.addEffect(target, {
-                type: 'buff',
-                name: '援护',
-                duration: -1,  // 持续到琉璃下次出手
-                sourceHeroId: caster.id,
-                description: '受到的伤害由琉璃承担，直到琉璃下次行动'
-            });
-        }
+        // 添加援护标记
+        // duration: -1 表示持续到琉璃下次出手时移除
+        EffectManager.addEffect(target, {
+            type: 'buff',
+            name: '援护',
+            duration: -1,  // 持续到琉璃下次行动
+            sourceHeroId: caster.id,
+            description: '受到的伤害由琉璃承担，直到琉璃下次行动'
+        });
 
         // 添加禅定
         EffectManager.addCounter(caster, '禅定', 1);
 
-        result.log.push(`${caster.name}援护了${targets.length}名友方，获得1层禅定`);
+        result.log.push(`${caster.name}援护了${target.name}，获得1层禅定`);
 
         return result;
     }
@@ -756,7 +769,8 @@ export const liuliSkill2: Skill = {
         }
 
         // 恢复生命
-        const healAmount = Math.floor(caster.maxHp * 0.1 * zendingCount);
+        // 致知2：每层禅定的回复 10% 最大生命 → 12%
+        const healAmount = Math.floor(caster.maxHp * zhizhiValue(caster, 2, 0.1, 0.12) * zendingCount);
         const actualHeal = DamageCalculator.applyHeal(caster, healAmount, gameState);
 
         // 消耗禅定
@@ -812,18 +826,8 @@ export const nightowlSkill1: Skill = {
         
         caster.counters['mark_first_hit_consumed'] = 0;
 
-        if (!EffectManager.hasEffect(caster, '潜行')) {
-            EffectManager.addEffect(caster, {
-                type: 'buff',
-                name: '潜行',
-                duration: -1,
-                sourceHeroId: caster.id,
-                description: '潜行状态，免疫单体伤害，范围伤害每回合最多10点'
-            });
-            caster.counters['stealth_turns'] = 1;
-        } else {
-            caster.counters['stealth_turns'] = (caster.counters['stealth_turns'] || 1) + 1;
-        }
+        // 标记不造成伤害，所以它算"没攻击"：既给夜枭遮身，也与被动的回合末隐入同口径
+        enterNightowlStealth(caster, gameState.roundNumber);
 
         result.log.push(`${caster.name}标记了${target.name}`);
         return result;
@@ -884,17 +888,16 @@ export const nightowlSkill2: Skill = {
         const damageResult = DamageCalculator.calculate(caster, target, finalBaseDamage, false);
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
 
-        EffectManager.removeEffectByName(caster, '潜行');
-        caster.counters['stealth_turns'] = 0;
-        caster.counters['stealth_damage_taken'] = 0;
+        // 击杀目标就不解除潜行（文档口径），空刀才现形。
+        // 旧代码无条件解除，注释把责任推给一个并不存在的 onAttack 分支。
+        if (target.state === HeroState.ALIVE) {
+            EffectManager.removeEffectByName(caster, '潜行');
+            caster.counters['stealth_turns'] = 0;
+            caster.counters['stealth_damage_taken'] = 0;
+        }
 
         result.damageDealt?.push(damageResult.finalDamage);
-        result.log.push(`${caster.name}对${target.name}造成${damageResult.finalDamage}点伤害`);
-
-        if (damageResult.killed) {
-            result.log.push(`${target.name}被击杀！`);
-            // 标记特殊状态：击杀保持潜行 (已在 onAttack 中处理)
-        }
+        // 伤害与击杀本身走引擎的 damage/kill 日志
 
         return result;
     }
@@ -957,10 +960,19 @@ export const mirrorSkill1: Skill = {
             result.log.push(`${caster.name}生命值(${caster.currentHp})高于20，获得1层破镜之刃`);
         }
 
-        DamageCalculator.triggerMirrorBrokenBlade(caster, gameState);
+        DamageCalculator.triggerMirrorBrokenBlade(caster, gameState, true);
         return result;
     }
 };
+
+/**
+ * 镜像是本体的一部分：分身出手时按本体的致知结算，否则"移形换影"会走回未强化的数值。
+ */
+function zhizhiOwnerOf(hero: Hero, gameState: GameState): Hero {
+    const ownerId = getMirrorOwnerIdFromCloneId(hero.id);
+    if (!ownerId || ownerId === hero.id) return hero;
+    return [...gameState.player1Heroes, ...gameState.player2Heroes].find(candidate => candidate.id === ownerId) ?? hero;
+}
 
 export const mirrorSkill2: Skill = {
     id: 'mirror_skill2',
@@ -980,6 +992,9 @@ export const mirrorSkill2: Skill = {
             triggeredPassives: [],
             log: []
         };
+
+        // 致知1：路径伤害 10 → 14（镜像出手时按本体的致知算）
+        const pathDamage = zhizhiValue(zhizhiOwnerOf(caster, gameState), 1, 10, 14);
 
         const target = targets[0];
         if (!target) {
@@ -1028,10 +1043,10 @@ export const mirrorSkill2: Skill = {
                             if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
                                 const h = gameState.board[currR][currC];
                                 if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                                    const realDmg = DamageCalculator.calculate(caster, h, 10, true);
+                                    const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
                                     DamageCalculator.applyDamage(h, realDmg, caster, gameState);
                                     result.damageDealt?.push(realDmg.finalDamage);
-                                    result.log.push(`${caster.name}划伤${h.name}造成${realDmg.finalDamage}点伤害`);
+                                    // 数额交给引擎的 damage 日志
                                 }
                             }
                             currR += dr;
@@ -1042,6 +1057,16 @@ export const mirrorSkill2: Skill = {
             }
 
             // 2. 收回镜像：分身生命与本体生命合体（允许溢出），再恢复12点
+            // 路径伤害可能把本体或镜像当场打死（醉枕刀的反击、羽化、天威…），
+            // 死者格子已被 handleDeath 清空，此时不能再收血合体，否则会造出幽灵单位。
+            if (caster.state !== HeroState.ALIVE) {
+                result.log.push(`${caster.name}在路径伤害中阵亡，镜像未能收回`);
+                return result;
+            }
+            if (mirrorClone.state !== HeroState.ALIVE) {
+                result.log.push(`${mirrorClone.name}已在路径伤害中消散，生命未能合体`);
+                return result;
+            }
             const [cr, cc] = mirrorClone.position!;
             gameState.board[cr][cc] = null;
             mirrorClone.state = HeroState.DEAD;
@@ -1082,16 +1107,27 @@ export const mirrorSkill2: Skill = {
                         if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
                             const h = gameState.board[currR][currC];
                             if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                                const realDmg = DamageCalculator.calculate(caster, h, 10, true);
+                                const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
                                 DamageCalculator.applyDamage(h, realDmg, caster, gameState);
                                 result.damageDealt?.push(realDmg.finalDamage);
-                                result.log.push(`${caster.name}穿过${h.name}造成${realDmg.finalDamage}点伤害`);
+                                // 数额交给引擎的 damage 日志
                             }
                         }
                         currR += dr;
                         currC += dc;
                     }
                 });
+            }
+
+            // 交换位置前先确认两者都还站着：路径伤害里的反击（例如醉枕刀的醉意反击）
+            // 可能已经把本体打死，handleDeath 清掉的是死者格子；
+            // 若照常执行下面的写入，阵亡的本体与消散的镜像会被重新摆回棋盘。
+            if (mirrorHero.state !== HeroState.ALIVE || mirrorClone.state !== HeroState.ALIVE) {
+                const fallen = [mirrorHero, mirrorClone]
+                    .filter(unit => unit.state !== HeroState.ALIVE)
+                    .map(unit => unit.name);
+                result.log.push(`${fallen.join('与')}在路径伤害中阵亡，移形换影中止`);
+                return result;
             }
 
             // 交换位置
@@ -1104,18 +1140,16 @@ export const mirrorSkill2: Skill = {
             mirrorHero.position = pos2;
             mirrorClone.position = pos1;
 
-            const movedSteps = MovementSystem.getManhattanDistance(pos1, pos2);
-            DamageCalculator.applyDilanMovementDamage(mirrorHero, movedSteps, gameState);
-            DamageCalculator.applyDilanMovementDamage(mirrorClone, movedSteps, gameState);
+            // 换位是己方技能造成的位移，不再吃羽化逐格伤害
             if (mirrorHero.state !== HeroState.ALIVE) {
-                result.log.push(`${mirrorHero.name}在交换位置时触发羽化伤害并阵亡`);
+                result.log.push(`${mirrorHero.name}在交换位置时阵亡`);
                 return result;
             }
 
             // 不收回镜像：获得1层破镜之刃并立即释放
             EffectManager.addCounter(caster, '破镜之刃', 1);
             result.log.push(`${caster.name}未收回镜像，获得1层破镜之刃`);
-            DamageCalculator.triggerMirrorBrokenBlade(caster, gameState);
+            DamageCalculator.triggerMirrorBrokenBlade(caster, gameState, true);
 
             result.log.push(`${caster.name}与镜像交换了位置`);
             return result;
@@ -1178,7 +1212,6 @@ export const mowenSkill1: Skill = {
             result.healingDone?.push(healed);
         }
 
-        result.log.push(`${caster.name}使用技能1对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}`);
         result.log.push(`${caster.name}回溯至上一回合末生命值（${caster.currentHp}/${caster.maxHp}）`);
 
         return result;
@@ -1225,12 +1258,7 @@ export const mowenSkill2: Skill = {
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
 
         result.damageDealt?.push(damageResult.finalDamage);
-        result.log.push(`${caster.name}使用技能2消耗${cost}点生命`);
-        result.log.push(`${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}`);
-
-        if (damageResult.killed) {
-            result.log.push(`${target.name}被击杀！`);
-        }
+        result.log.push(`${caster.name}消耗${cost}点生命换取这一击`);
 
         return result;
     }
@@ -1407,16 +1435,11 @@ export const guyingSkill1: Skill = {
 
         grantGuyingHanxing(caster, result, markedBefore, duanxue);
 
-        const fromPos: Position = [cr, cc];
+        // 技能自带的突进位移不吃羽化
         gameState.board[cr][cc] = null;
         gameState.board[landingPos[0]][landingPos[1]] = caster;
         caster.position = landingPos;
         caster.hasMovedThisTurn = true;
-        DamageCalculator.applyDilanMovementDamage(
-            caster,
-            MovementSystem.getManhattanDistance(fromPos, landingPos),
-            gameState
-        );
 
         result.log.unshift(
             `${caster.name}${duanxue ? '断雪·穿透斩' : '使用技能1'}命中${struck.length}名敌人，共造成${totalDamage}点伤害，并移动到(${landingPos[0] + 1},${landingPos[1] + 1})`
@@ -1460,22 +1483,21 @@ export const guyingSkill2: Skill = {
         const hadHantianBefore = target.effects.some(e => e.name === '寒天');
         const wasFrozen = EffectManager.hasEffect(target, '冰冻');
 
-        const base = duanxue || caster.counters['talent_1'] ? 12 : 10;
+        // 致知1：技能二 10 → 12，断雪期间的基础 12 同步抬到 15
+        const base = duanxue
+            ? zhizhiValue(caster, 1, 12, 15)
+            : zhizhiValue(caster, 1, 10, 12);
         const damageResult = DamageCalculator.calculate(
             caster, target, guyingStrikeDamage(caster, target, base, { frozenBonus: true }), false
         );
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
         result.damageDealt?.push(damageResult.finalDamage);
 
-        result.log.push(
-            `${caster.name}使用技能2对${target.name}造成${damageResult.finalDamage}点伤害${damageResult.isCrit ? '(暴击!)' : ''}${wasFrozen ? '，击碎其冰冻' : ''}`
-        );
+        if (wasFrozen) {
+            result.log.push(`${caster.name}击碎了${target.name}的冰冻`);
+        }
 
         grantGuyingHanxing(caster, result, hadHantianBefore, duanxue);
-
-        if (damageResult.killed) {
-            result.log.push(`${target.name}被击杀！`);
-        }
 
         return result;
     }
@@ -1517,8 +1539,9 @@ export const hanjiangxueSkill1: Skill = {
         DamageCalculator.asOneAttack(() => {
             for (const target of targets) {
                 const hasHantian = target.effects.some(effect => effect.name === '寒天');
-                // 脆伤：对已带寒天的敌人伤害 +20%
-                const base = hasHantian ? Math.floor(5 * 1.2) : 5;
+                // 致知2：基础 5 → 6；脆伤：对已带寒天的敌人伤害 +20%
+                const sparkBase = zhizhiValue(caster, 2, 5, 6);
+                const base = hasHantian ? Math.floor(sparkBase * 1.2) : sparkBase;
                 const damage = DamageCalculator.calculate(caster, target, base, false);
                 DamageCalculator.applyDamage(target, damage, caster, gameState, true);
                 result.damageDealt?.push(damage.finalDamage);
@@ -1533,16 +1556,13 @@ export const hanjiangxueSkill1: Skill = {
             Math.abs(effect.position[0] - center[0]) <= 1 &&
             Math.abs(effect.position[1] - center[1]) <= 1
         );
-        if (crystal && EffectManager.addIceArmor(caster, crystal.sourceHeroId)) {
+        if (crystal && EffectManager.addIceArmor(caster, crystal.sourceHeroId, zhizhiValue(caster, 3, 0.2, 0.4))) {
             gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => effect.id !== crystal.id);
             gameState.pendingExtraActionHeroIds ??= {};
             gameState.pendingExtraActionHeroIds[caster.owner] = caster.id;
             result.log.push(`${caster.name}通过技能1获得冰甲（冰晶被消耗），触发再次释放技能1的机制`);
         }
 
-        result.log.push(
-            `${caster.name}使用技能1对${targets.map(target => target.name).join('、')}造成伤害并附加寒天`
-        );
         return result;
     }
 };

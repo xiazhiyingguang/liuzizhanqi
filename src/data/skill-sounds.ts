@@ -1,12 +1,16 @@
 /**
  * 技能 → 音效映射表
- * 覆盖全部英雄技能；同一风格共用音效文件（public/sounds/*.wav，程序合成）。
- * 新增技能时在此登记即可自动获得战斗音效，未登记的技能默认使用 impact。
+ * 五类材质由 material-sounds.json 优先指定，起手与关键声音分开调度。
+ * 其他技能保留专属文件与以下共享音色兜底；未登记的技能使用 impact。
  */
 
 import type { SoundName } from '../core/sound-manager';
+import { MATERIAL_SOUND_DESIGNS } from '../core/skill-sound-cues';
 
 export const SKILL_SOUND_MAP: Record<string, SoundName> = {
+    wangshu_skill1: 'curse', wangshu_skill2: 'heal', wangshu_tianwei: 'buff',
+    wangcai_awaken: 'coin', painting_attack: 'impact', feixue_followup: 'ice', dai_revive: 'revive', baize_heal: 'heal', skeletonking_revive: 'revive',
+    bard_regen: 'heal', pipa_heal: 'heal', skeletonking_heal: 'heal', soul_lamp_revive: 'revive', xubai_entrance: 'heal', mowen_restore: 'heal',
     // ===== 白泽：治疗与复生 =====
     baize_skill1: 'heal',        // 瑞泽：治疗
     baize_skill2: 'revive',      // 天禄归生：复活友方
@@ -171,6 +175,35 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     huanongying_skill2: 'teleport',   // 弄影：与影子互换位置
     huanongying_replay: 'slash',      // 影子重演（被动/天威共用）
 
+    // ===== 折光：凝棱、折光千折、万华镜 =====
+    zhiguang_skill1: 'ice',           // 凝光为棱：光弹钉出棱晶的脆响
+    zhiguang_skill2: 'slash',         // 棱光千折：光束沿折线扫过
+    zhiguang_tianwei: 'summon',       // 万华镜：落点展开光界
+
+    // ===== 纸鸢：收线、断线连击、牵丝追击、引线天威 =====
+    zhiyuan_skill1: 'slash',          // 收线·回风：线轴沿直线被拽回，途中刮到人
+    zhiyuan_skill2: 'slash',          // 断线·冲天：一次出手连斩数段
+    zhiyuan_pursue: 'slash',          // 牵丝：队友出手未歇，她顺线追一发
+    zhiyuan_tianwei: 'summon',        // 纸鸢引线：把下一次天威交到队友手上
+
+    // ===== 羲和：均光抹平血量、盈照回血、回晖被动 =====
+    xihuan_skill1: 'heal',            // 均光：一圈曦光荡过友方
+    xihuan_skill2: 'heal',            // 盈照：光柱落人，溢出凝盾
+    xihuan_passive: 'heal',           // 回晖：回合末一颗暖光
+
+    // ===== 姜太公：垂钩、拖拽、抛掷、鲸落（水音为主，不用刀剑声凑）=====
+    jiangtaigong_skill1: 'water',       // 钓雪：线垂进水里的一声轻响
+    jiangtaigong_skill2: 'water',       // 渭水垂竿：拖人过水的闷响
+    jiangtaigong_hook: 'impact',        // 上钩：钩尖咬住的那一下
+    jiangtaigong_throw: 'water',        // 抛掷：人砸回水面的水花
+    jiangtaigong_whalefall: 'heal',     // 鲸落：浪环荡开，回血与伤害同拍
+    jiangtaigong_tianwei: 'buff',       // 太公逐泽：全场水泽一起涨一圈
+
+    // ===== 夺岁：收年刀（斩岁 / 偿岁 / 血诏）=====
+    duosui_skill1: 'slash',           // 斩岁：闷刃横斩 + 一条下坠的"抽寿"音
+    duosui_skill2: 'slash',           // 偿岁：短斩后倒吸收束，结尾一枚护盾叮声
+    duosui_tianwei: 'buff',           // 血诏：立印厚鸣 + 一记养刀的横扫
+
     // ===== 沉渊·镇岳：极寒领域与拖拽援护 =====
     chenyuan_skill1: 'snow',
     chenyuan_skill2: 'impact',
@@ -190,13 +223,23 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     // ===== 叙白：净化治疗与黑白凝珠 =====
     xubai_skill1: 'heal',
     xubai_skill2: 'buff',
+    xubai_regen: 'heal',        // 黑白球自动回血段（辅助特效档案）
 
     // ===== 泠汐：潮汐多段攻击 =====
     lingxi_skill1: 'snow',
     lingxi_skill2: 'impact',
+    lingxi_regen: 'heal',       // 海螺回响的延迟回血段（辅助特效档案）
+    // 被动机制沿用对应材质的音色，避免复生/治疗回落成普通打击声。
+    changli_rebirth: 'revive',
+    jetzmi_king_shift: 'buff',
+    jetzmi_lord_shift: 'curse',
+    xuanxiao_conversion: 'heal',
+    zhenxiao_counter: 'thunder',
+    zhenxiao_laststand: 'buff',
+    moran_extra_action: 'buff',
 };
 
 /** 取技能对应音效，未登记的技能回落到通用打击音效。 */
 export function getSkillSound(skillId: string): SoundName {
-    return SKILL_SOUND_MAP[skillId] ?? 'impact';
+    return MATERIAL_SOUND_DESIGNS[skillId]?.material ?? SKILL_SOUND_MAP[skillId] ?? 'impact';
 }

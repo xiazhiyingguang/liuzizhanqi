@@ -85,4 +85,27 @@ describe('对局回放面板', () => {
         );
         expect(html).toContain('已按回合抽样');
     });
+
+    it('刻度按滑块可行程定位，单帧录像也不会算出 NaN', () => {
+        const html = renderToStaticMarkup(<BattleReplayPanel replay={REPLAY} onClose={() => { }} />);
+        // 两帧时 lastIndex=1：首帧 ratio=0，末帧 ratio=1，交由 CSS 做 thumb 半宽内缩
+        expect(html).toContain('--replay-ratio:0');
+        expect(html).toContain('--replay-ratio:1');
+
+        const singleFrame = renderToStaticMarkup(
+            <BattleReplayPanel
+                replay={{ ...REPLAY, frames: [REPLAY.frames[0]], marks: [{ frame: 0, kind: 'kill', label: '击杀' }] }}
+                onClose={() => { }}
+            />
+        );
+        expect(singleFrame).not.toContain('NaN');
+        expect(singleFrame).toContain('--replay-ratio:0');
+    });
+
+    it('战报滚动区用固定类名，供竖屏钉死高度（否则关键节点块随帧上下跳）', () => {
+        const html = renderToStaticMarkup(<BattleReplayPanel replay={REPLAY} onClose={() => { }} />);
+        expect(html).toContain('replay-log-scroll');
+        expect(html).toContain('replay-action-count');
+        expect(html).toContain('replay-roster');
+    });
 });

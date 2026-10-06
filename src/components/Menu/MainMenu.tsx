@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/game-store';
-import type { AiDifficulty } from '../../types/game';
+import type { BattleMode } from '../../types/game';
 import type { UiClickSound } from '../../audio/audio-manager';
+import { enterGameFullscreen } from '../../core/game-fullscreen';
 import './main-menu.css';
 
 type MenuChoiceProps = {
@@ -45,39 +46,41 @@ function MenuChoice({
     );
 }
 
+/** 需要选"标准/经典"的三种对战入口 */
+type BattleEntry = 'ai' | 'local' | 'online';
+
+const ENTRY_TITLES: Record<BattleEntry, string> = {
+    ai: '人机对战',
+    local: '本地双人',
+    online: '联机对战',
+};
+
 export default function MainMenu() {
     const initGame = useGameStore(state => state.initGame);
-    const [showDifficultyPicker, setShowDifficultyPicker] = useState(false);
+    const [pendingEntry, setPendingEntry] = useState<BattleEntry | null>(null);
 
-    const handleAiGame = () => setShowDifficultyPicker(true);
-
-    const startAiGame = (difficulty: AiDifficulty) => {
+    const startEntry = (entry: BattleEntry, gameMode: BattleMode) => {
+        void enterGameFullscreen();
+        setPendingEntry(null);
+        if (entry === 'online') {
+            // 联机不在此开局：模式随房间一起上报，由房主定标准局还是经典局
+            useGameStore.setState({
+                phase: 'online-menu',
+                gameMode,
+                isAiMode: false,
+                aiPlayer: undefined,
+                aiDifficulty: undefined
+            });
+            return;
+        }
         useGameStore.setState({
             isOnlineMode: false,
-            isAiMode: true,
-            aiPlayer: 'player2',
-            aiDifficulty: difficulty
+            isAiMode: entry === 'ai',
+            aiPlayer: entry === 'ai' ? 'player2' : undefined,
+            aiDifficulty: entry === 'ai' ? 'master' : undefined,
+            gameMode
         });
         initGame();
-    };
-
-    const handleLocalGame = () => {
-        useGameStore.setState({
-            isOnlineMode: false,
-            isAiMode: false,
-            aiPlayer: undefined,
-            aiDifficulty: undefined
-        });
-        initGame();
-    };
-
-    const handleOnlineGame = () => {
-        useGameStore.setState({
-            phase: 'online-menu',
-            isAiMode: false,
-            aiPlayer: undefined,
-            aiDifficulty: undefined
-        });
     };
 
     return (
@@ -202,42 +205,35 @@ export default function MainMenu() {
                     </svg>
                 </div>
 
-                <nav className="main-menu-actions" aria-label={showDifficultyPicker ? '人机对战难度' : '主菜单'}>
-                    {showDifficultyPicker ? (
+                <nav className="main-menu-actions" aria-label={pendingEntry ? `${ENTRY_TITLES[pendingEntry]}模式` : '主菜单'}>
+                    {pendingEntry ? (
                         <>
                             <MenuChoice
-                                testId="menu-ai-master"
+                                testId="menu-mode-standard"
                                 index="壹"
-                                title="宗师电脑"
-                                subtitle="全力博弈 · 步步紧逼"
+                                title="标准模式"
+                                subtitle="现行平衡 · 不带武器"
                                 tone="primary"
                                 sfx="primary"
-                                onClick={() => startAiGame('master')}
+                                onClick={() => startEntry(pendingEntry, 'standard')}
                             />
                             <MenuChoice
-                                testId="menu-ai-normal"
+                                testId="menu-mode-classic"
                                 index="贰"
-                                title="普通电脑"
-                                subtitle="偶有失误 · 稳扎稳打"
+                                title="经典模式"
+                                subtitle="战前武装 · 专属器上阵"
+                                tone="primary"
                                 sfx="primary"
-                                onClick={() => startAiGame('normal')}
+                                onClick={() => startEntry(pendingEntry, 'classic')}
                             />
                             <MenuChoice
-                                testId="menu-ai-easy"
+                                testId="menu-mode-back"
                                 index="叁"
-                                title="简单电脑"
-                                subtitle="常出失误 · 适合入门"
-                                sfx="primary"
-                                onClick={() => startAiGame('easy')}
-                            />
-                            <MenuChoice
-                                testId="menu-ai-difficulty-back"
-                                index="肆"
                                 title="返回主菜单"
                                 subtitle="再想想 · 换个玩法"
                                 tone="quiet"
                                 sfx="cancel"
-                                onClick={() => setShowDifficultyPicker(false)}
+                                onClick={() => setPendingEntry(null)}
                             />
                         </>
                     ) : (
@@ -246,23 +242,23 @@ export default function MainMenu() {
                                 testId="menu-ai-game"
                                 index="壹"
                                 title="人机对战"
-                                subtitle="挑战电脑 · 三档实力"
+                                subtitle="宗师电脑 · 全力博弈"
                                 tone="primary"
-                                onClick={handleAiGame}
+                                onClick={() => setPendingEntry('ai')}
                             />
                             <MenuChoice
                                 testId="menu-local-game"
                                 index="贰"
                                 title="本地双人"
                                 subtitle="同屏对弈 · 排兵布阵"
-                                onClick={handleLocalGame}
+                                onClick={() => setPendingEntry('local')}
                             />
                             <MenuChoice
                                 testId="menu-online-game"
                                 index="叁"
                                 title="联机对战"
                                 subtitle="远方来客 · 同局争锋"
-                                onClick={handleOnlineGame}
+                                onClick={() => setPendingEntry('online')}
                             />
                             <MenuChoice
                                 testId="menu-hero-codex"

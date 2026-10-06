@@ -1,0 +1,654 @@
+{
+    "hanjiangxue_skill1": {
+        "cast": {
+            "file": "materials/hanjiangxue_skill1-cast-a79c8af8af.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/hanjiangxue_skill1-impact-f04406cacb.wav",
+            "peakMs": 28,
+            "durationMs": 560
+        }
+    },
+    "hanjiangxue_skill2": {
+        "cast": {
+            "file": "materials/hanjiangxue_skill2-cast-c0a1184307.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/hanjiangxue_skill2-impact-6be3b1a121.wav",
+            "peakMs": 18,
+            "durationMs": 560
+        }
+    },
+    "feixue_skill1": {
+        "cast": {
+            "file": "materials/feixue_skill1-cast-88a2668d2c.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/feixue_skill1-impact-bd9c3801da.wav",
+            "peakMs": 28,
+            "durationMs": 560
+        }
+    },
+    "feixue_skill2": {
+        "cast": {
+            "file": "materials/feixue_skill2-cast-a4f9996ab2.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/feixue_skill2-impact-9f39ef278e.wav",
+            "peakMs": 33,
+            "durationMs": 560
+        }
+    },
+    "feixue_shatter": {
+        "cast": {
+            "file": "materials/feixue_shatter-cast-2e1262eb6a.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/feixue_shatter-impact-5148ae09bb.wav",
+            "peakMs": 18,
+            "durationMs": 560
+        }
+    },
+    "feixue_followup": {
+        "cast": {
+            "file": "materials/feixue_followup-cast-d291e90c75.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/feixue_followup-impact-a72ab849ae.wav",
+            "peakMs": 18,
+            "durationMs": 560
+        }
+    },
+    "guying_skill2": {
+        "cast": {
+            "file": "materials/guying_skill2-cast-e746c91336.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/guying_skill2-impact-c27dd60ec8.wav",
+            "peakMs": 18,
+            "durationMs": 560
+        }
+    },
+    "chenyuan_skill1": {
+        "cast": {
+            "file": "materials/chenyuan_skill1-cast-d0e80bc871.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/chenyuan_skill1-impact-57da2218eb.wav",
+            "peakMs": 18,
+            "durationMs": 560
+        }
+    },
+    "chenyuan_skill2": {
+        "cast": {
+            "file": "materials/chenyuan_skill2-cast-4893255b56.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/chenyuan_skill2-impact-004cef34c6.wav",
+            "peakMs": 33,
+            "durationMs": 560
+        }
+    },
+    "mirror_skill1": {
+        "cast": {
+            "file": "materials/mirror_skill1-cast-7bd3c84896.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/mirror_skill1-impact-1eb4d7be0a.wav",
+            "peakMs": 28,
+            "durationMs": 560
+        }
+    },
+    "mirror_blade": {
+        "cast": {
+            "file": "materials/mirror_blade-cast-6a4dd1a4c9.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/mirror_blade-impact-c59485767c.wav",
+            "peakMs": 23,
+            "durationMs": 560
+        }
+    },
+    "libai_skill1": {
+        "cast": {
+            "file": "materials/libai_skill1-cast-e3d06462cf.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/libai_skill1-impact-2aaea821c0.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "libai_skill2": {
+        "cast": {
+            "file": "materials/libai_skill2-cast-b6e1f31737.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/libai_skill2-impact-376612ae92.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "changli_skill1": {
+        "cast": {
+            "file": "materials/changli_skill1-cast-264cc8010f.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/changli_skill1-impact-d9e97a9900.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "changli_skill2": {
+        "cast": {
+            "file": "materials/changli_skill2-cast-116fe707db.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/changli_skill2-impact-f59b38dcdc.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "huifeng_skill2": {
+        "cast": {
+            "file": "materials/huifeng_skill2-cast-3da1616184.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/huifeng_skill2-impact-acc0794875.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "wukong_skill2": {
+        "cast": {
+            "file": "materials/wukong_skill2-cast-796379c30a.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/wukong_skill2-impact-328e9e2da2.wav",
+            "peakMs": 8,
+            "durationMs": 700
+        }
+    },
+    "moran_skill2": {
+        "cast": {
+            "file": "materials/moran_skill2-cast-e0d792960d.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/moran_skill2-impact-10524da291.wav",
+            "peakMs": 8,
+            "durationMs": 700
+        }
+    },
+    "mowen_skill2": {
+        "cast": {
+            "file": "materials/mowen_skill2-cast-8f58aaf415.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/mowen_skill2-impact-ec870392ac.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "zuizhendao_skill1": {
+        "cast": {
+            "file": "materials/zuizhendao_skill1-cast-7e64243616.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/zuizhendao_skill1-impact-d1119f5c92.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "zuizhendao_skill2": {
+        "cast": {
+            "file": "materials/zuizhendao_skill2-cast-5e5196bd44.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/zuizhendao_skill2-impact-271f85e97a.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "yunying_skill2": {
+        "cast": {
+            "file": "materials/yunying_skill2-cast-27e3354185.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/yunying_skill2-impact-85e531ac0e.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "yunying_tianwei": {
+        "cast": {
+            "file": "materials/yunying_tianwei-cast-0b7f36a3e0.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/yunying_tianwei-impact-1eae6cb902.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "soul_lamp_skill1": {
+        "cast": {
+            "file": "materials/soul_lamp_skill1-cast-29d7bc1534.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/soul_lamp_skill1-impact-bd30666e5d.wav",
+            "peakMs": 28,
+            "durationMs": 750
+        }
+    },
+    "soul_lamp_skill2": {
+        "cast": {
+            "file": "materials/soul_lamp_skill2-cast-55b7afa9c6.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/soul_lamp_skill2-impact-4e82aa9cc2.wav",
+            "peakMs": 123,
+            "durationMs": 750
+        }
+    },
+    "soul_lamp_revive": {
+        "impact": {
+            "file": "materials/soul_lamp_revive-impact-e8fd659785.wav",
+            "peakMs": 23,
+            "durationMs": 750
+        }
+    },
+    "wither_lord_skill1": {
+        "cast": {
+            "file": "materials/wither_lord_skill1-cast-c6f422b20d.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/wither_lord_skill1-impact-12a49d4c75.wav",
+            "peakMs": 28,
+            "durationMs": 750
+        }
+    },
+    "wither_lord_skill2": {
+        "cast": {
+            "file": "materials/wither_lord_skill2-cast-74e72dd837.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/wither_lord_skill2-impact-1f082f63dc.wav",
+            "peakMs": 38,
+            "durationMs": 750
+        }
+    },
+    "jetzmi_skill2": {
+        "cast": {
+            "file": "materials/jetzmi_skill2-cast-e80db4fb3d.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/jetzmi_skill2-impact-922aa685e2.wav",
+            "peakMs": 33,
+            "durationMs": 750
+        }
+    },
+    "jetzmi_king_shift": {
+        "cast": {
+            "file": "materials/jetzmi_king_shift-cast-1081e70fa2.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/jetzmi_king_shift-impact-21103ccf53.wav",
+            "peakMs": 28,
+            "durationMs": 750
+        }
+    },
+    "jetzmi_lord_shift": {
+        "cast": {
+            "file": "materials/jetzmi_lord_shift-cast-82b33954b8.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/jetzmi_lord_shift-impact-2aed81ab3f.wav",
+            "peakMs": 128,
+            "durationMs": 750
+        }
+    },
+    "skeletonking_skill1": {
+        "cast": {
+            "file": "materials/skeletonking_skill1-cast-6e348f488b.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/skeletonking_skill1-impact-978f7463e7.wav",
+            "peakMs": 68,
+            "durationMs": 750
+        }
+    },
+    "skeletonking_skill2": {
+        "cast": {
+            "file": "materials/skeletonking_skill2-cast-4373fdc214.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/skeletonking_skill2-impact-854203c6b1.wav",
+            "peakMs": 28,
+            "durationMs": 750
+        }
+    },
+    "skeletonking_revive": {
+        "impact": {
+            "file": "materials/skeletonking_revive-impact-8a8141bc2a.wav",
+            "peakMs": 38,
+            "durationMs": 750
+        }
+    },
+    "lilith_skill1": {
+        "cast": {
+            "file": "materials/lilith_skill1-cast-7edabbf172.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/lilith_skill1-impact-03dfaeee5b.wav",
+            "peakMs": 113,
+            "durationMs": 750
+        }
+    },
+    "lilith_skill2": {
+        "cast": {
+            "file": "materials/lilith_skill2-cast-034f663f6f.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/lilith_skill2-impact-5e7aad7183.wav",
+            "peakMs": 68,
+            "durationMs": 750
+        }
+    },
+    "dilan_skill1": {
+        "cast": {
+            "file": "materials/dilan_skill1-cast-d3b9c29abc.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/dilan_skill1-impact-760bfc3de8.wav",
+            "peakMs": 18,
+            "durationMs": 560
+        }
+    },
+    "dilan_skill2": {
+        "cast": {
+            "file": "materials/dilan_skill2-cast-604d6f2a56.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/dilan_skill2-impact-860ca92fbe.wav",
+            "peakMs": 33,
+            "durationMs": 560
+        }
+    },
+    "nanfeng_skill1": {
+        "cast": {
+            "file": "materials/nanfeng_skill1-cast-d745c5db07.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/nanfeng_skill1-impact-0ddd428c7b.wav",
+            "peakMs": 43,
+            "durationMs": 560
+        }
+    },
+    "nanfeng_skill2": {
+        "cast": {
+            "file": "materials/nanfeng_skill2-cast-260579c401.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/nanfeng_skill2-impact-99e9074c92.wav",
+            "peakMs": 48,
+            "durationMs": 560
+        }
+    },
+    "youjun_skill1": {
+        "cast": {
+            "file": "materials/youjun_skill1-cast-c19e3f2163.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/youjun_skill1-impact-2fef487546.wav",
+            "peakMs": 38,
+            "durationMs": 560
+        }
+    },
+    "youjun_skill2": {
+        "cast": {
+            "file": "materials/youjun_skill2-cast-a618db43d5.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/youjun_skill2-impact-7f3b835806.wav",
+            "peakMs": 33,
+            "durationMs": 560
+        }
+    },
+    "lingxi_skill1": {
+        "cast": {
+            "file": "materials/lingxi_skill1-cast-b71dd5ed7a.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/lingxi_skill1-impact-5d7f4c195e.wav",
+            "peakMs": 108,
+            "durationMs": 700
+        }
+    },
+    "lingxi_skill2": {
+        "cast": {
+            "file": "materials/lingxi_skill2-cast-15744351c0.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/lingxi_skill2-impact-06c1b67663.wav",
+            "peakMs": 128,
+            "durationMs": 700
+        }
+    },
+    "lingxi_regen": {
+        "impact": {
+            "file": "materials/lingxi_regen-impact-bad0261354.wav",
+            "peakMs": 93,
+            "durationMs": 700
+        }
+    },
+    "jinghong_skill1": {
+        "cast": {
+            "file": "materials/jinghong_skill1-cast-be85cb12c0.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/jinghong_skill1-impact-6ba09874f6.wav",
+            "peakMs": 13,
+            "durationMs": 700
+        }
+    },
+    "jinghong_skill2": {
+        "cast": {
+            "file": "materials/jinghong_skill2-cast-7fae7435f7.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/jinghong_skill2-impact-0e9b020fb1.wav",
+            "peakMs": 8,
+            "durationMs": 700
+        }
+    },
+    "jinghong_still": {
+        "impact": {
+            "file": "materials/jinghong_still-impact-64895c49e4.wav",
+            "peakMs": 93,
+            "durationMs": 700
+        }
+    },
+    "jinghua_skill1": {
+        "cast": {
+            "file": "materials/jinghua_skill1-cast-14c923ee2b.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/jinghua_skill1-impact-c062bce6d1.wav",
+            "peakMs": 93,
+            "durationMs": 700
+        }
+    },
+    "jinghua_skill2": {
+        "cast": {
+            "file": "materials/jinghua_skill2-cast-54db37da73.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/jinghua_skill2-impact-d96f6dc5af.wav",
+            "peakMs": 8,
+            "durationMs": 700
+        }
+    },
+    "jinghua_tianwei": {
+        "cast": {
+            "file": "materials/jinghua_tianwei-cast-484d2611a7.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/jinghua_tianwei-impact-9ce4af52ef.wav",
+            "peakMs": 13,
+            "durationMs": 700
+        }
+    },
+    "ice": {
+        "cast": {
+            "file": "materials/ice-cast-7c523c327c.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/ice-impact-5b48ca23f2.wav",
+            "peakMs": 18,
+            "durationMs": 560
+        }
+    },
+    "metal": {
+        "cast": {
+            "file": "materials/metal-cast-a292a45bf8.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/metal-impact-20dd5460f4.wav",
+            "peakMs": 3,
+            "durationMs": 700
+        }
+    },
+    "soulfire": {
+        "cast": {
+            "file": "materials/soulfire-cast-96b4690bcd.wav",
+            "peakMs": 0,
+            "durationMs": 460
+        },
+        "impact": {
+            "file": "materials/soulfire-impact-b4a9bee35e.wav",
+            "peakMs": 33,
+            "durationMs": 750
+        }
+    },
+    "wind": {
+        "cast": {
+            "file": "materials/wind-cast-8761fddd41.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/wind-impact-02e202314a.wav",
+            "peakMs": 33,
+            "durationMs": 560
+        }
+    },
+    "water": {
+        "cast": {
+            "file": "materials/water-cast-882bf4a537.wav",
+            "peakMs": 0,
+            "durationMs": 340
+        },
+        "impact": {
+            "file": "materials/water-impact-4f000e4e0f.wav",
+            "peakMs": 113,
+            "durationMs": 700
+        }
+    }
+}

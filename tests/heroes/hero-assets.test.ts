@@ -60,6 +60,14 @@ describe('hero image assets', () => {
         expect(getHeroAvatarUrl('yunying-player2-1785423305834')).toBe('/hero-images/avatars/云缨.png');
         expect(getHeroFullBodyUrl('yunying')).toBe('/hero-images/full-body/云缨.png');
 
+        // 折光：头像与立绘各一张，按显示名同名
+        expect(getHeroAvatarUrl('zhiguang-player1-1785423305834')).toBe('/hero-images/avatars/折光.png');
+        expect(getHeroFullBodyUrl('zhiguang')).toBe('/hero-images/full-body/折光.png');
+
+        // 醉枕刀：只交付了一张图，两个槽位共用同一文件
+        expect(getHeroAvatarUrl('zuizhendao')).toBe('/hero-images/avatars/醉枕刀.png');
+        expect(getHeroFullBodyUrl('zuizhendao-player2-1785423305834')).toBe('/hero-images/avatars/醉枕刀.png');
+
         // 惊鸿·止水 / 镜花·水月：以前要靠 ASSET_FILE_NAMES 特例，现在显示名即文件名
         expect(resolveHeroTemplateId('jinghong')).toBe('jinghong');
         expect(resolveHeroTemplateId('jinghua-player2-1785423305834')).toBe('jinghua');
@@ -67,6 +75,16 @@ describe('hero image assets', () => {
         expect(getHeroFullBodyUrl('jinghong')).toBe('/hero-images/full-body/惊鸿·止水.png');
         expect(getHeroAvatarUrl('jinghua-player2-1785423305834')).toBe('/hero-images/avatars/镜花·水月.png');
         expect(getHeroFullBodyUrl('jinghua')).toBe('/hero-images/full-body/镜花·水月.png');
+
+        // 花弄影：最后补上立绘的可上线英雄，文件名就是显示名
+        expect(resolveHeroTemplateId('huanongying')).toBe('huanongying');
+        expect(getHeroAvatarUrl('huanongying-player1-1785423305834')).toBe('/hero-images/avatars/花弄影.png');
+        expect(getHeroFullBodyUrl('huanongying')).toBe('/hero-images/full-body/花弄影.png');
+
+        // 纸鸢：同上，头像与立绘各一张
+        expect(resolveHeroTemplateId('zhiyuan')).toBe('zhiyuan');
+        expect(getHeroAvatarUrl('zhiyuan-player1-1785423305834')).toBe('/hero-images/avatars/纸鸢.png');
+        expect(getHeroFullBodyUrl('zhiyuan')).toBe('/hero-images/full-body/纸鸢.png');
     });
 
     it('returns no image for heroes whose artwork has not been supplied', () => {

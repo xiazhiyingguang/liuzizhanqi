@@ -1367,11 +1367,11 @@
     right: auto;
     bottom: auto;
     display: flex;
-    width: min(520px, 46vw);
+    width: min(572px, 48vw);
     height: auto;
     max-height: calc(100% - 52px);
     margin: 0;
-    padding: 16px 18px;
+    padding: 18px 20px;
     align-items: center;
     justify-content: center;
     gap: 0;
@@ -1457,12 +1457,12 @@
 .main-menu-stage-cinematic .main-menu-actions {
     position: relative;
     display: grid;
-    width: min(414px, 100%);
-    padding: 29px 14px 14px;
+    width: min(474px, 100%);
+    padding: 33px 16px 16px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 7px;
+    gap: 9px;
     border: 1px solid rgba(37, 40, 36, .1);
-    border-radius: 5px;
+    border-radius: 6px;
     background:
         linear-gradient(105deg, rgba(255, 255, 255, .5), rgba(248, 244, 236, .22)),
         rgba(245, 241, 232, .54);
@@ -1472,22 +1472,22 @@
 
 .main-menu-stage-cinematic .main-menu-actions::before {
     content: "择一入局";
-    left: 16px;
-    top: 9px;
+    left: 18px;
+    top: 10px;
     color: #756e64;
-    font-size: 8px;
+    font-size: 9.5px;
     letter-spacing: .28em;
 }
 
 .main-menu-stage-cinematic .main-menu-actions::after {
-    left: 75px;
-    right: 15px;
-    top: 15px;
+    left: 86px;
+    right: 17px;
+    top: 17px;
 }
 
 .main-menu-stage-cinematic .main-menu-choice {
-    min-height: 55px;
-    padding: 7px 41px 7px 48px;
+    min-height: 63px;
+    padding: 9px 46px 9px 55px;
     grid-column: 1 / -1;
     border-color: rgba(32, 36, 32, .11);
     border-radius: 3px;
@@ -1520,25 +1520,30 @@
 }
 
 .main-menu-stage-cinematic .main-menu-choice-title {
-    font-size: 20px;
+    font-size: 23px;
     letter-spacing: .18em;
 }
 
 .main-menu-stage-cinematic .main-menu-choice-subtitle {
-    margin-top: 2px;
-    font-size: 8px;
+    margin-top: 3px;
+    font-size: 9px;
     letter-spacing: .16em;
 }
 
 .main-menu-stage-cinematic .main-menu-choice-index {
-    left: 17px;
-    font-size: 14px;
+    left: 19px;
+    font-size: 16px;
+}
+
+.main-menu-stage-cinematic .main-menu-choice-arrow {
+    right: 18px;
+    font-size: 26px;
 }
 
 .main-menu-stage-cinematic .main-menu-choice:nth-child(n+4) {
     min-width: 0;
-    min-height: 52px;
-    padding: 7px 6px;
+    min-height: 58px;
+    padding: 9px 8px;
     grid-column: auto;
     place-items: center;
     border-color: rgba(31, 35, 31, .07);
@@ -1558,7 +1563,7 @@
 }
 
 .main-menu-stage-cinematic .main-menu-choice:nth-child(n+4) .main-menu-choice-title {
-    font-size: 16px;
+    font-size: 18px;
     letter-spacing: .11em;
 }
 
@@ -1568,9 +1573,9 @@
 }
 
 .main-menu-stage-cinematic .main-menu-choice:nth-child(n+4) .main-menu-choice-index {
-    left: 7px;
-    top: 7px;
-    font-size: 9px;
+    left: 8px;
+    top: 8px;
+    font-size: 10px;
     transform: none;
 }
 
@@ -1613,7 +1618,7 @@
     .main-menu-stage-cinematic .main-menu-center {
         left: 50%;
         right: auto;
-        width: min(485px, 52vw);
+        width: min(534px, 54vw);
         transform: translate(-50%, -50%);
     }
 
@@ -1731,16 +1736,16 @@
     }
 
     .main-menu-stage-cinematic .main-menu-actions {
-        padding-top: 26px;
-        gap: 4px;
+        padding-top: 29px;
+        gap: 5px;
     }
 
     .main-menu-stage-cinematic .main-menu-choice {
-        min-height: 47px;
+        min-height: 53px;
     }
 
     .main-menu-stage-cinematic .main-menu-choice:nth-child(n+4) {
-        min-height: 42px;
+        min-height: 48px;
     }
 
     .main-menu-stage-cinematic .main-menu-footer {

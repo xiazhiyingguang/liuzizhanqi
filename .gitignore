@@ -22,6 +22,14 @@ test-results
 .workbuddy/
 public/hero-images.zip
 
+# 美术验收落盘：浏览器用户数据目录（493MB 缓存）+ 打包 zip + 生成参数 json，不进仓库
+output/
+
+# 平衡跑批与浏览器验证产物：逐局留档/截图单份就几万行几十张，全部不进仓库；
+# 只有人工写的评审笔记是例外
+reports/*
+!reports/hero-ratings-review.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -32,3 +40,13 @@ public/hero-images.zip
 *.njsproj
 *.sln
 *.sw?
+
+# 美术调研批次：日期后缀的预览与参考图属于一次性落盘，不进仓库
+public/weapon-images/*preview*/
+public/weapon-images/*/references/
+
+# Windows 保留名：一旦进 commit，任何 Windows 机器 clone/checkout 都会因为写不出这个文件而失败
+nul
+
+# TypeScript 增量构建缓存
+*.tsbuildinfo

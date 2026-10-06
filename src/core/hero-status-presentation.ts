@@ -1,4 +1,5 @@
 import type { Effect, Hero } from '../types/game';
+import { getWangshuMultiplier, getWangshuPhase, WANGSHU_PHASE_NAMES } from './wangshu';
 
 export function effectDurationLabel(effect: Effect): string {
     if (effect.duration < 0) return '永久';
@@ -46,10 +47,17 @@ function isVisibleCounterKey(key: string): boolean {
     return /[\u4e00-\u9fff]/.test(key);
 }
 
-export function visibleCounterEntries(hero: Hero): Array<{ label: string; value: number }> {
-    return Object.entries(hero.counters ?? {})
+export function visibleCounterEntries(hero: Hero): Array<{ label: string; value: number; displayValue?: string }> {
+    const entries = Object.entries(hero.counters ?? {})
         .filter(([key, value]) => isVisibleCounterKey(key) && value > 0)
         .map(([key, value]) => ({ label: key, value }));
+    if (hero.passiveId !== 'wangshu_passive') return entries;
+    return [
+        { label: '月相', value: getWangshuPhase(hero), displayValue: `${WANGSHU_PHASE_NAMES[getWangshuPhase(hero)]} · ${Math.round(getWangshuMultiplier(hero) * 100)}%` },
+        { label: '朔', value: hero.counters['朔'] ?? 0 },
+        { label: '望', value: hero.counters['望'] ?? 0 },
+        ...entries.filter(entry => entry.label !== '朔' && entry.label !== '望'),
+    ];
 }
 
 export function formatPercent(fraction: number): string {

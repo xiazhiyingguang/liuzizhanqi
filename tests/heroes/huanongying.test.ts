@@ -113,6 +113,8 @@ describe('花弄影', () => {
         expect(neighbor.currentHp).toBe(neighbor.maxHp - 8);
         expect(hanying.hasMovedThisTurn).toBe(true);
         expect(hanying.counters['__hny_last_attack']).toBe(2);
+        expect(state.skillFxExtras?.fromPos).toEqual([3, 3]);
+        expect(state.skillFxExtras?.targetPos).toEqual([2, 3]);
     });
 
     it('技能2重演：行动末影子留在出发格环身补4点，进场断后两头咬', () => {
@@ -175,15 +177,18 @@ describe('花弄影', () => {
 
     it('特效档案与请求队列：花间辞/弄影/重演各有专属原型，重演走请求队列派发', () => {
         const { state, hanying } = setup();
-        expect(resolveSkillFx('huanongying_skill1').kind).toBe('triple-slash');
-        expect(resolveSkillFx('huanongying_skill2').kind).toBe('phase-swap');
-        expect(resolveSkillFx('huanongying_replay').kind).toBe('arc-slash');
+        expect(resolveSkillFx('huanongying_skill1').kind).toBe('huanongying-fan');
+        expect(resolveSkillFx('huanongying_skill2').kind).toBe('huanongying-swap');
+        expect(resolveSkillFx('huanongying_replay').kind).toBe('huanongying-replay');
 
         addHero(state, 'nightowl', 'player2', [2, 3]);
         castFan(hanying, state, 0);
         drainPendingSkillFxRequests(); // 清掉施法阶段的残留
         resolveHnyReplay(hanying, state);
         const fxRequests = drainPendingSkillFxRequests();
-        expect(fxRequests.some(request => request.skillId === 'huanongying_replay')).toBe(true);
+        const replay = fxRequests.find(request => request.skillId === 'huanongying_replay');
+        expect(replay).toBeTruthy();
+        expect(replay?.fromPos).toEqual([2, 3]);
+        expect(replay?.targetPos).toEqual([1, 3]);
     });
 });

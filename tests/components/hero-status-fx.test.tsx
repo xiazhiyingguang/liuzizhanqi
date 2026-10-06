@@ -17,6 +17,20 @@ function heroWithEffects(names: string[]): Hero {
 }
 
 describe('HeroStatusFx 常驻状态特效层', () => {
+    it.each([1, 2, 3])('叙白剩余 %i 颗黑白球时，常驻珠子数量一致', count => {
+        const hero = createHero('xubai', 'player1', [0, 0]);
+        hero.counters['黑白球'] = count;
+        const html = renderToStaticMarkup(<HeroStatusFx hero={hero} />);
+        expect(html).toContain('sfx-orb-pearls');
+        expect(html.match(/<b /g)).toHaveLength(count);
+    });
+    it.each([1, 4, 9])('留存 %i 层破镜之刃时，悬浮棱镜数量与层数一致', count => {
+        const hero = createHero('mirror', 'player1', [0, 0]);
+        hero.counters['破镜之刃'] = count;
+        const html = renderToStaticMarkup(<HeroStatusFx hero={hero} />);
+        expect(html).toContain('sfx-orbit-blade');
+        expect(html.match(/<b /g)).toHaveLength(count);
+    });
     it('无状态时不渲染任何节点', () => {
         const html = renderToStaticMarkup(<HeroStatusFx hero={createHero('dilan', 'player1', [0, 0])} />);
         expect(html).toBe('');
@@ -44,3 +58,4 @@ describe('HeroStatusFx 常驻状态特效层', () => {
         expect(html).toContain('sfx-stream');
     });
 });
+

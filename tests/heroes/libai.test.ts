@@ -87,21 +87,48 @@ describe('李太白技能与天威', () => {
         expect(EffectManager.getCounter(libai, '醉意')).toBe(4);
     });
 
-    it('历史位置跨回合滚动：回合1无记录、回合2一个、回合3两个', () => {
+    it('历史落点以"自己移动结束"为口径记录，回合初不再补录', () => {
         const state = makeGameState();
         const libai = addHero(state, 'libai', 'player1', [2, 2]);
-        expect(libai.counters['__libai_prev_pos']).toBeUndefined();
-        // 回合1结束在 [2,2]
+
+        // 回合初即使站着不动，也不该把当前格写进历史（旧口径就是这么记的）
         GameEngine.startNewTurn(state);
-        expect(libai.counters['__libai_prev_pos']).toBe(2 * 6 + 2);
-        expect(libai.counters['__libai_prev2_pos']).toBeUndefined();
-        // 回合2结束在 [3,3]
-        libai.position = [3, 3];
+        expect(libai.counters['__libai_prev_pos']).toBeUndefined();
+
+        // 他自己走到 [3,3]：记为第一处
         state.board[2][2] = null;
         state.board[3][3] = libai;
-        GameEngine.startNewTurn(state);
+        libai.position = [3, 3];
+        GameEngine.recordLibaiStay(libai);
         expect(libai.counters['__libai_prev_pos']).toBe(3 * 6 + 3);
-        expect(libai.counters['__libai_prev2_pos']).toBe(2 * 6 + 2);
+        expect(libai.counters['__libai_prev2_pos']).toBeUndefined();
+
+        // 再走到 [4,4]：滚动成两处
+        state.board[3][3] = null;
+        state.board[4][4] = libai;
+        libai.position = [4, 4];
+        GameEngine.recordLibaiStay(libai);
+        expect(libai.counters['__libai_prev_pos']).toBe(4 * 6 + 4);
+        expect(libai.counters['__libai_prev2_pos']).toBe(3 * 6 + 3);
+
+        // 原地重复记录不会把历史挤掉一格
+        GameEngine.recordLibaiStay(libai);
+        expect(libai.counters['__libai_prev2_pos']).toBe(3 * 6 + 3);
+    });
+
+    it('强制位移（帝兰式击退）不写历史，回合初也不会补录', () => {
+        const state = makeGameState();
+        const libai = addHero(state, 'libai', 'player1', [2, 2]);
+        GameEngine.recordLibaiStay(libai); // 他先自己停过一次 [2,2]
+
+        // 击退：只改棋盘与 position，不走 moveHero，因此不该留下历史落点
+        state.board[2][2] = null;
+        state.board[0][2] = libai;
+        libai.position = [0, 2];
+        GameEngine.startNewTurn(state);
+
+        expect(libai.counters['__libai_prev_pos']).toBe(2 * 6 + 2);
+        expect(libai.counters['__libai_prev2_pos']).toBeUndefined();
     });
 });
 
@@ -126,6 +153,16 @@ describe('李太白被动链（store 状态机）', () => {
         });
         return libai;
     }
+
+    it('移动结束即写入历史落点', () => {
+        const libai = loadBattle();
+        useGameStore.getState().selectHeroForAction(libai);
+        useGameStore.getState().moveHero([3, 2]);
+
+        expect(libai.position).toEqual([3, 2]);
+        expect(libai.counters['__libai_prev_pos']).toBe(3 * 6 + 2);
+        expect(libai.counters['__libai_prev2_pos']).toBeUndefined();
+    });
 
     it('技能后进入链，瞬移攻击，全部用完自动归位', () => {
         const libai = loadBattle();

@@ -9,7 +9,8 @@ import { HeroState } from '../../src/types/game';
  * 历史问题：
  * 1. 上阵满4人后，候选条剩余两名替补仍可点击上阵（引擎也无人数校验），
  *    容易误操作导致超员；
- * 2. 已放置的英雄无法调整位置，选错格只能认栽。
+ * 2. 已放置的英雄无法调整位置，选错格只能认栽；
+ * 3. 一旦上场就只能换格子、换不了人——想换成候选席里的另一位没有出口。
  */
 
 function enterDeployPhase() {
@@ -149,5 +150,95 @@ describe('布阵阶段：位置调整（移动与交换）', () => {
         // 战场上的首发仍是4人，位置与调整后一致
         const onBoard = state.player1Heroes.filter(h => h.state === HeroState.ALIVE && h.position).length;
         expect(onBoard).toBe(4);
+    });
+});
+
+describe('布阵阶段：撤下已上阵英雄（可换人重选）', () => {
+    beforeEach(() => {
+        enterDeployPhase();
+        deployFour();
+    });
+
+    it('撤下后格子释放、名单移除，可让第5名英雄顶上空位', () => {
+        const fallen = useGameStore.getState().player1Heroes[1]; // [1,1]
+        const ok = useGameStore.getState().undeployHeroForPlayer('player1', fallen.id);
+        expect(ok).toBe(true);
+
+        let state = useGameStore.getState();
+        expect(state.board[1][1]).toBeNull();
+        expect(state.player1Heroes).toHaveLength(3);
+        expect(state.player1Heroes.some(h => h.id === fallen.id)).toBe(false);
+
+        // 空位腾出后，原本被"首发已满"拦住的第5名英雄可以上阵
+        const fifthId = AVAILABLE_HERO_IDS[4];
+        expect(
+            useGameStore.getState().deployHeroForPlayer('player1', fifthId, [1, 1])
+        ).toBe(true);
+
+        state = useGameStore.getState();
+        expect(state.player1Heroes).toHaveLength(4);
+        expect(state.board[1][1]?.id.startsWith(`${fifthId}-player1-`)).toBe(true);
+    });
+
+    it('按模板 ID 撤下（联机对端消息口径）同样生效', () => {
+        const target = useGameStore.getState().player1Heroes[0];
+        const templateId = target.id.replace(/-(player1|player2)-\d+$/, '');
+
+        expect(useGameStore.getState().undeployHeroForPlayer('player1', templateId)).toBe(true);
+        expect(useGameStore.getState().board[0][0]).toBeNull();
+        expect(useGameStore.getState().player1Heroes).toHaveLength(3);
+    });
+
+    it('不足4人时确认部署被拦，撤下后再补满即可确认', () => {
+        const first = useGameStore.getState().player1Heroes[0];
+        const firstTemplateId = first.id.replace(/-(player1|player2)-\d+$/, '');
+        expect(useGameStore.getState().undeployHeroForPlayer('player1', first.id)).toBe(true);
+
+        useGameStore.setState({ player2ReadyDeploy: true });
+        expect(useGameStore.getState().confirmDeploymentForPlayer('player1')).toBe(false);
+        expect(useGameStore.getState().phase).toBe('deploy');
+
+        // 顶上第5名英雄，再撤下换回原来那位：替补名单按最终上场情况计算
+        const fifthId = AVAILABLE_HERO_IDS[4];
+        expect(useGameStore.getState().deployHeroForPlayer('player1', fifthId, [0, 0])).toBe(true);
+        expect(useGameStore.getState().undeployHeroForPlayer('player1', fifthId)).toBe(true);
+        expect(useGameStore.getState().deployHeroForPlayer('player1', firstTemplateId, [0, 0])).toBe(true);
+
+        expect(useGameStore.getState().confirmDeploymentForPlayer('player1')).toBe(true);
+        const state = useGameStore.getState();
+        expect(state.phase).toBe('battle');
+        expect(state.player1BenchHeroIds).toEqual([AVAILABLE_HERO_IDS[4], AVAILABLE_HERO_IDS[5]]);
+    });
+
+    it('撤下未上阵的英雄、非部署阶段与已确认后一律拒绝', () => {
+        expect(
+            useGameStore.getState().undeployHeroForPlayer('player1', AVAILABLE_HERO_IDS[5])
+        ).toBe(false);
+
+        useGameStore.setState({ player1ReadyDeploy: true });
+        const deployedId = useGameStore.getState().player1Heroes[0].id;
+        expect(useGameStore.getState().undeployHeroForPlayer('player1', deployedId)).toBe(false);
+
+        useGameStore.setState({ player1ReadyDeploy: false, phase: 'battle' });
+        expect(useGameStore.getState().undeployHeroForPlayer('player1', deployedId)).toBe(false);
+        expect(useGameStore.getState().player1Heroes).toHaveLength(4);
+    });
+
+    it('只能撤下本方英雄，不会动到对手棋盘', () => {
+        useGameStore.getState().deployHeroForPlayer('player2', AVAILABLE_HERO_IDS[0], [0, 5]);
+        const enemy = useGameStore.getState().player2Heroes[0];
+
+        expect(useGameStore.getState().undeployHeroForPlayer('player1', enemy.id)).toBe(false);
+        expect(useGameStore.getState().board[0][5]?.id).toBe(enemy.id);
+        expect(useGameStore.getState().player2Heroes).toHaveLength(1);
+    });
+
+    it('UI 用的 undeployHero 包装按实例 ID 撤下当前布阵方', () => {
+        const hero = useGameStore.getState().player1Heroes[2]; // [2,2]
+        useGameStore.getState().undeployHero(hero.id);
+
+        const state = useGameStore.getState();
+        expect(state.board[2][2]).toBeNull();
+        expect(state.player1Heroes.some(h => h.id === hero.id)).toBe(false);
     });
 });

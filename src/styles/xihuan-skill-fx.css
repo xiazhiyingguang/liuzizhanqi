@@ -1,0 +1,95 @@
+/*
+ * 羲和「均光」：一圈曦光从她自己身上荡开，再有一道横平光扫过这一片友方。
+ * 两层环一快一慢、内外反向，横光最后到——读起来像"水面被抹平"那一下，而不是一次爆点。
+ */
+
+.fxhl-ring,
+.fxhl-ring *,
+.fxhl-sweep,
+.fxhl-core {
+    pointer-events: none;
+    position: absolute;
+    display: block;
+}
+
+.fxhl-ring {
+    left: 50%;
+    top: 50%;
+    width: 46%;
+    height: 46%;
+    margin: -23% 0 0 -23%;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    border-top-color: var(--fx-c2, #fff4d8);
+    border-bottom-color: color-mix(in srgb, var(--fx-c1, #d99a2b) 72%, transparent);
+    filter: drop-shadow(0 0 7px var(--fx-glow, rgba(217, 154, 43, .55)));
+    opacity: 0;
+    animation: fxhl-expand 620ms cubic-bezier(.18, .72, .24, 1) forwards;
+}
+
+.fxhl-ring-a {
+    animation-delay: 0ms;
+}
+
+/* 第二层环晚一拍、反向转：两层错开才不像一个整体在鼓包 */
+.fxhl-ring-b {
+    width: 66%;
+    height: 66%;
+    margin: -33% 0 0 -33%;
+    border-left-color: color-mix(in srgb, var(--fx-c1, #d99a2b) 55%, transparent);
+    border-right-color: transparent;
+    animation: fxhl-expand 700ms cubic-bezier(.18, .72, .24, 1) forwards;
+    animation-delay: 130ms;
+}
+
+/* 横平光：贴着中心横扫过去的那道"抹平"线 */
+.fxhl-sweep {
+    left: 50%;
+    top: 50%;
+    width: 168%;
+    height: 6%;
+    margin: -3% 0 0 -84%;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        transparent,
+        color-mix(in srgb, var(--fx-c1, #d99a2b) 60%, transparent) 26%,
+        var(--fx-c2, #fff4d8) 52%,
+        #fff 60%,
+        transparent);
+    filter: blur(.4px) drop-shadow(0 0 8px var(--fx-glow, rgba(217, 154, 43, .5)));
+    opacity: 0;
+    transform: scaleX(.12);
+    animation: fxhl-level 520ms ease-out forwards;
+    animation-delay: 210ms;
+}
+
+/* 中心暖核：起势那半拍先亮一下，给"她在攒光"留出前摇 */
+.fxhl-core {
+    left: 50%;
+    top: 50%;
+    width: 34%;
+    height: 34%;
+    margin: -17% 0 0 -17%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0 18%, var(--fx-c2, #fff4d8) 34%, transparent 72%);
+    opacity: 0;
+    animation: fxhl-bloom 460ms ease-out forwards;
+}
+
+@keyframes fxhl-expand {
+    0% { opacity: 0; transform: scale(.28) rotate(0deg); }
+    26% { opacity: .95; }
+    100% { opacity: 0; transform: scale(2.05) rotate(140deg); }
+}
+
+@keyframes fxhl-level {
+    0% { opacity: 0; transform: scaleX(.12); }
+    34% { opacity: .9; }
+    100% { opacity: 0; transform: scaleX(1); }
+}
+
+@keyframes fxhl-bloom {
+    0% { opacity: 0; transform: scale(.5); }
+    40% { opacity: .85; }
+    100% { opacity: 0; transform: scale(1.5); }
+}

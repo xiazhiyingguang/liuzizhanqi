@@ -108,20 +108,21 @@ export class EffectManager {
     }
 
     /**
-     * 添加冰甲：受到的伤害降低20%，攻击者获得1层寒天。
+     * 添加冰甲：受到的伤害降低 damageReduction（默认 20%），攻击者获得1层寒天。
      * 效果不可叠加，重复获得时不刷新持续时间。
+     * 减伤比例由调用方按"施术者寒江雪的致知3"传入，这里只负责记账。
      * @returns 是否新获得（已有冰甲时返回 false）
      */
-    static addIceArmor(hero: Hero, sourceHeroId: string): boolean {
+    static addIceArmor(hero: Hero, sourceHeroId: string, damageReduction = 0.2): boolean {
         if (hero.effects.some(effect => effect.name === '冰甲')) return false;
         hero.effects.push({
             id: `effect-${Date.now()}-${Math.random()}`,
             type: 'buff',
             name: '冰甲',
             duration: 2,
-            value: 0.2,
+            value: damageReduction,
             sourceHeroId,
-            description: '受到的伤害降低20%；攻击者获得1层寒天'
+            description: `受到的伤害降低${Math.round(damageReduction * 100)}%；攻击者获得1层寒天`
         });
         return true;
     }

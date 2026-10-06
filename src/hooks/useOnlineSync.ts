@@ -1,8 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { createOnlineStateSnapshot, useGameStore } from '../store/game-store';
-import { disconnectFromServer, getSocket, sendPlayerAction, syncGameState, onEvent, offEvent } from '../services/socket-service';
-import { rememberRecentPlayer } from '../services/player-profile';
-import { applyServerGameState, applySnapshotAction } from '../services/online-state';
+import {
+    disconnectFromServer,
+    getSocket,
+    registerLobbyPlayer,
+    resumeRoom,
+    sendPlayerAction,
+    syncGameState,
+    onEvent,
+    offEvent
+} from '../services/socket-service';
+import { getOrCreatePlayerIdentity, rememberRecentPlayer } from '../services/player-profile';
+import { applyResumePayload, applyServerGameState, commitOnlineTriggeredFx, applySnapshotAction } from '../services/online-state';
 import { audioManager } from '../audio/audio-manager';
 
 /**
@@ -75,6 +84,16 @@ export function useOnlineSync() {
                     break;
                 }
 
+                case 'toggle-weapon': {
+                    if (action.data?.heroId) store.toggleWeaponForPlayer(playerKey, action.data.heroId);
+                    break;
+                }
+
+                case 'confirm-weapon-selection': {
+                    store.confirmWeaponSelectionForPlayer(playerKey);
+                    break;
+                }
+
                 case 'deploy-hero': {
                     if (action.data?.heroId && action.data?.position) {
                         store.deployHeroForPlayer(playerKey, action.data.heroId, action.data.position);
@@ -85,6 +104,13 @@ export function useOnlineSync() {
                 case 'reposition-deploy-hero': {
                     if (action.data?.heroId && action.data?.position) {
                         store.repositionDeployHeroForPlayer(playerKey, action.data.heroId, action.data.position);
+                    }
+                    break;
+                }
+
+                case 'undeploy-hero': {
+                    if (action.data?.heroId) {
+                        store.undeployHeroForPlayer(playerKey, action.data.heroId);
                     }
                     break;
                 }
@@ -175,7 +201,7 @@ export function useOnlineSync() {
             });
         };
 
-        // 监听玩家断线
+        // 监听玩家断线：显式离开或宽限期超时才会走到这里，瞬时掉线由 reconnect + room-resume 兜住
         const handlePlayerDisconnected = ({ message }: any) => {
             console.log('[联机同步] 对手断线:', message);
             alert(message);
@@ -183,11 +209,61 @@ export function useOnlineSync() {
             useGameStore.getState().resetGame();
         };
 
+        // 自己这条连接断了：不要拆局。服务端的席位会保留到宽限期结束，
+        // 自动重连成功后由 room-resume 把局面接回来（原来这里直接 resetGame，
+        // 于是一次 Wi-Fi 抖动就能把好好一局对局就地销毁）。
         const handleConnectionLost = (reason: string) => {
             if (reason === 'io client disconnect') return;
-            alert('与联机服务器的连接已中断，本局对战已结束');
+            console.log('[联机同步] 连接中断，等待自动重连:', reason);
+            useGameStore.setState({ onlineSelfReconnecting: true });
+        };
+
+        const handleReconnectFailed = () => {
+            useGameStore.setState({ onlineSelfReconnecting: false });
+            alert('与联机服务器的连接已中断，重连失败，本局对战已结束');
             disconnectFromServer();
             useGameStore.getState().resetGame();
+        };
+
+        // 重连成功：先补登记身份，再凭 playerId 认领自己原来的席位
+        const handleReconnect = async () => {
+            const identity = getOrCreatePlayerIdentity();
+            registerLobbyPlayer(identity);
+            const response = await resumeRoom(roomId, identity, localPlayerNumber ?? 1);
+            if (!response.success) {
+                useGameStore.setState({ onlineSelfReconnecting: false });
+                alert('这间房间已经关闭，本局无法继续');
+                useGameStore.getState().resetGame();
+                return;
+            }
+            console.log('[联机同步] 重连后已认领席位:', response.playerNumber);
+        };
+
+        // 对手掉线/回来：只提示，不结束对局
+        const handleOpponentDropped = ({ graceSeconds, message }: any) => {
+            console.log('[联机同步] 对手掉线:', message);
+            useGameStore.setState({ onlineOpponentOfflineUntil: Date.now() + (graceSeconds ?? 120) * 1000 });
+            useGameStore.getState().addLog({
+                type: 'system',
+                player: 'player1',
+                message: `对手连接中断，房间保留 ${graceSeconds ?? 120} 秒等待重连`
+            });
+        };
+
+        const handleOpponentResumed = ({ message }: any) => {
+            console.log('[联机同步] 对手重连:', message);
+            useGameStore.setState({ onlineOpponentOfflineUntil: undefined });
+            useGameStore.getState().addLog({
+                type: 'system',
+                player: 'player1',
+                message: '对手已重连回房间，对局继续'
+            });
+        };
+
+        // 重连回席后的局面重建：战斗阶段用权威快照，选将/布阵阶段按服务端记录重放
+        const handleRoomResume = (payload: any) => {
+            applyResumePayload(payload);
+            if (payload.revision) lastRevisionRef.current = payload.revision;
         };
 
         const handleActionRejected = ({ message, gameState, revision }: any) => {
@@ -220,7 +296,11 @@ export function useOnlineSync() {
 
             useGameStore.setState({ suppressOnlineBroadcast: true });
             try {
+                // 状态同步也是"对手做了一件事"：挂起选格确认、行动结束的延迟段都走这条路，
+                // 不重建锚定特效就只有出手方看得见画面
+                const logIdsBefore = new Set(useGameStore.getState().battleLog.map(log => log.id));
                 applyServerGameState(gameState);
+                commitOnlineTriggeredFx(logIdsBefore);
                 if (revision) lastRevisionRef.current = revision;
             } catch (error) {
                 console.error('[联机同步] 应用游戏状态失败:', error);
@@ -242,7 +322,12 @@ export function useOnlineSync() {
         onEvent('action-rejected', handleActionRejected);
         onEvent('game-state-update', handleGameStateUpdate);
         onEvent('request-game-state', handleRequestGameState);
+        onEvent('opponent-dropped', handleOpponentDropped);
+        onEvent('opponent-resumed', handleOpponentResumed);
+        onEvent('room-resume', handleRoomResume);
         socket.on('disconnect', handleConnectionLost);
+        socket.io.on('reconnect', handleReconnect);
+        socket.io.on('reconnect_failed', handleReconnectFailed);
 
         // 清理函数
         return () => {
@@ -253,7 +338,12 @@ export function useOnlineSync() {
             offEvent('action-rejected', handleActionRejected);
             offEvent('game-state-update', handleGameStateUpdate);
             offEvent('request-game-state', handleRequestGameState);
+            offEvent('opponent-dropped', handleOpponentDropped);
+            offEvent('opponent-resumed', handleOpponentResumed);
+            offEvent('room-resume', handleRoomResume);
             socket.off('disconnect', handleConnectionLost);
+            socket.io.off('reconnect', handleReconnect);
+            socket.io.off('reconnect_failed', handleReconnectFailed);
         };
     }, [isOnlineMode, roomId, localPlayerNumber]);
 }

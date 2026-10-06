@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { createOnlineStateSnapshot, useGameStore } from '../../src/store/game-store';
-import { applyServerGameState, applySnapshotAction } from '../../src/services/online-state';
+import { applyServerGameState, applySnapshotAction, commitOnlineTriggeredFx } from '../../src/services/online-state';
 import { soundManager } from '../../src/core/sound-manager';
-import { getSkillSound } from '../../src/data/skill-sounds';
 import type { BattleLogEntry, Hero, Position } from '../../src/types/game';
 
 /**
@@ -95,7 +94,7 @@ describe('联机对手施法的表现回放', () => {
     let playSpy: Mock;
 
     beforeEach(() => {
-        playSpy = vi.spyOn(soundManager, 'playSkill').mockImplementation(() => undefined);
+        playSpy = vi.spyOn(soundManager, 'playSkillFx').mockImplementation(() => undefined);
     });
 
     afterEach(() => {
@@ -114,9 +113,8 @@ describe('联机对手施法的表现回放', () => {
         applySnapshotAction(action, postSnapshot);
 
         const receiver = useGameStore.getState();
-        expect(playSpy, '对手施法应在本端播放同一音效').toHaveBeenCalledWith(
-            'libai_skill1',
-            getSkillSound('libai_skill1')
+        expect(playSpy, '对手施法声音与本端重建的动画事件共用抵达时间').toHaveBeenCalledWith(
+            expect.objectContaining({ skillId: 'libai_skill1', profile: expect.objectContaining({ kind: 'libai-slash' }) })
         );
         expect(receiver.skillFx).toHaveLength(1);
         const [fx] = receiver.skillFx;
@@ -151,5 +149,42 @@ describe('联机对手施法的表现回放', () => {
 
         expect(playSpy, '非技能动作与缺少目标格的载荷都不应触发表现').not.toHaveBeenCalled();
         expect(useGameStore.getState().skillFx, 'resetGame 不应把上一局的特效带进新局').toHaveLength(0);
+    });
+
+    it('纯状态同步（game-state-update）也重建锚定特效', () => {
+        setupOnlineBattle();
+        const store = useGameStore.getState();
+        const before = JSON.parse(JSON.stringify(createOnlineStateSnapshot(store)));
+
+        // 出手方在"点方向确认燎原"这类只发 sync 的路径里，把表现请求锚到本次新写的日志上
+        useGameStore.getState().addLog({ type: 'skill', player: 'player2', message: '云缨烈火燎原烧穿射线' });
+        const anchor = useGameStore.getState().battleLog[useGameStore.getState().battleLog.length - 1];
+        anchor.details = {
+            ...anchor.details,
+            skillFxRequest: {
+                skillId: 'yunying_liehuo',
+                owner: 'player2',
+                fromPos: [2, 3] as Position,
+                targetPos: [1, 3] as Position,
+                impactPositions: [] as Position[],
+                coveredPositions: [[1, 3] as Position, [0, 3] as Position],
+                logIds: [anchor.id],
+            },
+        };
+        const after = JSON.parse(JSON.stringify(createOnlineStateSnapshot(useGameStore.getState())));
+
+        // 对端视角：先退回同步前的局面，再按 handleGameStateUpdate 的两步落地
+        applyServerGameState(before);
+        expect(useGameStore.getState().skillFx).toHaveLength(0);
+        const logIdsBefore = new Set(useGameStore.getState().battleLog.map(entry => entry.id));
+        playSpy.mockClear();
+        applyServerGameState(after);
+        commitOnlineTriggeredFx(logIdsBefore);
+
+        const fx = useGameStore.getState().skillFx;
+        expect(fx, '走状态同步的锚定请求同样要在对端出画面').toHaveLength(1);
+        expect(fx[0].skillId).toBe('yunying_liehuo');
+        expect(fx[0].coveredPositions).toEqual([[1, 3], [0, 3]]);
+        expect(playSpy).toHaveBeenCalledTimes(1);
     });
 });

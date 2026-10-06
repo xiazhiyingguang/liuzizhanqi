@@ -1,0 +1,51 @@
+{
+  "mode": "built-in image_gen",
+  "edits": [
+    {
+      "id": "chenyuan",
+      "file": "chenyuan-v2.png",
+      "generatedSource": "C:\\Users\\文件\\.codex\\generated_images\\01a102d7-5a56-7222-b0b7-2ba39a616582\\exec-807a7f5f-2b8d-4f93-9f6c-04ae8d9eb1e4.png",
+      "prompt": "Edit target: first attached image, the ink-wash warhammer 镇岳. Style reference: second attached image, the folding-fan ink painting. Preserve the warhammer's existing design, black stone rectangular mountain-carved hammerhead, fine antique-gold trim, teal accents, handle, and painterly ink style. Correct only the FRAMING: make the complete weapon roughly 78 percent of the canvas diagonal, centered, with at least 10 percent blank paper margin above the ENTIRE top of the hammerhead and around the weapon at all four edges. The topmost corner of the hammerhead must be completely visible and fully inside the canvas, not cut off. Both ends complete. Keep the warm opaque ivory paper and lively gray ink sweeps. Same square composition. No letters, no characters, no UI, no transparency. The whole hammer MUST fit comfortably within the image.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\chenyuan.png",
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "nightowl",
+      "file": "nightowl-v2.png",
+      "prompt": "Use case: stylized-concept. Asset: square individual weapon portrait for an existing Chinese fantasy game ink-wash collection. Image 1 is the PRIMARY STYLE reference only: match its warm ivory fibrous xuan-paper, layered watercolor ink wash, angular dry-brush facets on the weapon itself, finely painted antique gold tracery, rich ink black, elegant silk accents and quiet negative space. Image 2 is the old weapon to be completely redesigned as specified, retaining the hero's theme. Make ONE complete weapon, centered large, all extremities inside the square canvas with generous 8% margin. Opaque paper backdrop with restrained flowing charcoal ink sweeps. Intricate hand-painted illustration, no photorealism or 3D render, no text, watermark, characters, hands, UI, collage. Square 1254 x 1254 composition; no transparency. SUBJECT: 暗影猎手·夜枭's 夜陨. Replace the two blades with ONE elegant recurved longbow and ONE matching slim arrow. The silhouette MUST be visibly a bow: two gracefully curved black-lacquer limbs joined at a narrow central handgrip, one taut continuous bowstring connecting the limb tips. Single arrow along the open interior, with sharp silver arrowhead and dark feather fletching. Slim antique-gold owl-feather ornaments around the grip and limb tips, tiny violet gem at the grip, muted violet-black ribbon and short tassel, sophisticated predatory nocturnal mood. Ink black, silver-gray, antique gold, subdued violet. Prioritize the strong readable arch and exposed string. No blade pair, no crossbow.",
+      "generatedSource": "C:\\Users\\文件\\.codex\\generated_images\\01a102d7-5a56-7222-b0b7-2ba39a616582\\exec-39f47235-5fc0-4cd5-82ef-ae65e2fd2694.png",
+      "referenced_image_paths": [
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/references/ink-fan-style.png",
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/nightowl.png"
+      ],
+      "previousFile": "nightowl.png",
+      "reason": "更正为弓箭"
+    },
+    {
+      "id": "bounty",
+      "file": "bounty-v2.png",
+      "prompt": "Use case: stylized-concept. Asset: square individual weapon portrait for an existing Chinese fantasy game ink-wash collection. Image 1 is the PRIMARY STYLE reference only: match its warm ivory fibrous xuan-paper, layered watercolor ink wash, angular dry-brush facets on the weapon itself, finely painted antique gold tracery, rich ink black, elegant silk accents and quiet negative space. Image 2 is the old weapon to be completely redesigned as specified, retaining the hero's theme. Make ONE complete weapon, centered large, all extremities inside the square canvas with generous 8% margin. Opaque paper backdrop with restrained flowing charcoal ink sweeps. Intricate hand-painted illustration, no photorealism or 3D render, no text, watermark, characters, hands, UI, collage. Square 1254 x 1254 composition; no transparency. SUBJECT: 赏金猎人's 追命. Replace the crossbow with ONE GOLDEN BOUNTY DAGGER, unmistakably a short compact dagger rather than a sword: a short pointed double-edged pale-gold blade with a crisp central ridge, engraved antique-gold scrollwork and fine bounty-token medallion motif, a small tasteful swept gold crossguard, dark wrapped short grip with gold fittings, tiny emerald inset and a small gold coin pendant attached at the pommel by a fine chain. Beautiful warm golden blade dominates the colors, distinguish its gold facets through painterly brushwork. A restrained dark wine-red silk cord curves near the hilt. Full single dagger diagonally across canvas, balanced airy ink swirls, sophisticated precious hunter's weapon. No bow, crossbow, long sword, firearms, pile of coins, written currency symbols.",
+      "generatedSource": "C:\\Users\\文件\\.codex\\generated_images\\01a102d7-5a56-7222-b0b7-2ba39a616582\\exec-5653fb72-e18a-434a-875e-ef54f995f45b.png",
+      "referenced_image_paths": [
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/references/ink-fan-style.png",
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/bounty.png"
+      ],
+      "previousFile": "bounty.png",
+      "reason": "更正为黄金赏金匕首"
+    },
+    {
+      "id": "wither_lord",
+      "file": "wither_lord-v2.png",
+      "prompt": "Use case: stylized-concept. Asset: square individual weapon portrait for an existing Chinese fantasy game ink-wash collection. Image 1 is the PRIMARY STYLE reference only: match its warm ivory fibrous xuan-paper, layered watercolor ink wash, angular dry-brush facets on the weapon itself, finely painted antique gold tracery, rich ink black, elegant silk accents and quiet negative space. Image 2 is the old weapon to be completely redesigned as specified, retaining the hero's theme. Make ONE complete weapon, centered large, all extremities inside the square canvas with generous 8% margin. Opaque paper backdrop with restrained flowing charcoal ink sweeps. Intricate hand-painted illustration, no photorealism or 3D render, no text, watermark, characters, hands, UI, collage. Square 1254 x 1254 composition; no transparency. SUBJECT: 凋零之主's 万物凋零. Completely redesign the old crude bramble staff into ONE exquisite slender sovereign's magic staff with a beautiful clean flowing silhouette. Long smooth ink-black shaft with delicate antique-gold vine inlay. Crown: a graceful sculptural arc of two thin gilded bare branches sweeping around a SINGLE translucent smoky-amethyst teardrop crystal, suspended inside an elegant openwork wilted-lotus crown; layered soft dark-violet and gray lotus petals fold around its base. Delicate geometric-free botanical filigree, very sparse dried leaves, two fine chains with violet crystal drops, muted translucent violet-gray silk streamers. Suggest withering through a few fading petals dissolving into gentle ink wash. Noble, ethereal, beautiful and restrained, no lumpy cracked sphere, no dense thorn spikes, no skull, no rot, no monstrous clutter. Crown and pointed base fully visible with margin, diagonal arrangement. Ink black, smoky amethyst, faded violet, warm antique gold.",
+      "generatedSource": "C:\\Users\\文件\\.codex\\generated_images\\01a102d7-5a56-7222-b0b7-2ba39a616582\\exec-13944aba-c375-4c9e-aa90-9e3083bfcbe7.png",
+      "referenced_image_paths": [
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/references/ink-fan-style.png",
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/wither_lord.png"
+      ],
+      "previousFile": "wither_lord.png",
+      "reason": "重新设计为精致的凋零莲冠法杖"
+    }
+  ]
+}

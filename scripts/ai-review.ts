@@ -234,7 +234,7 @@ function formatReport(matches: MatchResult[]): string {
     const lines: string[] = [];
     lines.push('# AI 复盘报告');
     lines.push('');
-    lines.push(`- 局数：${matches.length}　难度：master　每局上限 ${MAX_STEPS} 步`);
+    lines.push(`- 局数：${matches.length} 难度：master 每局上限 ${MAX_STEPS} 步`);
     lines.push(`- 正常结束：${matches.filter(match => match.finished).length}/${matches.length}`);
     lines.push('');
     lines.push('| seed | 回合 | 步数 | 胜方 | 帧 | 决策 | P1伤害 | P2伤害 | P1击杀 | P2击杀 |');

@@ -15,6 +15,7 @@ export default function Deploy() {
         board,
         deployHero,
         repositionDeployHero,
+        undeployHero,
         isOnlineMode,
         isAiMode,
         localPlayerNumber,
@@ -23,7 +24,7 @@ export default function Deploy() {
     } = useGameStore();
 
     const [selectedHeroId, setSelectedHeroId] = useState<string | null>(null);
-    // 布阵调整模式：选中棋盘上己方英雄后，可点空格移动或点另一己方英雄交换
+    // 布阵调整模式：选中棋盘上己方英雄后，可点空格移动、点另一己方英雄交换，或撤下回候选席
     const [adjustingHeroId, setAdjustingHeroId] = useState<string | null>(null);
 
     const localPlayerKey = localPlayerNumber === 1 ? 'player1' : localPlayerNumber === 2 ? 'player2' : null;
@@ -80,7 +81,7 @@ export default function Deploy() {
     };
 
     return (
-        <div className="w-full h-full flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <div className="deploy-page w-full h-full flex flex-col items-center justify-center p-6 relative overflow-hidden">
             <SetupExitButton stage="布阵" />
             {/* 背景水印 */}
             <span className="absolute font-title text-[16rem] text-ink/[0.02] select-none pointer-events-none"
@@ -88,9 +89,9 @@ export default function Deploy() {
                 阵
             </span>
 
-            <div className="relative z-10 flex flex-col items-center">
+            <div className="deploy-content relative z-10 flex flex-col items-center">
                 {/* 标题 */}
-                <div className="text-center mb-5 animate-fade-up">
+                <div className="deploy-heading text-center mb-5 animate-fade-up">
                     <h2 className="font-title text-3xl text-ink tracking-wider mb-1">
                         {isP1 ? '玩家一' : '玩家二'} · 布阵
                     </h2>
@@ -100,7 +101,8 @@ export default function Deploy() {
                         <span className="ml-2 font-bold text-ink">({deployedCount}/4)</span>
                     </p>
                     <p className="text-ink-faint text-xs font-body mt-0.5">
-                        其余 {Math.max(selectedHeroIds.length - 4, 0)} 位英雄作为替补，待己方英雄阵亡后立即上场
+                        其余 {Math.max(selectedHeroIds.length - deployedCount, 0)} 位未上阵英雄作为替补，待己方英雄阵亡后立即上场
+                        <span className="ml-1">·已上阵的英雄可再次点击以移动、交换或撤下重选</span>
                     </p>
                     {!canDeploy && (
                         <p className="text-gold-dark text-sm font-body mt-1 animate-gentle-pulse">
@@ -110,14 +112,16 @@ export default function Deploy() {
                 </div>
 
                 {/* 英雄选择条 */}
-                <div className="flex gap-3 mb-5 animate-fade-up" style={{ animationDelay: '100ms' }}>
+                <div className="deploy-heroes flex gap-3 mb-5 animate-fade-up" style={{ animationDelay: '100ms' }}>
                     {selectedHeroIds.map(heroId => {
                         const info = getHeroInfo(heroId);
-                        const isDeployed = board.flat().some(
+                        const deployed = board.flat().find(
                             h => h && h.owner === viewPlayer && h.name === info.name
-                        );
+                        ) ?? null;
+                        const isDeployed = deployed !== null;
                         // 首发已满4人：剩余英雄锁定为替补，禁止再上阵
                         const isBenchLocked = !isDeployed && deployedCount >= 4;
+                        const isAdjusting = deployed !== null && adjustingHeroId === deployed.id;
                         const isActive = selectedHeroId === heroId && canDeploy && !isBenchLocked;
 
                         return (
@@ -125,15 +129,24 @@ export default function Deploy() {
                                 key={heroId}
                                 data-testid={`deploy-hero-${heroId}`}
                                 data-sfx="tab"
-                                disabled={isDeployed || isBenchLocked || !canDeploy}
-                                onClick={() => setSelectedHeroId(heroId)}
+                                disabled={isBenchLocked || !canDeploy}
+                                title={isDeployed ? '已上阵：点击可调整位置或撤下' : undefined}
+                                onClick={() => {
+                                    // 已上阵的英雄不再锁死：点击直接进入调整模式
+                                    if (deployed) {
+                                        setSelectedHeroId(null);
+                                        setAdjustingHeroId(isAdjusting ? null : deployed.id);
+                                        return;
+                                    }
+                                    setSelectedHeroId(heroId);
+                                }}
                                 className="relative"
                             >
                                 <div className={`
                                     game-card p-3 text-center min-w-[90px] transition-all
-                                    ${isDeployed ? 'opacity-25 grayscale' : ''}
-                                    ${isActive ? 'game-card-selected scale-105' : ''}
-                                    ${!isDeployed && !isBenchLocked && canDeploy ? 'cursor-pointer' : 'cursor-not-allowed'}
+                                    ${isDeployed && !isAdjusting ? 'opacity-60' : ''}
+                                    ${isActive || isAdjusting ? 'game-card-selected scale-105' : ''}
+                                    ${!isBenchLocked && canDeploy ? 'cursor-pointer' : 'cursor-not-allowed'}
                                 `}>
                                     <div className={`
                                         w-12 h-12 rounded-xl mx-auto mb-1.5 flex items-center justify-center
@@ -153,7 +166,7 @@ export default function Deploy() {
                                     <div className="text-xs text-ink-faint font-body">{info.class}</div>
                                     {isDeployed && (
                                         <div className="absolute inset-0 flex items-center justify-center">
-                                            <span className="ink-seal-sm opacity-80">已阵</span>
+                                            <span className="ink-seal-sm opacity-80">上阵</span>
                                         </div>
                                     )}
                                     {!isDeployed && deployedCount >= 4 && (
@@ -169,10 +182,33 @@ export default function Deploy() {
 
                 {/* 提示 */}
                 {adjustingHeroId && (
-                    <p className="text-gold-dark text-sm font-body mb-3 animate-gentle-pulse">
-                        正在调整「{board.flat().find(h => h?.id === adjustingHeroId)?.name ?? ''}」：
-                        点击空格移动，点击其他己方英雄交换位置，再点它取消
-                    </p>
+                    <div className="flex items-center gap-2 mb-3">
+                        <p className="text-gold-dark text-sm font-body animate-gentle-pulse">
+                            正在调整「{board.flat().find(h => h?.id === adjustingHeroId)?.name ?? ''}」：
+                            点击空格移动，点击其他己方英雄交换位置
+                        </p>
+                        <InkButton
+                            data-testid="undeploy-deployed-hero"
+                            size="sm"
+                            variant="secondary"
+                            sfx="toggle"
+                            onClick={() => {
+                                undeployHero(adjustingHeroId);
+                                setAdjustingHeroId(null);
+                            }}
+                        >
+                            撤下
+                        </InkButton>
+                        <InkButton
+                            data-testid="cancel-deploy-adjust"
+                            size="sm"
+                            variant="ghost"
+                            sfx="toggle"
+                            onClick={() => setAdjustingHeroId(null)}
+                        >
+                            取消
+                        </InkButton>
+                    </div>
                 )}
                 {!adjustingHeroId && selectedHeroId && (
                     <p className="text-gold-dark text-sm font-body mb-3 animate-gentle-pulse">
@@ -181,7 +217,7 @@ export default function Deploy() {
                 )}
 
                 {/* 部署棋盘 */}
-                <div className="battle-field p-4 animate-fade-up" style={{ animationDelay: '200ms' }}>
+                <div className="deploy-board battle-field p-4 animate-fade-up" style={{ animationDelay: '200ms' }}>
                     <div className="inline-grid grid-cols-6 gap-1.5">
                         {Array(6).fill(0).map((_, row) => (
                             Array(6).fill(0).map((_, col) => {
@@ -246,7 +282,7 @@ export default function Deploy() {
                 </div>
 
                 {/* 确认按钮 */}
-                <div className="mt-5 animate-fade-up" style={{ animationDelay: '300ms' }}>
+                <div className="deploy-confirm mt-5 animate-fade-up" style={{ animationDelay: '300ms' }}>
                     <InkButton
                         data-testid="confirm-deployment"
                         variant="primary"

@@ -383,7 +383,7 @@ describe('game store battle interactions', () => {
         expect(useGameStore.getState().battleLog).toHaveLength(200);
         const fx = useGameStore.getState().skillFx;
         expect(fx).toHaveLength(1);
-        expect(fx[0].profile.kind).toBe('arc-slash');
+        expect(fx[0].profile.kind).toBe('ink-cut');
     });
 
     it('毫毛化身的范围高亮与召唤落点都覆盖到周围两格', () => {

@@ -32,14 +32,51 @@ describe('武器图鉴数据', () => {
         }
     });
 
-    it('保留已给出的关键效果草案', () => {
-        expect(WEAPON_CODEX.find(weapon => weapon.id === 'feixue')?.effects.join('')).toContain('20%');
-        expect(WEAPON_CODEX.find(weapon => weapon.id === 'wukong')?.effects.join('')).toContain('40%');
-        expect(WEAPON_CODEX.find(weapon => weapon.id === 'yinyang')?.effects.join('')).toContain('3 格');
+    it('设定案写定的效果逐条落在图鉴上', () => {
+        const effectsOf = (id: string) =>
+            WEAPON_CODEX.find(weapon => weapon.id === id)?.effects.join('') ?? '';
+
+        expect(effectsOf('wukong')).toContain('40%');
+        expect(effectsOf('yinyang')).toContain('3 格');
+        expect(effectsOf('zhenxiao')).toContain('反击伤害增加 2');
+        expect(effectsOf('zuizhendao')).toContain('20%');
+        expect(effectsOf('liuli')).toContain('禅定');
+        expect(effectsOf('yunying')).toContain('2 次');
+        expect(effectsOf('fengling')).toContain('猎砂');
     });
 
-    it('没有给出效果的武器保持空草案（图鉴显示"效果待定"）', () => {
-        expect(WEAPON_CODEX.find(weapon => weapon.id === 'zhenxiao')?.effects).toEqual([]);
-        expect(WEAPON_CODEX.find(weapon => weapon.id === 'fengling')?.effects).toEqual([]);
+    it('设定案留白的器一律清空效果（图鉴显示"效果待定"）', () => {
+        const effectless = ['feixue', 'mowen', 'xuanxiao', 'dai', 'baize', 'changli', 'jinghong', 'huanongying'];
+        for (const id of effectless) {
+            expect(WEAPON_CODEX.find(weapon => weapon.id === id)?.effects ?? null, `${id} 应无效果文案`).toEqual([]);
+        }
+    });
+
+    it('已实装的器必须带效果文案，首批恰为设定案写明效果的 15 口', () => {
+        const implemented = WEAPON_CODEX.filter(weapon => weapon.implemented);
+        expect(implemented).toHaveLength(15);
+        for (const weapon of implemented) {
+            expect(weapon.effects.length, `${weapon.id} 已实装却没有效果说明`).toBeGreaterThan(0);
+        }
+    });
+
+    it('器名与 2026-10 设定案一致，防止被旧文案回退', () => {
+        const names: Record<string, string> = {
+            yunying: '赤霄',
+            jinghong: '惊鸿照影',
+            huanongying: '破月扇',
+            dilan: '青鸾羽',
+            jinghua: '水月鉴',
+            xueqi: '赤枷',
+            xubai: '澄心笺',
+            shangguan: '飞白',
+            nanfeng: '熏风笛',
+            lingxi: '汐音螺',
+            youjun: '掠风翎',
+            zhiguang: '虹棱',
+        };
+        for (const [id, name] of Object.entries(names)) {
+            expect(WEAPON_CODEX.find(weapon => weapon.id === id)?.name, `${id} 器名不符`).toBe(name);
+        }
     });
 });

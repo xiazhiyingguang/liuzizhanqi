@@ -13,11 +13,38 @@
  * 通用原型（arc-slash/pierce/burst/…）的配色由档案 c1/c2 注入：
  * --fx-c1 主色、--fx-c2 辅色、--fx-glow 光晕，动画细节见 ink-wash.css。
  */
-import { useEffect, type CSSProperties } from 'react';
+import { memo, useEffect, useId, type CSSProperties } from 'react';
 import { WindBladeGlyph } from './WindBladeGlyph';
+import { MirrorBladeLaunchFx, MirrorBladeImpactFx } from './MirrorBladeFx';
+import { SkillThemeCasterFx, SkillThemeTargetFx } from './SkillThemeFx';
+import { WukongCloudFx, WukongFigureGlyph, WukongGroundFx, WukongStaffWakeFx, WukongDebrisFx } from './WukongFxDetails';
+import { SpectralSkillFx } from './SpectralSkillFx';
+import { CraftedSkillFx } from './CraftedSkillFx';
+import { YunyingSpearGlyph, YunyingArcRibbon, YunyingFlameGlyph, YunyingSwingSpear } from './YunyingFxDetails';
+import { WangcaiAwakenFx } from './WangcaiAwakenFx';
+import { WangshuMoonFx } from './WangshuMoonFx';
+import { LingxiRippleFx, LingxiWaterTouchFx } from './LingxiRippleFx';
+import { LingxiTideCastFx, LingxiTideImpactFx } from './LingxiTideFx';
+import { MechanismSkillFx } from './MechanismSkillFx';
+import {
+    HuanongyingFanAreaFx,
+    HuanongyingFanCasterFx,
+    HuanongyingFanImpactFx,
+    HuanongyingReplayImpactFx,
+    HuanongyingReplaySourceFx,
+    HuanongyingSwapCasterFx,
+    HuanongyingSwapTargetFx,
+} from './HuanongyingFx';
+import '../../styles/wukong-skill-fx.css';
+import '../../styles/zhiyuan-skill-fx.css';
+import '../../styles/xihuan-skill-fx.css';
+import '../../styles/jiangtaigong-skill-fx.css';
+import '../../styles/huanongying-skill-fx.css';
+import '../../styles/jinghong-skill-fx.css';
 import type { Position, SkillAreaBounds, SkillFxEvent } from '../../core/skill-fx';
-import { computeFxAngleDeg, computeFxCellDelayMs, computeFxTailMs, isPerTargetFxKind, resolveAreaFxKind } from '../../core/skill-fx';
+import { computeFxAngleDeg, computeFxCellDelayMs, computeFxImpactDelayMs, computeFxTravelMs, computeFxTailMs, isPerTargetFxKind, PRISM_BEAM_STEP_MS, resolveAreaFxKind } from '../../core/skill-fx';
 import { useGameStore } from '../../store/game-store';
+import { isLowQuality, scaleParticleCount } from '../../core/render-quality';
 
 /** 动画结束后额外存活的余量（毫秒），保证淡出帧完整播放 */
 const FX_LINGER_MS = 200;
@@ -67,6 +94,8 @@ function fxStyleVars(event: SkillFxEvent): CSSProperties {
         '--fx-dist': String(Math.round(Math.hypot(dx, dy) * 100) / 100),
         // 本次特效的实际时长：供区域底光等"要陪完整场"的零件按比例呼吸
         '--fx-duration': `${event.profile.durationMs}ms`,
+        '--fx-travel-ms': `${computeFxTravelMs(event)}ms`,
+        '--fx-hit-ms': `${computeFxImpactDelayMs(event, event.targetPos)}ms`,
     };
     const { c1, c2 } = event.profile;
     if (c1) {
@@ -99,10 +128,14 @@ function HairGlyph() {
 
 /** 起手格变体：毫毛起飞 / 光束发射 / 投射物 / 冲刺拖尾 / 通用光环 */
 function CasterFx({ event }: { event: SkillFxEvent }) {
+    const themed = SkillThemeCasterFx({ event });
+    if (themed) return themed;
     switch (event.profile.kind) {
+        case 'mirror-blades':
+            return <MirrorBladeLaunchFx event={event} />;
         case 'wukong-clone':
             return (
-                <span className="fx-anchor" style={fxStyleVars(event)}>
+                <span className="fx-anchor wk-hair-source" style={fxStyleVars(event)}>
                     <i className="fx-hair-pluck" />
                     <i className="fx-hair fx-hair-echo fx-hair-echo-2">
                         <i className="fx-hair-arc"><HairGlyph /></i>
@@ -113,11 +146,14 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
                     <i className="fx-hair">
                         <i className="fx-hair-arc">
                             <i className="fx-hair-trail" />
+                            <i className="wk-hair-thread" />
                             <HairGlyph />
                         </i>
                     </i>
                 </span>
             );
+        case 'wukong-staff':
+            return <span className="fx-anchor wk-staff-source"><i className="wk-staff-gather" /></span>;
         case 'feynman-beam':
             return (
                 <span className="fx-anchor" style={fxStyleVars(event)}>
@@ -165,6 +201,13 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
                     <i className="fxp-hitflash" />
                 </span>
             );
+        case 'prism-beam':
+            // 棱光千折起手：出光口在她自己脚下，整条折线光路交给区域层画
+            return (
+                <span className="fx-anchor" style={fxStyleVars(event)}>
+                    <i className="fxp-auraglow" />
+                </span>
+            );
         case 'feixue-blade':
         case 'feixue-stomp':
         case 'feixue-shatter':
@@ -183,19 +226,28 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
                     <i className="fxp-implode fxp-implode-b" />
                 </span>
             );
+        case 'huanongying-fan':
+            return <HuanongyingFanCasterFx />;
+        case 'huanongying-swap':
+            return <HuanongyingSwapCasterFx />;
+        case 'huanongying-replay':
+            return <HuanongyingReplaySourceFx />;
+        case 'lingxi-wave':
+            return <LingxiRippleFx event={event} />;
         case 'lingxi-fan':
-            // 泠汐·涌潮拍岸起手段：折扇自施法者格朝攻击方向展开
-            return (
-                <span className="fx-anchor" style={fxStyleVars(event)}>
-                    <LingxiFanOpenFx />
-                </span>
-            );
+            return <LingxiTideCastFx event={event} />;
         case 'jinghong-slash-ring':
             // 惊鸿·环海旋斩：整圈斩痕以施法者为心划出，只在她脚下这一份
             return <JinghongSlashRingFx event={event} />;
         case 'jinghua-moonblade':
             // 镜花·天威起手：月华在她脚下凝成一弯刃，真正的飞斩画在敌人那一格
             return <JinghuaMoonGatherFx />;
+        case 'moran-inkway':
+            // 墨阑·入道起手：一笔在脚下画成墨环，劈出去的那一记画在目标格
+            return <MoranInkwayGatherFx />;
+        case 'duosui-reckon':
+            // 偿岁收回来的那笔血落在夺岁自己身上，盾环在他脚下合拢
+            return <DuosuiGuardFx />;
         case 'wind-blade-volley':
             // 四向风刃是自身技，四弯风刃自施法者格射向周身四格
             return (
@@ -213,6 +265,10 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
         case 'zuizhen-throw':
             // 醉掷寒锋：掷刀沿路径疾飞，光轨与逐段疾光把冲刺路线整条点亮
             return <ZuizhenThrowDashFx event={event} />;
+        case 'heal-wave':
+            // 群体恢复起手：波从施法者身上荡出去，同心环一路漫到作用区边缘，
+            // 受益格各自的细光柱由 target/impact/area 三个变体补上
+            return <HealWaveSourceFx />;
         case 'zuizhen-wheel':
             // 醉影换位（起手格）：本体在双涡环中淡去，斩击在落位格展开
             return (
@@ -239,12 +295,14 @@ function ParticleRing({
     beginAngle?: number;
     reverse?: boolean;
 }) {
+    // 低画质减半后按新数量重新均分圆周，否则半圈空着会看出一边倒
+    const count = scaleParticleCount(PARTICLE_COUNT);
     return (
         <i className={['fx-orbit', ...(reverse ? ['fx-orbit-reverse'] : []), ...(className ? [className] : [])].join(' ')}>
-            {Array.from({ length: PARTICLE_COUNT }).map((_, index) => (
+            {Array.from({ length: count }).map((_, index) => (
                 <b
                     key={index}
-                    style={{ '--fx-angle': `${beginAngle + index * (360 / PARTICLE_COUNT)}deg` } as CSSProperties}
+                    style={{ '--fx-angle': `${beginAngle + index * (360 / count)}deg` } as CSSProperties}
                 />
             ))}
         </i>
@@ -253,9 +311,10 @@ function ParticleRing({
 
 /** 晶屑飞溅：n 枚菱形晶粒按预设方向散开（配色取档案） */
 function Shards({ count }: { count: number }) {
+    const parts = scaleParticleCount(count);
     return (
         <>
-            {Array.from({ length: count }).map((_, index) => (
+            {Array.from({ length: parts }).map((_, index) => (
                 <i key={index} className={`fxp-shard fxp-shard-${index + 1}`} />
             ))}
         </>
@@ -264,9 +323,10 @@ function Shards({ count }: { count: number }) {
 
 /** 上浮微光：n 粒光点自下而上飘起（祝福/增益/余烬共用，类名决定节奏） */
 function Sparks({ count, className = '' }: { count: number; className?: string }) {
+    const parts = scaleParticleCount(count);
     return (
         <>
-            {Array.from({ length: count }).map((_, index) => (
+            {Array.from({ length: parts }).map((_, index) => (
                 <i key={index} className={['fxp-spark', `fxp-spark-${index + 1}`, className].join(' ')} />
             ))}
         </>
@@ -313,14 +373,15 @@ function FrostSpikeGlyph() {
 
 /** 冰晶迸溅：n 枚冰晶碎粒按 45° 均布方向旋转飞散（绯雪专属，方向由 CSS 变量驱动） */
 function IceShards({ count }: { count: number }) {
+    const shards = scaleParticleCount(count);
     return (
         <>
-            {Array.from({ length: count }).map((_, index) => (
+            {Array.from({ length: shards }).map((_, index) => (
                 <i
                     key={index}
                     className="fx-iceshard"
                     style={{
-                        '--sh-angle': `${(360 / count) * index + 14}deg`,
+                        '--sh-angle': `${(360 / shards) * index + 14}deg`,
                         '--sh-delay': `${index % 2 === 0 ? 90 : 190}ms`,
                     } as CSSProperties}
                 />
@@ -354,7 +415,8 @@ const CLONE_MOTE_ANGLES = Array.from({ length: 8 }, (_, index) => 12 + index * 4
 /** 悟空·毫毛化分身：落地冲击环 + 中心爆闪 + 金色光柱 + 烟团绽开 + 金芒 + 分身凝形剪影 */
 function WukongCloneFx() {
     return (
-        <span className="fx-anchor">
+        <span className="fx-anchor wk-clone">
+            <WukongCloudFx />
             <i className="fx-clone-ring fx-clone-ring-1" />
             <i className="fx-clone-ring fx-clone-ring-2" />
             <i className="fx-clone-core" />
@@ -367,8 +429,9 @@ function WukongCloneFx() {
             {CLONE_MOTE_ANGLES.map(angle => (
                 <i key={angle} className="fx-clone-mote" style={{ '--fx-angle': `${angle}deg` } as CSSProperties} />
             ))}
-            <i className="fx-clone-figure" />
-            <i className="fx-clone-figure fx-clone-figure-b" />
+            <i className="fx-clone-figure"><WukongFigureGlyph /></i>
+            <WukongCloudFx front />
+            <i className="wk-clone-sweep" />
         </span>
     );
 }
@@ -376,17 +439,21 @@ function WukongCloneFx() {
 /** 悟空·金箍棒砸击：如意金箍棒自空中伸展砸落 + 冲击双环 + 地裂 + 金星迸溅 + 尘土 */
 function WukongStaffFx({ event }: { event: SkillFxEvent }) {
     return (
-        <span className="fx-anchor" style={fxStyleVars(event)}>
+        <span className="fx-anchor wk-staff" style={fxStyleVars(event)}>
+            <WukongStaffWakeFx />
             <i className="fx-staff">
                 <b className="fx-staff-shaft" />
+                <b className="wk-staff-etch" />
+                <b className="wk-staff-sheen" />
                 <b className="fx-staff-cap fx-staff-cap-top" />
                 <b className="fx-staff-cap fx-staff-cap-bottom" />
             </i>
             <i className="fx-staff-blur" />
             <i className="fx-staff-core" />
             <i className="fx-impact" />
-            <i className="fx-staff-crack fx-staff-crack-a" />
-            <i className="fx-staff-crack fx-staff-crack-b" />
+            <i className="wk-impact-rim" />
+            <WukongGroundFx />
+            <WukongDebrisFx />
             <i className="fx-staff-spark fx-staff-spark-1" />
             <i className="fx-staff-spark fx-staff-spark-2" />
             <i className="fx-staff-spark fx-staff-spark-3" />
@@ -433,6 +500,104 @@ function RedTripleSlashFx() {
     );
 }
 
+/**
+ * 姜太公·垂钩：钓线自上方垂落，钩尖触水那一下荡开两圈涟漪。
+ * 技能一落钩与敌人上钩共用这套语言，区别只在涟漪之后有没有人跟着浮上来。
+ */
+function JiangtaigongCastFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxjtg-line" />
+            <i className="fxjtg-hook" />
+            <i className="fxjtg-ripple" />
+            <i className="fxjtg-ripple fxjtg-ripple-b" />
+        </span>
+    );
+}
+
+/** 姜太公·抛掷：钓线沿攻击轴绷紧甩过去，落点炸开一圈水花与八散水珠 */
+function JiangtaigongThrowFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxjtgt-rope" />
+            <i className="fxjtgt-splash" />
+            {Array.from({ length: 8 }).map((_, index) => (
+                <i
+                    key={index}
+                    className="fxjtgt-drop"
+                    style={{ '--fx-angle': `${index * 45}deg` } as CSSProperties}
+                />
+            ))}
+        </span>
+    );
+}
+
+/** 姜太公·鲸落：整头巨鲸破水腾空、空中翻身拱背，再头朝下砸回水里，激起水幕、水冠与浪环 */
+function JiangtaigongWhaleFallFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxjtgw-surface" />
+            <i className="fxjtgw-sheet" />
+            <span className="fxjtgw-whale">
+                <svg viewBox="0 0 200 112" aria-hidden="true">
+                    <path className="fxjtgw-whale-body" d="M40 52C66 33 108 24 140 29C160 32 176 40 186 50C193 57 193 65 184 70C176 74 162 77 148 78C118 82 82 78 54 67L40 58C31 70 18 85 6 98C15 86 22 72 24 58C22 44 15 30 6 20C18 33 31 45 40 52Z" />
+                    <path className="fxjtgw-whale-belly" d="M54 67C82 78 118 82 148 78C162 77 176 74 184 70C186 73 180 77 168 79C142 84 100 83 68 74C58 71 52 69 54 67Z" />
+                    <path className="fxjtgw-whale-fin" d="M120 78C112 90 96 99 78 100C90 90 100 82 108 74C112 72 118 74 120 78Z" />
+                    <path className="fxjtgw-whale-dorsal" d="M112 28C114 21 120 19 126 22C122 25 118 27 116 29Z" />
+                    <path className="fxjtgw-whale-pleats" d="M96 79C118 82 140 81 158 76M88 74C110 78 134 77 152 71" />
+                    <path className="fxjtgw-whale-mouth" d="M188 60C178 68 162 72 144 73" />
+                    <circle className="fxjtgw-whale-eye" cx="172" cy="62" r="2.4" />
+                </svg>
+            </span>
+            {[0, 1, 2, 3].map(i => (
+                <b key={i} className="fxjtgw-drip" style={{ '--drip-x': `${(i - 1.5) * 15}%`, '--drip-delay': `${250 + i * 45}ms` } as CSSProperties} />
+            ))}
+            <i className="fxjtgw-flash" />
+            <i className="fxjtgw-crown" />
+            {[-168, -136, -108, -90, -72, -44, -16].map(angle => (
+                <b key={angle} className="fxjtgw-spray" style={{ '--fx-angle': `${angle}deg` } as CSSProperties} />
+            ))}
+            <i className="fxjtgw-wave" />
+            <i className="fxjtgw-wave fxjtgw-wave-b" />
+        </span>
+    );
+}
+
+/** 羲和·均光：一圈曦光从她自己身上荡开，横面再扫过一道平光，把这一片友方的血量抹平 */
+function XihuanLevelFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxhl-ring fxhl-ring-a" />
+            <i className="fxhl-ring fxhl-ring-b" />
+            <i className="fxhl-sweep" />
+            <i className="fxhl-core" />
+            <Sparks count={5} />
+        </span>
+    );
+}
+
+/**
+ * 纸鸢·断线冲天：线轴一次烧光，五道斜斩在她身前来回乱劈。
+ * 每道刃各自的角度、横向错位与起播时刻都不同，且左右交替（--fxzr-dir 决定扫掠方向），
+ * 刻意不做成整齐三连——这一手要的是"断了线的鸢子乱甩"那股失控劲。
+ */
+function ZhiyuanReelFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxzr-slash fxzr-slash-1"><b className="fxzr-core" /></i>
+            <i className="fxzr-slash fxzr-slash-2"><b className="fxzr-core" /></i>
+            <i className="fxzr-slash fxzr-slash-3"><b className="fxzr-core" /></i>
+            <i className="fxzr-slash fxzr-slash-4"><b className="fxzr-core" /></i>
+            <i className="fxzr-slash fxzr-slash-5"><b className="fxzr-core" /></i>
+            <i className="fxzr-thread fxzr-thread-a" />
+            <i className="fxzr-thread fxzr-thread-b" />
+            <i className="fxp-hitflash" />
+            <i className="fxp-ring" />
+            <Shards count={5} />
+        </span>
+    );
+}
+
 /** 寒江雪·冰刺天降：巨型冰锥自空中砸落贯入地面 + 碎冰迸溅 + 严寒雾 */
 function FrostSpikesFx() {
     return (
@@ -475,20 +640,6 @@ function GuyingSwordqiFx() {
     );
 }
 
-/** 镜·破镜飞刃：三枚镜刃自左上/右上/正下三方合击刺入 + 碎镜闪光 + 镜片迸溅 */
-function MirrorBladesFx() {
-    return (
-        <span className="fx-anchor">
-            <i className="fx-mirrorblade fx-mirrorblade-a" />
-            <i className="fx-mirrorblade fx-mirrorblade-b" />
-            <i className="fx-mirrorblade fx-mirrorblade-c" />
-            <i className="fxp-hitflash" />
-            <i className="fxp-ring" />
-            <Shards count={5} />
-        </span>
-    );
-}
-
 /** 风铃·掠沙闪袭（起手格）：跨格疾光拖尾 + 三段渐淡残影 + 起跳尘环 */
 function FenglingPounceFx() {
     return (
@@ -517,15 +668,21 @@ function FenglingClawFx() {
     );
 }
 
-/** 云缨·星火照野（起手格）：四道弧刃按先后顺序逐条甩开 + 收势时一记枪杆抽打 */
+/** 云缨·星火照野（起手格）：长枪绕身旋舞一周，四道弧刃是枪尖扫出的残影（170ms 一拍逐条甩开），
+ *  收势时枪杆整条抽打一记——先看清"人在转枪"，再谈凌乱枪影 */
 function YunyingSweepFx() {
     return (
-        <span className="fx-anchor fx-yys">
-            <i className="fx-yys-arc fx-yys-arc-1" />
-            <i className="fx-yys-arc fx-yys-arc-2" />
-            <i className="fx-yys-arc fx-yys-arc-3" />
-            <i className="fx-yys-arc fx-yys-arc-4" />
+        <span className="fx-anchor fx-yys fx-yys-quality">
+            <i className="fx-yys-circle" />
+            <i className="fx-yys-spear"><YunyingSpearGlyph /><i className="yy-spin-fire"><YunyingFlameGlyph /></i></i>
+            <i className="fx-yys-arc fx-yys-arc-1"><YunyingArcRibbon /></i>
+            <i className="fx-yys-arc fx-yys-arc-2"><YunyingArcRibbon /></i>
+            <i className="fx-yys-arc fx-yys-arc-3"><YunyingArcRibbon /></i>
+            <i className="fx-yys-arc fx-yys-arc-4"><YunyingArcRibbon /></i>
             <i className="fx-yys-shaft" />
+            <i className="fx-yys-ember fx-yys-ember-1" />
+            <i className="fx-yys-ember fx-yys-ember-2" />
+            <i className="fx-yys-ember fx-yys-ember-3" />
             <i className="fxp-hitflash" />
             <Shards count={5} />
         </span>
@@ -539,25 +696,36 @@ function YunyingArcSlashFx() {
     return (
         <span className="fx-anchor fx-yas">
             <i className="fx-yas-glow" />
+            <i className="fx-yas-flare" />
             <i className="fxp-hitflash" />
             <Sparks count={5} className="fxp-spark-ember" />
         </span>
     );
 }
 
+function YunyingSparkImpactFx() {
+    return <span className="fx-anchor yy-spark-impact">
+        <i className="yy-impact-warmth" />
+        <i className="yy-impact-wisp" />
+        <Sparks count={4} className="fxp-spark-ember" />
+    </span>;
+}
+
 /** 叙白·黑白凝珠：三颗阴阳珠自四方汇入 + 环绕旋转成阵（施法瞬间） */
 function XubaiPearlsFx() {
     return (
-        <span className="fx-anchor">
+        <span className="fx-anchor fx-pearl-formation">
             <i className="fx-pearl fx-pearl-in-1" />
             <i className="fx-pearl fx-pearl-in-2" />
             <i className="fx-pearl fx-pearl-in-3" />
             <i className="fx-pearl-orbit">
+                <i className="fx-pearl-arc fx-pearl-arc-ink" />
+                <i className="fx-pearl-arc fx-pearl-arc-white" />
                 <b className="fx-pearl-orb fx-pearl-orb-1" />
                 <b className="fx-pearl-orb fx-pearl-orb-2" />
                 <b className="fx-pearl-orb fx-pearl-orb-3" />
             </i>
-            <i className="fxp-auraglow" />
+            <i className="fx-pearl-bloom" />
         </span>
     );
 }
@@ -582,23 +750,53 @@ function slashRingClip(from: Position) {
 function JinghongSlashRingFx({ event }: { event: SkillFxEvent }) {
     return (
         <span className="fx-anchor">
-            <i className="fx-slashring" style={slashRingClip(event.fromPos)}>
-                <i className="fx-slashring-sheen" />
-                <i className="fx-slashring-blade">
-                    <svg viewBox="0 0 100 100" aria-hidden="true">
-                        <circle className="fx-slash-tail" cx="50" cy="50" r="42" pathLength={100} />
-                        <circle className="fx-slash-mid" cx="50" cy="50" r="42" pathLength={100} />
-                        <circle className="fx-slash-head" cx="50" cy="50" r="42" pathLength={100} />
-                        <circle className="fx-slash-core" cx="50" cy="50" r="42" pathLength={100} />
+            <i className="fx-slashring jh-abyss-slash" style={slashRingClip(event.fromPos)}>
+                <i className="jh-stillwater" />
+                <i className="jh-whirlpool jh-whirlpool-a" />
+                <i className="jh-whirlpool jh-whirlpool-b" />
+                <i className="jh-orbit">
+                    <svg className="jh-wake" viewBox="0 0 100 100" aria-hidden="true">
+                        <circle className="jh-wake-shadow" cx="50" cy="50" r="42" pathLength={100} />
+                        <circle className="jh-wake-water" cx="50" cy="50" r="42" pathLength={100} />
+                        <circle className="jh-wake-foam" cx="50" cy="50" r="42" pathLength={100} />
                     </svg>
-                    <b className="fx-slash-glaze" />
+                    <i className="jh-waterblade">
+                        <svg viewBox="0 0 112 54" aria-hidden="true">
+                            <path className="jh-waterblade-shadow" d="M4 43 C25 7 69 -4 108 17 C76 14 43 25 14 50 Z" />
+                            <path className="jh-waterblade-body" d="M8 40 C30 11 69 3 103 17 C72 17 43 27 16 47 Z" />
+                            <path className="jh-waterblade-core" d="M17 38 C42 16 72 11 96 18 C70 19 46 28 24 42" />
+                            <path className="jh-waterblade-edge" d="M8 40 C30 11 69 3 103 17" />
+                        </svg>
+                        <b className="jh-blade-splash jh-blade-splash-a" />
+                        <b className="jh-blade-splash jh-blade-splash-b" />
+                    </i>
                 </i>
-                <i className="fx-slashring-flash" />
-                <i className="fx-slashring-spray">
-                    {Array.from({ length: 10 }).map((_, index) => (
-                        <b key={index} style={{ '--fx-angle': `${index * 36}deg` } as CSSProperties} />
+                <i className="jh-wave-crests">
+                    {Array.from({ length: 12 }).map((_, index) => (
+                        <b
+                            key={index}
+                            className={`jh-wave-crest jh-wave-crest-${index + 1}`}
+                            style={{
+                                '--jh-angle': `${index * 30}deg`,
+                                // 与 .jh-orbit 的 320ms/360° 匀速巡行同拍：刃头扫到该角度时浪冠才立起
+                                '--jh-delay': `${110 + index * 26}ms`,
+                            } as CSSProperties}
+                        />
                     ))}
                 </i>
+                <i className="jh-broken-ring" />
+                <i className="jh-ring-spray">
+                    {Array.from({ length: 14 }).map((_, index) => (
+                        <b
+                            key={index}
+                            style={{
+                                '--jh-angle': `${index * (360 / 14)}deg`,
+                                '--jh-delay': `${470 + (index % 4) * 18}ms`,
+                            } as CSSProperties}
+                        />
+                    ))}
+                </i>
+                <i className="jh-finisher-flash" />
             </i>
         </span>
     );
@@ -660,144 +858,147 @@ function JinghuaMoonbladeFx() {
     );
 }
 
-/** 一段圆弧坐标（viewBox 100×100，圆心 50,50；0°=右、顺时针，270°=正上方） */
-function arcPoint(r: number, deg: number): string {
-    const a = (deg * Math.PI) / 180;
-    return `${(50 + r * Math.cos(a)).toFixed(2)} ${(50 + r * Math.sin(a)).toFixed(2)}`;
-}
+/** 墨痕：一笔横扫的笔触轮廓，中段饱满、两端收尖，靠两条贝塞尔围出面积 */
+const INK_SLASH_BODY = 'M-46 16 C -20 -14, 16 -30, 46 -20 C 12 -8, -18 4, -46 16 Z';
+/** 笔锋亮线：压在墨身中脊上，是这一笔最吃光的那道边 */
+const INK_SLASH_CORE = 'M-40 12 C -16 -12, 12 -24, 42 -18';
+/** 飞白：枯笔扫过留下的断线，用 dasharray 断开而不是画实体 */
+const INK_SLASH_DRY = 'M-34 9 C -12 -8, 14 -18, 38 -15';
+/** 第二笔：收笔时在斩痕上补一记短促的顿点，两笔才像一次真正的落刀 */
+const INK_SLASH_CROSS = 'M6 -32 C 14 -18, 20 -4, 24 14';
 
-/** 环形扇面：外弧顺行 → 落到内半径 → 内弧逆行 → 闭合。
- *  中段厚实、两端收到刀锋，正是俯视下一道翻卷浪头的轮廓——
- *  等宽描边只会画出一根彩虹拱。 */
-function crescentPath(rOuter: number, rInner: number, fromDeg: number, toDeg: number): string {
-    const large = Math.abs(toDeg - fromDeg) > 180 ? 1 : 0;
-    return `M${arcPoint(rOuter, fromDeg)} ` +
-        `A${rOuter} ${rOuter} 0 ${large} 1 ${arcPoint(rOuter, toDeg)} ` +
-        `L${arcPoint(rInner, toDeg)} ` +
-        `A${rInner} ${rInner} 0 ${large} 0 ${arcPoint(rInner, fromDeg)} Z`;
-}
-
-/** 一道浪分三层叠出体积：背光的水壁 → 受光的浪腹 → 翻卷出来的白沫浪尖。
- *  俯视棋盘上没有透视，"立体"全靠这套明暗分层加一道投影交代离地高度。 */
-const LINGXI_WAVE_LAYERS = [
-    { cls: 'fx-wave-shade', d: crescentPath(46, 24, 200, 340) },
-    { cls: 'fx-wave-body', d: crescentPath(46, 33, 203, 337) },
-    { cls: 'fx-wave-face', d: crescentPath(46, 39, 207, 333) },
-    { cls: 'fx-wave-lip', d: crescentPath(46, 43, 213, 327) },
-];
-
-/** 翻卷的浪头：涌起→前倾翻卷→压扁拍碎，动画在 CSS 里按实例类分派 */
-function WaveCrestGlyph({ className, style }: { className: string; style?: CSSProperties }) {
-    return (
-        <i className={className} style={style} aria-hidden="true">
-            <svg viewBox="0 0 100 100">
-                {LINGXI_WAVE_LAYERS.map(layer => (
-                    <path key={layer.cls} className={layer.cls} d={layer.d} />
-                ))}
-            </svg>
-        </i>
-    );
-}
-
-/** 涟漪环轮廓：半径沿角度做低幅正弦起伏，让一圈浪略带自然的卵形，
- *  而不是几何正圆——正圆描边在浅色盘面上读作瞄准环。 */
-function rippleRingPath(radius: number, crests: number, amp: number, phase: number): string {
-    const steps = 72;
-    const pts: string[] = [];
-    for (let i = 0; i <= steps; i++) {
-        const a = (i / steps) * Math.PI * 2;
-        const r = radius * (1 + amp * Math.sin(a * crests + phase));
-        pts.push(`${i === 0 ? 'M' : 'L'}${(50 + r * Math.cos(a)).toFixed(2)} ${(50 + r * Math.sin(a)).toFixed(2)}`);
-    }
-    return `${pts.join(' ')} Z`;
-}
-
-/** 一道余波涟漪的两条描边：外圈迎光的浪峰，内圈偏暗一档即波谷阴影 */
-function rippleRing(crests: number, amp: number, phase: number) {
-    return {
-        crest: rippleRingPath(46, crests, amp, phase),
-        trough: rippleRingPath(41.5, crests, amp, phase),
-    };
-}
-
-/** 三道余波涟漪：浪拍碎之后一圈圈向外荡 */
-const LINGXI_RIPPLE_RINGS = [0, 1, 2].map(i => rippleRing(3, 0.016, i * 1.4));
-
-/** 区域级大浪环：自潮心荡向区缘的潮头 */
-const LINGXI_TIDE_RINGS = [0, 1, 2].map(i => rippleRingPath(46, 3, 0.02, i * 1.9));
-
-/** 泠汐·技能一「海螺回响」：潮面漫染 → 浪头涌起翻卷拍碎 → 余波涟漪逐圈荡开 */
-function LingxiWaveFx() {
+/** 墨阑·入道起手格：脚下运笔画出一圈留缺口的墨环（一笔画），
+ *  墨气自环里升起，收笔时"道"字落定——这一笔没砍人，是把劲蓄在身上。 */
+function MoranInkwayGatherFx() {
     return (
         <span className="fx-anchor">
-            <i className="fx-ripple-wash" />
-            <i className="fx-wave-cast" />
-            <WaveCrestGlyph className="fx-wave" />
-            {LINGXI_RIPPLE_RINGS.map((ring, i) => (
-                <i key={i} className={`fx-ripple fx-ripple-${i + 1}`} aria-hidden="true">
-                    <svg viewBox="0 0 100 100">
-                        <path className="fx-ripple-trough" d={ring.trough} vectorEffect="non-scaling-stroke" />
-                        <path className="fx-ripple-crest" d={ring.crest} vectorEffect="non-scaling-stroke" />
-                    </svg>
-                </i>
-            ))}
-            <i className="fx-wave-spray fx-wave-spray-1" />
-            <i className="fx-wave-spray fx-wave-spray-2" />
-            <i className="fx-wave-spray fx-wave-spray-3" />
-        </span>
-    );
-}
-
-/** 泠汐·涌潮折扇（施法者格）：折扇自收拢状态朝攻击方向展开 + 扇骨 + 潮光 */
-function LingxiFanOpenFx() {
-    return (
-        <span className="fx-anchor">
-            <i className="fx-fan">
-                <svg viewBox="0 0 100 74" aria-hidden="true">
-                    <defs>
-                        <linearGradient id="fx-fan-leaf-g" x1="0" y1="1" x2="0" y2="0">
-                            <stop offset="0" stopColor="#5ab8d8" stopOpacity="0.9" />
-                            <stop offset="0.62" stopColor="#c8f0ff" stopOpacity="0.75" />
-                            <stop offset="1" stopColor="#ffffff" stopOpacity="0.55" />
-                        </linearGradient>
-                    </defs>
-                    <path
-                        className="fx-fan-leaf"
-                        d="M50 68 L8 26 A52 52 0 0 1 92 26 Z"
-                        fill="url(#fx-fan-leaf-g)"
-                        stroke="#5ab8d8"
-                        strokeWidth="1.6"
-                    />
-                    <g className="fx-fan-ribs" stroke="rgba(255,255,255,0.85)" strokeWidth="1.1">
-                        <path d="M50 68 L50 12" />
-                        <path d="M50 68 L18 20" />
-                        <path d="M50 68 L82 20" />
-                        <path d="M50 68 L30 14" />
-                        <path d="M50 68 L70 14" />
-                    </g>
-                    <circle cx="50" cy="68" r="4.5" fill="#ffffff" opacity="0.95" />
+            <i className="fx-mw-pool" />
+            <i className="fx-mw-enso">
+                <svg viewBox="-50 -50 100 100" aria-hidden="true">
+                    <circle className="mw-enso-ghost" cx="0" cy="0" r="37" pathLength={100} />
+                    <circle className="mw-enso-stroke" cx="0" cy="0" r="37" pathLength={100} />
+                    <circle className="mw-enso-tip" cx="0" cy="0" r="37" pathLength={100} />
                 </svg>
             </i>
-            <i className="fx-fan-gust" />
+            <i className="fx-mw-wisp fx-mw-wisp-1" />
+            <i className="fx-mw-wisp fx-mw-wisp-2" />
+            <i className="fx-mw-wisp fx-mw-wisp-3" />
+            <i className="fx-mw-glyph">道</i>
+            <i className="fx-mw-muzzle" />
         </span>
     );
 }
 
-/** 泠汐·涌潮折扇（命中格）：浪头拍岸——浪环 + 溅起水花 + 潮雾 */
-function LingxiFanCrashFx() {
+/** 墨阑·入道命中格：一道墨痕沿攻击轴从施法格铺到本格，笔到即炸出横斩、
+ *  墨点迸溅与双圈金环，最后压上一枚"道"字印收尾。 */
+function MoranInkwayStrikeFx() {
     return (
         <span className="fx-anchor">
-            <i className="fx-wavering fx-wavering-1" />
-            <i className="fx-wavering fx-wavering-2" />
-            <i className="fx-wavefoam fx-wavefoam-1" />
-            <i className="fx-wavefoam fx-wavefoam-2" />
-            <i className="fx-wavefoam fx-wavefoam-3" />
-            <i className="fxp-hitflash" />
-            <Sparks count={3} className="fxp-spark-fast" />
+            <i className="fx-mw-dash" />
+            <i className="fx-mw-slash">
+                <svg viewBox="-50 -50 100 100" aria-hidden="true">
+                    <path className="mw-slash-halo" d={INK_SLASH_BODY} />
+                    <path className="mw-slash-body" d={INK_SLASH_BODY} />
+                    <path className="mw-slash-dry" d={INK_SLASH_DRY} />
+                    <path className="mw-slash-core" d={INK_SLASH_CORE} />
+                    <path className="mw-slash-cross" d={INK_SLASH_CROSS} />
+                </svg>
+            </i>
+            <i className="fx-mw-flash" />
+            <i className="fx-mw-ring" />
+            <i className="fx-mw-ring fx-mw-ring-b" />
+            <i className="fx-mw-splat fx-mw-splat-1" />
+            <i className="fx-mw-splat fx-mw-splat-2" />
+            <i className="fx-mw-splat fx-mw-splat-3" />
+            <i className="fx-mw-splat fx-mw-splat-4" />
+            <i className="fx-mw-splat fx-mw-splat-5" />
+            <i className="fx-mw-splat fx-mw-splat-6" />
+            <i className="fx-mw-seal">道</i>
         </span>
     );
 }
 
+/**
+ * 夺岁·斩岁（目标格）：一柄跨格的新月巨刃横扫而过（暗赤刃身 + 亮刃芯 + 回声刃），
+ * 随后"血偿"刻印在目标脚下裂成三道口子，三缕血气被抽离往上飘——
+ * 这一段是"砍走寿数"的可视化，血偿之后会还回来。
+ */
+function DuosuiReapFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-ds-flash" />
+            <i className="fx-ds-reap">
+                <svg viewBox="-50 -50 100 100" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="ds-reap-grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0" stopColor="#4a0d12" />
+                            <stop offset="0.55" stopColor="#8e1f27" />
+                            <stop offset="1" stopColor="#c23a34" />
+                        </linearGradient>
+                    </defs>
+                    <path className="ds-reap-halo" d="M -46 16 Q 0 -32 46 2 Q 0 -10 -46 16 Z" />
+                    <path className="ds-reap-body" d="M -46 16 Q 0 -32 46 2 Q 0 -10 -46 16 Z" />
+                    <path className="ds-reap-edge" d="M -46 16 Q 0 -10 46 2" />
+                    <path className="ds-reap-tip" d="M 39 -7 L 49 1 L 40 7 Z" />
+                </svg>
+            </i>
+            <i className="fx-ds-reap fx-ds-reap-echo">
+                <svg viewBox="-50 -50 100 100" aria-hidden="true">
+                    <path className="ds-reap-body" d="M -46 16 Q 0 -32 46 2 Q 0 -10 -46 16 Z" />
+                </svg>
+            </i>
+            <i className="fx-ds-wound">
+                <i className="fx-ds-crack fx-ds-crack-1" />
+                <i className="fx-ds-crack fx-ds-crack-2" />
+                <i className="fx-ds-crack fx-ds-crack-3" />
+            </i>
+            <i className="fx-ds-thread fx-ds-thread-1" />
+            <i className="fx-ds-thread fx-ds-thread-2" />
+            <i className="fx-ds-thread fx-ds-thread-3" />
+        </span>
+    );
+}
+
+/** 夺岁·偿岁（目标格）：八道红刃围成圆环绕目标旋转，整环自地面升起再消散 */
+function DuosuiTakeFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-ds-ground" />
+            <i className="fx-ds-cage">
+                <i className="fx-ds-orbit">
+                    {Array.from({ length: 8 }, (_, index) => (
+                        <b
+                            key={index}
+                            className="fx-ds-scar"
+                            style={{ '--ds-angle': `${index * 45}deg` } as CSSProperties}
+                        />
+                    ))}
+                </i>
+            </i>
+            <i className="fx-ds-spark fx-ds-spark-1" />
+            <i className="fx-ds-spark fx-ds-spark-2" />
+            <i className="fx-ds-spark fx-ds-spark-3" />
+        </span>
+    );
+}
+
+/** 夺岁·偿岁（施法格）：六瓣盾环从外圈合拢，把收回来的血偿铸成护盾 */
+function DuosuiGuardFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-ds-guard">
+                {Array.from({ length: 6 }, (_, index) => (
+                    <b
+                        key={index}
+                        className="fx-ds-petal"
+                        style={{ '--ds-petal': `${index * 60}deg` } as CSSProperties}
+                    />
+                ))}
+            </i>
+            <i className="fx-ds-shell" />
+        </span>
+    );
+}
 
 /** 着弹大闪核 + 双层冲击环 + 晶屑光尘（pierce 目标格） */
 function PierceImpactFx() {
@@ -862,6 +1063,149 @@ function BlessingFx() {
             <i className="fxp-ring" />
             <i className="fxp-ring fxp-ring-b" />
             <Sparks count={5} />
+        </span>
+    );
+}
+
+/* ============================================================
+   恢复类专属原型（heal-single / heal-wave / regen-orb / revive-rise / shield-ward）
+   目标是让"单体治疗 / 群体恢复 / 持续回血 / 复活 / 护盾援护"在看板上互相分辨：
+   - 治疗向外扩环是增益的读法，恢复类一律换成各自的专属方向语言
+     （收拢 / 荡开 / 绕体跳闪 / 向上拉起 / 罩面展开）；
+   - 配色全部走档案注入的 --fx-c1 / --fx-c2 / --fx-glow，不在 CSS 里写死角色色。
+   ============================================================ */
+
+/** 汇入本格的净化光丝：八向均分 + 12° 偏移，避开与网格轴重合的呆板感 */
+const HEAL_THREAD_ANGLES = Array.from({ length: 8 }, (_, index) => 12 + index * 45);
+
+/** 单体净化回春：光丝自四周**向内收拢**汇入本格（与所有增益的"向外扩环"相反）
+ *  + 一道竖直柔光柱 + 脚下缓慢正转的生环 + 收束处一团暖辉 */
+function HealSingleFx() {
+    return (
+        <span className="fx-anchor">
+            {HEAL_THREAD_ANGLES.map((angle, index) => (
+                <i
+                    key={angle}
+                    className="fx-hs-thread"
+                    style={{ '--hs-a': `${angle}deg`, '--hs-d': `${index * 34}ms` } as CSSProperties}
+                />
+            ))}
+            <i className="fx-hs-core" />
+            <i className="fx-hs-pillar" />
+            <i className="fx-hs-ring" />
+            <Sparks count={3} className="fxp-spark-wisp" />
+        </span>
+    );
+}
+
+/** 群体恢复（施法者格）：以本格为心荡出三道同心波，波幅按 --hw-span 长到作用区边缘 */
+function HealWaveSourceFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-hw-core" />
+            <i className="fx-hw-wave fx-hw-wave-1" />
+            <i className="fx-hw-wave fx-hw-wave-2" />
+            <i className="fx-hw-wave fx-hw-wave-3" />
+        </span>
+    );
+}
+
+/** 群体恢复（受益格）：波到之处各自升起一根细光柱 + 脚下一圈落脚环。
+ *  dim=只是被波扫过、没真的吃到恢复的格子（例如给友方挂音符那一手），柱身收矮收淡 */
+function HealWaveCellFx({ dim = false }: { dim?: boolean }) {
+    return (
+        <span className={`fx-anchor${dim ? ' fx-hw-dim' : ''}`}>
+            <i className="fx-hw-base" />
+            <i className="fx-hw-column" />
+            <Sparks count={dim ? 2 : 3} className="fxp-spark-wisp" />
+        </span>
+    );
+}
+
+/** 回血珠绕体的三个锚角（120° 均分，珠身随 --ro-a 挂在轨道上） */
+const REGEN_ORB_ANGLES = [0, 120, 240];
+
+/** 持续/延迟回血：两三颗回血珠绕体缓转，每"跳"一下闪一次并冒一颗上飘的绿点 */
+function RegenOrbFx({ orbs = 3 }: { orbs?: number }) {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-ro-glow" />
+            <i className="fx-ro-orbit">
+                {REGEN_ORB_ANGLES.slice(0, orbs).map(angle => (
+                    <b key={angle} className="fx-ro-orb" style={{ '--ro-a': `${angle}deg` } as CSSProperties} />
+                ))}
+            </i>
+            {REGEN_ORB_ANGLES.slice(0, orbs).map((angle, index) => (
+                <i
+                    key={angle}
+                    className="fx-ro-drop"
+                    style={{ '--ro-a': `${angle}deg`, '--ro-d': `${index * 280}ms` } as CSSProperties}
+                />
+            ))}
+            <i className="fx-ro-ring" />
+        </span>
+    );
+}
+
+/** 复活血统的轮廓：躯干 + 头 + 顶上一圈光轮，由虚到实亮起（三件共用一个容器以便同步） */
+function ReviveFigureFx() {
+    return (
+        <i className="fx-rv-figure">
+            <i className="fx-rv-head" />
+            <i className="fx-rv-body" />
+            <i className="fx-rv-halo" />
+        </i>
+    );
+}
+
+/** 复活仪式：短暂压暗 → 光带自地面**向上拉起** → 人形轮廓由虚到实亮起 → 一圈扩散的金色涟漪 */
+function ReviveRiseFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-rv-dim" />
+            <i className="fx-rv-band fx-rv-band-1" />
+            <i className="fx-rv-band fx-rv-band-2" />
+            <i className="fx-rv-band fx-rv-band-3" />
+            <ReviveFigureFx />
+            <i className="fx-rv-ripple fx-rv-ripple-1" />
+            <i className="fx-rv-ripple fx-rv-ripple-2" />
+            <Sparks count={4} className="fxp-spark-wisp" />
+        </span>
+    );
+}
+
+/** 尖顶六边形罩面的顶点（100×100 视觉框）：棱面、描边与流光滑轨共用同一组点 */
+const SHIELD_HEX_OUTER = '50,3 92,27 92,73 50,97 8,73 8,27';
+const SHIELD_HEX_INNER = '50,17 80,32 80,68 50,83 20,68 20,32';
+const SHIELD_HEX_VERTICES: Array<[number, number]> = [
+    [50, 3], [92, 27], [92, 73], [50, 97], [8, 73], [8, 27],
+];
+
+/** 护盾援护：六边形罩面自中心展开、一道流光沿棱走一圈、六角依次钉住。
+ *  纯防御观感——没有朝攻击方向的分量，也没有受击爆点，起手格同理 */
+function ShieldWardFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fx-sw-face" />
+            <i className="fx-sw-core" />
+            <i className="fx-sw-shell">
+                <svg viewBox="0 0 100 100" aria-hidden="true">
+                    <polygon className="fx-sw-rim" points={SHIELD_HEX_OUTER} pathLength={100} />
+                    <polygon className="fx-sw-sweep" points={SHIELD_HEX_OUTER} pathLength={100} />
+                    <polygon className="fx-sw-inner" points={SHIELD_HEX_INNER} pathLength={100} />
+                    {SHIELD_HEX_VERTICES.map(([cx, cy], index) => (
+                        <circle
+                            key={`${cx}-${cy}`}
+                            className="fx-sw-stud"
+                            cx={cx}
+                            cy={cy}
+                            r="3.4"
+                            style={{ '--sw-i': String(index) } as CSSProperties}
+                        />
+                    ))}
+                </svg>
+            </i>
+            <Sparks count={3} className="fxp-spark-wisp" />
         </span>
     );
 }
@@ -1277,7 +1621,9 @@ function ChainBoltFx() {
 }
 
 /** 目标格主效：按技能档案分发到各自的 DOM 结构 */
-function TargetFx({ event }: { event: SkillFxEvent }) {
+function TargetFx({ event, atPos }: { event: SkillFxEvent; atPos?: Position }) {
+    const themed = SkillThemeTargetFx({ event });
+    if (themed) return themed;
     switch (event.profile.kind) {
         case 'wukong-clone':
             return <WukongCloneFx />;
@@ -1397,6 +1743,16 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
             return <ArcSlashFx />;
         case 'triple-slash':
             return <RedTripleSlashFx />;
+        case 'zhiyuan-reel':
+            return <ZhiyuanReelFx />;
+        case 'xihuan-level':
+            return <XihuanLevelFx />;
+        case 'jiangtaigong-cast':
+            return <JiangtaigongCastFx />;
+        case 'jiangtaigong-throw':
+            return <JiangtaigongThrowFx />;
+        case 'jiangtaigong-whalefall':
+            return <JiangtaigongWhaleFallFx />;
         case 'pierce':
             return <PierceImpactFx />;
         case 'radial-burst':
@@ -1407,6 +1763,22 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
             return <LightSummonFx />;
         case 'blessing':
             return <BlessingFx />;
+        // —— 恢复类专属原型（目标格/受益格主效）——
+        case 'heal-single':
+            // 单体净化回春：光丝收拢汇入 + 柔光柱 + 脚下生环
+            return <HealSingleFx />;
+        case 'heal-wave':
+            // 群体恢复：波扫到的每一格（含主目标与逐格命中的受益者）各起一根细光柱
+            return <HealWaveCellFx />;
+        case 'regen-orb':
+            // 持续/延迟回血：回血珠绕体缓转，跳一下闪一次并冒一颗绿点
+            return <RegenOrbFx />;
+        case 'revive-rise':
+            // 复活仪式：压暗 → 光带向上拉起 → 轮廓凝实 → 金色涟漪
+            return <ReviveRiseFx />;
+        case 'shield-ward':
+            // 护盾援护：六边形罩面展开 + 沿棱走一圈的流光
+            return <ShieldWardFx />;
         case 'aura-buff':
             return <AuraBuffFx />;
         case 'hex-curse':
@@ -1415,6 +1787,12 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
             return <DashLandingFx />;
         case 'phase-swap':
             return <PhaseSwapFx />;
+        case 'huanongying-fan':
+            return <HuanongyingFanImpactFx />;
+        case 'huanongying-swap':
+            return <HuanongyingSwapTargetFx />;
+        case 'huanongying-replay':
+            return <HuanongyingReplayImpactFx />;
         case 'ground-zone':
             return <GroundZoneFx />;
         case 'cage-bind':
@@ -1437,7 +1815,7 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
             return <YunyingArcSlashFx />;
         case 'yunying-sweep':
             // 3×3 的次要命中格只点一记爆点，弧刃主效由起手格那份承担
-            return <RadialBurstFx />;
+            return <YunyingSparkImpactFx />;
         case 'crystal-shatter':
             return <CrystalShatterFx />;
         case 'ember-flare':
@@ -1448,6 +1826,13 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
         case 'liehuo-wheel':
             // 燎原百斩（落点格）：一柄红焰枪刃绕格心旋满一周
             return <LiehuoSpearWheelFx />;
+        case 'prism-beam':
+            // 棱光千折（方向格）：那只是光出去的第一格，本体由区域层那条折线承担
+            return (
+                <span className="fx-anchor">
+                    <i className="fxp-auraglow" />
+                </span>
+            );
         case 'storm-bolt':
             return <StormBoltFx />;
         case 'gale-vortex':
@@ -1470,23 +1855,28 @@ function TargetFx({ event }: { event: SkillFxEvent }) {
             // 孤影·寒星剑气：冷焰巨剑光斜劈
             return <GuyingSwordqiFx />;
         case 'mirror-blades':
-            // 镜·破镜飞刃：三枚镜刃合击
-            return <MirrorBladesFx />;
+            return <MirrorBladeImpactFx event={event} atPos={atPos} />;
         case 'xubai-pearls':
             // 叙白·黑白凝珠：三珠汇聚环绕
             return <XubaiPearlsFx />;
         case 'lingxi-wave':
-            // 泠汐·海浪涟漪：浪环荡开
-            return <LingxiWaveFx />;
+            // 主浪只从施法者扩散；命中格只留下水纹。
+            return <LingxiWaterTouchFx event={event} atPos={atPos} />;
         case 'lingxi-fan':
-            // 泠汐·涌潮拍岸：命中格浪头拍击（扇面在施法者格展开）
-            return <LingxiFanCrashFx />;
+            return <LingxiTideImpactFx event={event} atPos={atPos} />;
         case 'jinghong-slash-ring':
             // 惊鸿·环海旋斩：整圈斩痕在施法者格，玩家点中的那一格只留一记水花
             return <ImpactMarkFx />;
         case 'jinghua-moonblade':
             // 镜花·月华飞斩：月牙刃飞到本格并绽开（起手格只有凝刃月光）
             return <JinghuaMoonbladeFx />;
+        case 'moran-inkway':
+            // 墨阑·入道：墨痕从施法格铺到本格，笔到即炸出这一记横斩
+            return <MoranInkwayStrikeFx />;
+        case 'duosui-reap':
+            return <DuosuiReapFx />;
+        case 'duosui-reckon':
+            return <DuosuiTakeFx />;
         case 'ink':
         default:
             // 默认兜底：双层墨韵涟漪
@@ -1535,7 +1925,7 @@ function AreaTileFx() {
  *  variant：caster=起手格光环 / target=目标格主效 / impact=AOE 次要命中格 /
  *  area=作用区域底光格 / splash=溅射余波格 / chain=链电链路格。
  *  impact/area/splash/chain 变体必须传入 atPos（该格坐标），用于逐格波浪延迟与多格匹配。 */
-export function SkillFxVisual({
+export const SkillFxVisual = memo(function SkillFxVisual({
     event,
     variant,
     atPos,
@@ -1553,6 +1943,7 @@ export function SkillFxVisual({
 
     // 链路段角度：以链路序列 [主目标, ...传导格] 中前一格为基准，电光指向本格
     let style = fxStyleVars(event);
+    if (atPos) style = { ...style, '--fx-hit-ms': `${computeFxImpactDelayMs(event, atPos)}ms` } as CSSProperties;
     if (variant === 'chain' && atPos) {
         const seq: Position[] = [event.targetPos, ...(event.chainLinks ?? [])];
         const idx = seq.findIndex(([r, c]) => r === atPos[0] && c === atPos[1]);
@@ -1568,6 +1959,25 @@ export function SkillFxVisual({
             ...style,
             '--fx-cell-delay': `${computeFxCellDelayMs(event.targetPos, atPos)}ms`,
         } as CSSProperties;
+    }
+
+    // 群体恢复的波心是施法者，不是玩家点中的那个受益者：主目标往往就在旁边，
+    // 沿用上面那套"离主目标几格"会让整片光柱从队友身上同时炸开、读不出波是从琴前荡出去的。
+    // 这里按"离施法者几格"重排，并把波能扫到的格数交给 --hw-span，同心环才真荡到区缘。
+    if (event.profile.kind === 'heal-wave') {
+        const cells = [event.targetPos, ...(event.impactPositions ?? []), ...(event.coveredPositions ?? [])];
+        const reach = cells.reduce((max, cell) => Math.max(
+            max,
+            Math.max(Math.abs(cell[0] - event.fromPos[0]), Math.abs(cell[1] - event.fromPos[1]))
+        ), 0);
+        const patch: Record<string, string> = {
+            // 环的身位留一格余量，最外圈落在最后一排受益格上而不是飘到盘外
+            '--hw-span': String(Math.min(4.6, 1.5 + reach)),
+        };
+        if (atPos) {
+            patch['--fx-cell-delay'] = `${computeFxCellDelayMs(event.fromPos, atPos)}ms`;
+        }
+        style = { ...style, ...patch } as CSSProperties;
     }
 
     // 醉枕刀冲刺：主落点（target）、打到的格（impact）与路过的格（area）
@@ -1614,10 +2024,24 @@ export function SkillFxVisual({
         } as CSSProperties;
     }
 
+    // 棱光千折：命中格要等光真的走到那一格才炸，而不是按"离主目标几格"的波浪算——
+    // 光会拐弯，波浪距离和光的行程根本不是一条轴，错开就成了"人还没被照到就先爆了"
+    if (atPos && event.profile.kind === 'prism-beam'
+        && (variant === 'impact' || variant === 'area')) {
+        const order = (event.coveredPositions ?? [])
+            .findIndex(([r, c]) => r === atPos[0] && c === atPos[1]);
+        if (order >= 0) {
+            style = {
+                ...style,
+                '--fx-cell-delay': `${(order + 1) * PRISM_BEAM_STEP_MS}ms`,
+            } as CSSProperties;
+        }
+    }
+
     // 镜花·天威：照中几名敌人就飞来几弯月牙刃，刃画在敌人那一格，
     // 攻击轴得按"镜花格→本格"重算，否则次要命中格的飞刃会斜着指向主目标
     if (atPos && (variant === 'impact' || variant === 'target')
-        && event.profile.kind === 'jinghua-moonblade') {
+        && (event.profile.kind === 'jinghua-moonblade' || event.profile.kind === 'moran-inkway')) {
         const dx = atPos[1] - event.fromPos[1];
         const dy = atPos[0] - event.fromPos[0];
         style = {
@@ -1629,11 +2053,15 @@ export function SkillFxVisual({
 
     // 命中型原型本身就是"一次命中的特写"，每个命中格各来一份完整主效；
     // 法阵/领域/增益类只在主格出本体，其余格退回轻量印记
-    const perTargetMain = variant === 'impact' && isPerTargetFxKind(event.profile.kind);
     const isSoftImpact =
         variant === 'impact' &&
         !!atPos &&
         (event.softImpactPositions ?? []).some(([r, c]) => r === atPos[0] && c === atPos[1]);
+    const perTargetMain = variant === 'impact' && (
+        (isSoftImpact && !!event.profile.recovery) ||
+        (isPerTargetFxKind(event.profile.kind) &&
+            (!isSoftImpact || ['heal-wave', 'coin-blessing', 'chord-aura'].includes(event.profile.kind)))
+    );
 
     return (
         <span
@@ -1642,25 +2070,37 @@ export function SkillFxVisual({
                 `skill-fx-kind-${event.profile.kind}`,
                 variantClass,
                 event.owner === 'player1' ? 'skill-fx-owner-p1' : 'skill-fx-owner-p2',
+                // 低画质挂这个类：只藏"撒出去的散件"，主体轮廓照常播（见 quality-low.css）
+                isLowQuality() ? 'fx-lite' : '',
             ].join(' ')}
             style={style}
             aria-hidden="true"
         >
+            {event.profile.moon ? <WangshuMoonFx event={event} variant={variant} /> : event.profile.crafted ? <CraftedSkillFx event={event} variant={variant} atPos={atPos} /> : event.profile.mechanism ? <MechanismSkillFx event={event} variant={variant} /> : event.profile.kind === 'coin-awaken' ? (variant === 'target' && <WangcaiAwakenFx />) : event.profile.spectral ? <SpectralSkillFx event={event} variant={variant} atPos={atPos} /> : <>
             {variant === 'caster' && <CasterFx event={event} />}
-            {(variant === 'target' || perTargetMain) && <TargetFx event={event} />}
-            {variant === 'impact' && !perTargetMain && <ImpactMarkFx soft={isSoftImpact} />}
-            {variant === 'area' && (event.profile.kind === 'zuizhen-throw'
+            {(variant === 'target' || perTargetMain) && <TargetFx event={event} atPos={atPos} />}
+            {variant === 'impact' && !perTargetMain && (event.profile.kind === 'lingxi-wave'
+                ? <LingxiWaterTouchFx event={event} atPos={atPos} />
+                : event.profile.kind === 'lingxi-fan'
+                    ? <LingxiTideImpactFx event={event} atPos={atPos} />
+                : <ImpactMarkFx soft={isSoftImpact} />)}
+            {variant === 'area' && !['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind) && (event.profile.kind === 'zuizhen-throw'
                 ? <ZuizhenThrowPathFx />
                 : event.profile.kind === 'liehuo-blaze'
                     ? <LiehuoBlazeCellFx />
                     : event.profile.kind === 'yunying-arc-slash'
                         ? <YunyingArcSlashFx />
-                        : <AreaTileFx />)}
+                        : event.profile.kind === 'heal-wave' && !event.profile.recovery
+                            // 波扫过但没真的吃到恢复的格（例如只挂音符的友方格）：柱身收矮
+                            ? <HealWaveCellFx dim />
+                            : <AreaTileFx />)}
             {variant === 'splash' && <SplashEmberFx />}
             {variant === 'chain' && <ChainBoltFx />}
+            </>}
         </span>
     );
-}
+}, (previous, next) => previous.event === next.event && previous.variant === next.variant
+    && previous.atPos?.[0] === next.atPos?.[0] && previous.atPos?.[1] === next.atPos?.[1]);
 
 /* ============================================================
    AOE 整体特效（区域级，一张覆盖整个作用范围的跨格子动效）
@@ -1741,20 +2181,50 @@ function AreaFirewallFx() {
 
 /** 踏火长驱的区域刀光：以云缨为圆心、罩住正前方三格命中面的一道 120° 红色圆弧挥斩。
  *  去程沿弧从左→右扫过（亮段行刀 + 身后渐显的斩痕轨迹），回程反着再扫一次右→左、更宽更亮。
+ *  枪尖扫过的整片扇形同时烧成火扇（saf-yas-fanfire），刀光才读得出"火"而不只是一条线。
  *  圆心用 --fx-travel-x/y 从命中面中心反推一格回到云缨脚下，整组再按 --fx-rot 旋到攻击轴上，
  *  所以四个朝向共用同一段弧。伤害只结算一次，回程是纯特效。 */
-const YUNYING_ARC_FWD = 'M -18.19 -10.5 A 21 21 0 0 1 18.19 -10.5';
-const YUNYING_ARC_BACK = 'M 18.19 -10.5 A 21 21 0 0 0 -18.19 -10.5';
+const YUNYING_ARC_FWD = 'M -36.37 -21 A 42 42 0 0 1 36.37 -21';
+const YUNYING_ARC_BACK = 'M 36.37 -21 A 42 42 0 0 0 -36.37 -21';
+/* 扇面走"半径21 + 笔宽42"：笔宽正好是弧半径的两倍，内缘收拢到圆心，
+   同一段 dashoffset 动画于是从"描一条弧"变成"从脚下铺出一个实心火扇"。 */
+const YUNYING_FAN_FWD = 'M -18.19 -10.5 A 21 21 0 0 1 18.19 -10.5';
+const YUNYING_FAN_BACK = 'M 18.19 -10.5 A 21 21 0 0 0 -18.19 -10.5';
+/* 火舌带贴在扇面外沿内侧（半径38），比扇面窄成一圈，跟着同一时刻铺开 */
+const YUNYING_RIM_FWD = 'M -32.91 -19 A 38 38 0 0 1 32.91 -19';
+const YUNYING_RIM_BACK = 'M 32.91 -19 A 38 38 0 0 0 -32.91 -19';
 
-function AreaBladeSweepFx() {
+function AreaBladeSweepFx({ event, bounds }: { event: SkillFxEvent; bounds: SkillAreaBounds }) {
+    const id = useId().replace(/:/g, '');
     return (
-        <span className="saf-yas-fan">
+        <span className="saf-yas-fan saf-yas-quality" style={{
+            '--yy-pivot-x': event.fromPos[1] - bounds.c0 + .5,
+            '--yy-pivot-y': event.fromPos[0] - bounds.r0 + .5,
+        } as CSSProperties}>
+            <YunyingSwingSpear />
             <svg className="saf-yas-arc" viewBox="-50 -50 100 100" aria-hidden="true">
-                <path className="saf-yas-trail" d={YUNYING_ARC_FWD} pathLength={100} />
-                <path className="saf-yas-edge" d={YUNYING_ARC_FWD} pathLength={100} />
-                <path className="saf-yas-trail saf-yas-trail-b" d={YUNYING_ARC_BACK} pathLength={100} />
-                <path className="saf-yas-edge saf-yas-edge-b" d={YUNYING_ARC_BACK} pathLength={100} />
+                <defs>
+                    <linearGradient id={`${id}-wake`} x1="0" y1="0" x2="1" y2="0"><stop stopColor="#b64124" stopOpacity="0" /><stop offset=".38" stopColor="#e98134" stopOpacity=".32" /><stop offset=".76" stopColor="#ffbc62" /><stop offset="1" stopColor="#fff0c3" /></linearGradient>
+                    <linearGradient id={`${id}-return`} x1="1" y1="0" x2="0" y2="0"><stop stopColor="#b64124" stopOpacity="0" /><stop offset=".38" stopColor="#e98134" stopOpacity=".32" /><stop offset=".76" stopColor="#ffbc62" /><stop offset="1" stopColor="#fff0c3" /></linearGradient>
+                    <radialGradient id={`${id}-fan`} gradientUnits="userSpaceOnUse" cx="0" cy="0" r="42"><stop offset="0" stopColor="#4a0a04" stopOpacity="0" /><stop offset=".3" stopColor="#8d1509" stopOpacity=".55" /><stop offset=".6" stopColor="#c2260b" stopOpacity=".75" /><stop offset=".85" stopColor="#ee4412" stopOpacity=".85" /><stop offset="1" stopColor="#ff7a2a" stopOpacity=".9" /></radialGradient>
+                    <radialGradient id={`${id}-rim`} gradientUnits="userSpaceOnUse" cx="0" cy="0" r="44"><stop offset=".72" stopColor="#e8420f" stopOpacity=".55" /><stop offset=".88" stopColor="#ff8c2b" stopOpacity=".9" /><stop offset="1" stopColor="#ffe0a4" stopOpacity=".95" /></radialGradient>
+                </defs>
+                <path className="saf-yas-fanfire" d={YUNYING_FAN_FWD} pathLength={100} style={{ stroke: `url(#${id}-fan)` }} />
+                <path className="saf-yas-fanfire saf-yas-fanfire-b" d={YUNYING_FAN_BACK} pathLength={100} style={{ stroke: `url(#${id}-fan)` }} />
+                <path className="saf-yas-fanrim" d={YUNYING_RIM_FWD} pathLength={100} style={{ stroke: `url(#${id}-rim)` }} />
+                <path className="saf-yas-fanrim saf-yas-fanrim-b" d={YUNYING_RIM_BACK} pathLength={100} style={{ stroke: `url(#${id}-rim)` }} />
+                <path className="saf-yas-blaze" d={YUNYING_ARC_FWD} pathLength={100} />
+                <path className="saf-yas-trail" d={YUNYING_ARC_FWD} pathLength={100} style={{ stroke: `url(#${id}-wake)` }} />
+                <path className="saf-yas-edge" d={YUNYING_ARC_FWD} pathLength={100} style={{ stroke: `url(#${id}-wake)` }} />
+                <path className="saf-yas-blaze saf-yas-blaze-b" d={YUNYING_ARC_BACK} pathLength={100} />
+                <path className="saf-yas-trail saf-yas-trail-b" d={YUNYING_ARC_BACK} pathLength={100} style={{ stroke: `url(#${id}-return)` }} />
+                <path className="saf-yas-edge saf-yas-edge-b" d={YUNYING_ARC_BACK} pathLength={100} style={{ stroke: `url(#${id}-return)` }} />
             </svg>
+            {/* 火头附在真实枪尖上，往返两扫不复制浮动火球。 */}
+            <i className="saf-yas-spark saf-yas-spark-1" />
+            <i className="saf-yas-spark saf-yas-spark-2" />
+            <i className="saf-yas-spark saf-yas-spark-3" />
+            <i className="saf-yas-spark saf-yas-spark-4" />
         </span>
     );
 }
@@ -1853,26 +2323,6 @@ function AreaGroundwaveFx() {
     );
 }
 
-/** 潮纹涟漪（区域级）：潮水漫过作用区 + 三道大浪环自潮心荡向区缘 + 浪沫漂移。
- *  立体浪头刻意不放这一层——区域特效在格底光之下，再厚的浪也会被盘面洗淡，
- *  翻卷的浪头交给逐格主效去承担，打中谁就在谁脚下起浪。 */
-function AreaRippleTideFx() {
-    return (
-        <>
-            <i className="saf-tide-wash" />
-            {LINGXI_TIDE_RINGS.map((d, i) => (
-                <i key={i} className={`saf-tide-ring saf-tide-ring-${i + 1}`} aria-hidden="true">
-                    <svg viewBox="0 0 100 100">
-                        <path d={d} vectorEffect="non-scaling-stroke" />
-                    </svg>
-                </i>
-            ))}
-            <i className="saf-tide-foam saf-tide-foam-a" />
-            <i className="saf-tide-foam saf-tide-foam-b" />
-        </>
-    );
-}
-
 /** 巨刃横扫：循攻击方向掠过整片区域的双重大弧刃 + 扫过闪光 */
 function AreaSlashwaveFx() {
     return (
@@ -1927,8 +2377,112 @@ function AreaShatterFx() {
     );
 }
 
+/** 光路的一段：方向不变的连续格子，length 以"格"为单位（斜向已含 √2） */
+interface PrismBeamSegment {
+    from: Position;
+    to: Position;
+    length: number;
+    steps: number;
+    angleDeg: number;
+    startOrder: number;
+    /** 本段终点之后光又拐了一次（撞在光棱或边缘上），值得补一枚折点闪光 */
+    bends: boolean;
+}
+
+/**
+ * 把光走过的格子序列切成直线段。撞边原路折回会压过已经走过的格，而 coveredPositions
+ * 是按格去重的，序列里因此可能整格跳步——跳步处另起一段，不连成一根穿过的长线。
+ */
+function buildPrismBeamSegments(cells: Position[]): PrismBeamSegment[] {
+    const segments: PrismBeamSegment[] = [];
+    let index = 0;
+    while (index < cells.length - 1) {
+        const dr = Math.sign(cells[index + 1][0] - cells[index][0]);
+        const dc = Math.sign(cells[index + 1][1] - cells[index][1]);
+        let end = index + 1;
+        while (end + 1 < cells.length
+            && Math.abs(cells[end + 1][0] - cells[end][0]) <= 1
+            && Math.abs(cells[end + 1][1] - cells[end][1]) <= 1
+            && Math.sign(cells[end + 1][0] - cells[end][0]) === dr
+            && Math.sign(cells[end + 1][1] - cells[end][1]) === dc) {
+            end++;
+        }
+        const gapR = cells[end][0] - cells[index][0];
+        const gapC = cells[end][1] - cells[index][1];
+        segments.push({
+            from: cells[index],
+            to: cells[end],
+            length: Math.hypot(gapR, gapC),
+            steps: end - index,
+            angleDeg: Math.atan2(gapR, gapC) * 180 / Math.PI,
+            startOrder: index,
+            bends: end < cells.length - 1,
+        });
+        index = end;
+    }
+    return segments;
+}
+
+/**
+ * 棱光千折的光路（区域层）：按"光走到第几格"逐段点亮，折点补一枚棱形闪光，
+ * 起点补一发出光口。玩家顺着这条线就能核对折射与撞边到底走了哪条路。
+ */
+function AreaLightPathFx({ event }: { event: SkillFxEvent }) {
+    const bounds = event.areaBounds;
+    if (!bounds) return null;
+    const segments = buildPrismBeamSegments([event.fromPos, ...(event.coveredPositions ?? [])]);
+    if (segments.length === 0) return null;
+    const offset = (cell: Position): [number, number] => [cell[1] - bounds.c0, cell[0] - bounds.r0];
+    const [muzzleX, muzzleY] = offset(event.fromPos);
+    // 整条光路要在最后一格到达之后一起谢幕：每段"长出来"按自己那几格的行程计时，
+    // "淡出去"却统一排在最后一段之后，否则先走过的段会提前消失，玩家看不到完整路径
+    const lastOrder = Math.max(0, segments.reduce((max, segment) =>
+        Math.max(max, segment.startOrder + segment.steps), 0));
+    const fadeAtMs = lastOrder * PRISM_BEAM_STEP_MS + 260;
+    return (
+        <>
+            <i
+                className="saf-lp-muzzle"
+                style={{ '--lp-x': String(muzzleX), '--lp-y': String(muzzleY) } as CSSProperties}
+            />
+            {segments.map((segment, index) => {
+                const [x, y] = offset(segment.from);
+                const [tipX, tipY] = offset(segment.to);
+                return (
+                    <span className="saf-lp-run" key={index}>
+                        <i
+                            className="saf-lp-seg"
+                            style={{
+                                '--lp-x': String(x),
+                                '--lp-y': String(y),
+                                '--lp-len': String(segment.length),
+                                '--lp-rot': `${segment.angleDeg}deg`,
+                                '--lp-delay': `${segment.startOrder * PRISM_BEAM_STEP_MS}ms`,
+                                '--lp-dur': `${Math.max(180, segment.steps * PRISM_BEAM_STEP_MS)}ms`,
+                                '--lp-fade-delay': `${fadeAtMs}ms`,
+                            } as CSSProperties}
+                        />
+                        {segment.bends && (
+                            <i
+                                className="saf-lp-node"
+                                style={{
+                                    '--lp-x': String(tipX),
+                                    '--lp-y': String(tipY),
+                                    '--lp-delay': `${(segment.startOrder + segment.steps) * PRISM_BEAM_STEP_MS}ms`,
+                                } as CSSProperties}
+                            />
+                        )}
+                    </span>
+                );
+            })}
+        </>
+    );
+}
+
 /** AOE 整体特效渲染入口：渲染在棋盘网格层（跨格子绝对定位），每个事件一张 */
 export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
+    if (event.profile.crafted || event.profile.spectral || event.profile.mechanism) return null;
+    if (['yunying-sweep', 'lingxi-wave', 'lingxi-fan'].includes(event.profile.kind)) return null;
     const bounds = event.areaBounds;
     if (!bounds) return null;
     const archetype = resolveAreaFxKind(event.profile.kind);
@@ -1945,14 +2499,15 @@ export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
             {archetype === 'shockwave' && <AreaShockwaveFx />}
             {archetype === 'firestorm' && <AreaFirestormFx />}
             {archetype === 'firewall' && <AreaFirewallFx />}
-            {archetype === 'bladesweep' && <AreaBladeSweepFx />}
+            {archetype === 'bladesweep' && <AreaBladeSweepFx event={event} bounds={bounds} />}
+            {archetype === 'lightpath' && <AreaLightPathFx event={event} />}
             {archetype === 'swordzone' && <AreaSwordZoneFx />}
             {archetype === 'thunderstorm' && <AreaThunderstormFx />}
             {archetype === 'cage' && <AreaCageFx />}
             {archetype === 'runearray' && <AreaRuneArrayFx />}
-            {archetype === 'rippletide' && <AreaRippleTideFx />}
             {archetype === 'groundwave' && <AreaGroundwaveFx />}
             {archetype === 'slashwave' && <AreaSlashwaveFx />}
+            {archetype === 'petalfan' && <HuanongyingFanAreaFx event={event} bounds={bounds} />}
             {archetype === 'icespikes' && <AreaIceSpikesFx />}
             {archetype === 'iceshatter' && <AreaShatterFx />}
         </span>

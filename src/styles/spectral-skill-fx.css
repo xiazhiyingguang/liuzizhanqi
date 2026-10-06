@@ -1,0 +1,5 @@
+.spectral-viewport { position: absolute; inset: 0; pointer-events: none; }
+.spectral-canvas { position: absolute; left: -40%; top: -100%; width: 180%; height: 220%; pointer-events: none; animation: spectral-clock var(--spectral-duration,1800ms) linear both; }
+/* 纯时间载体，位置和透明度由 Canvas 内部的花瓣与光流分别计算。 */
+@keyframes spectral-clock { from { opacity: 1; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .spectral-canvas { animation: none !important; visibility: hidden; } }

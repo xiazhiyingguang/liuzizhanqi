@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMobileLayout } from '../../hooks/useMobileLayout';
+import { useMobileBoardSize } from '../../hooks/useMobileBoardSize';
 import { useGameStore } from '../../store/game-store';
 import { disconnectFromServer } from '../../services/socket-service';
 import Board from './Board';
@@ -11,10 +13,15 @@ import TurnActionBanner from './TurnActionBanner';
 import BattleStatisticsModal from './BattleStatisticsModal';
 import BattleReplayModal from './BattleReplayModal';
 import { hasBattleReplay } from '../../services/battle-replay';
+import { soundManager } from '../../core/sound-manager';
 import ReinforcementPanel from './ReinforcementPanel';
 import './battle-result.css';
 
 export default function BattleScene() {
+    const mobile = useMobileLayout();
+    const boardSpaceRef = useRef<HTMLDivElement>(null);
+    useMobileBoardSize(boardSpaceRef);
+    const [showMobileRosters, setShowMobileRosters] = useState(false);
     const [showExitConfirm, setShowExitConfirm] = useState(false);
     const [showBattleStatistics, setShowBattleStatistics] = useState(false);
     const [showBattleReplay, setShowBattleReplay] = useState(false);
@@ -29,6 +36,8 @@ export default function BattleScene() {
         isAiMode,
         aiPlayer,
         onlineRoomId,
+        onlineSelfReconnecting,
+        onlineOpponentOfflineUntil,
         localPlayerNumber,
         selectedHero,
         activeHero,
@@ -41,11 +50,35 @@ export default function BattleScene() {
     const isP1Turn = currentPlayer === 'player1';
     const localPlayerKey = localPlayerNumber === 2 ? 'player2' : 'player1';
     const opponentPlayerKey = localPlayerKey === 'player1' ? 'player2' : 'player1';
+
+    // 进场后缓一拍再预取本场技能音效：让棋盘先画完，别和首帧抢带宽与主线程
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            const { player1Heroes, player2Heroes } = useGameStore.getState();
+            soundManager.warmupFor([...player1Heroes, ...player2Heroes]
+                .flatMap(hero => [hero.skill1Id, hero.skill2Id]));
+        }, 700);
+        return () => window.clearTimeout(timer);
+    }, []);
     const outcome = getBattleOutcomePresentation(winner, Boolean(isOnlineMode), localPlayerNumber, Boolean(isAiMode));
     const actingHero = activeHero ?? (
         selectedHero?.owner === currentPlayer ? selectedHero : null
     );
     const latestKillAnnouncement = getLatestKillAnnouncement(battleLog);
+    // 联机席位由服务端保留一段时间，倒计时只用来告诉玩家"这一局还没输"
+    const [opponentOfflineSeconds, setOpponentOfflineSeconds] = useState<number | null>(null);
+    useEffect(() => {
+        if (!isOnlineMode || !onlineOpponentOfflineUntil) {
+            setOpponentOfflineSeconds(null);
+            return;
+        }
+        const update = () => setOpponentOfflineSeconds(
+            Math.max(0, Math.ceil((onlineOpponentOfflineUntil - Date.now()) / 1000))
+        );
+        update();
+        const timer = setInterval(update, 1000);
+        return () => clearInterval(timer);
+    }, [isOnlineMode, onlineOpponentOfflineUntil]);
     const leaveBattle = () => {
         if (isOnlineMode) disconnectFromServer();
         resetGame();
@@ -96,6 +129,18 @@ export default function BattleScene() {
                             <span className={`w-2.5 h-2.5 rounded-full ${!isP1Turn ? 'bg-vermillion' : 'bg-vermillion/30'}`} />
                         </div>
 
+                        {/* 联机连接状态：掉线不再立刻拆局，席位在宽限期内保留 */}
+                        {isOnlineMode && (onlineSelfReconnecting || opponentOfflineSeconds !== null) && (
+                            <span
+                                data-testid="online-connection-status"
+                                className="px-3 py-1.5 rounded-lg bg-amber-300/15 ring-1 ring-amber-300/30 text-xs font-body text-gold whitespace-nowrap"
+                            >
+                                {onlineSelfReconnecting
+                                    ? '连接中断，正在自动重连…'
+                                    : `对手掉线，席位保留 ${opponentOfflineSeconds} 秒`}
+                            </span>
+                        )}
+
                         {/* AI 接管：人机对局里把自己这一侧也交给电脑，随开随停 */}
                         {isAiMode && !isOnlineMode && phase === 'battle' && (
                             <InkButton
@@ -128,7 +173,8 @@ export default function BattleScene() {
             {/* 主游戏区域 */}
             <div className="battle-workspace">
                 {/* 左侧 - 双方阵容总览 */}
-                <aside className="battle-rosters" aria-label="双方阵容">
+                <aside id="battle-rosters" className={`battle-rosters${showMobileRosters ? ' mobile-rosters-open' : ''}`} aria-label="双方阵容">
+                    {mobile && <button className="mobile-rosters-close" onClick={() => setShowMobileRosters(false)}>关闭阵容</button>}
                     <section className="battle-roster-panel">
                         <HeroList player={isOnlineMode ? localPlayerKey : 'player1'} label="我方" />
                     </section>
@@ -139,6 +185,8 @@ export default function BattleScene() {
 
                 {/* 中间 - 主战场 */}
                 <main className="battle-board-stage" aria-label="战斗棋盘">
+                    {mobile && <button className="mobile-rosters-toggle" aria-controls="battle-rosters" aria-expanded={showMobileRosters}
+                        onClick={() => setShowMobileRosters(value => !value)}>双方阵容</button>}
                     <TurnActionBanner
                         currentPlayer={currentPlayer}
                         hero={actingHero}
@@ -148,16 +196,17 @@ export default function BattleScene() {
                         isAiMode={Boolean(isAiMode)}
                         aiPlayer={aiPlayer}
                     />
-                    <ReinforcementPanel />
-                    <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+                    {!mobile && <ReinforcementPanel />}
+                    <div ref={boardSpaceRef} className="battle-board-space flex min-h-0 w-full flex-1 items-center justify-center">
                         <Board />
                     </div>
                 </main>
 
                 {/* 右侧 - 操作与战报 */}
                 <aside className="battle-command" aria-label="指挥区域">
+                    {mobile && <ReinforcementPanel />}
                     <SkillPanel />
-                    <BattleLog />
+                    {mobile ? <details className="mobile-battle-log"><summary>查看战报</summary><div><BattleLog /></div></details> : <BattleLog />}
                 </aside>
             </div>
 

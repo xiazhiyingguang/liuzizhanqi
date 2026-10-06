@@ -3,15 +3,23 @@ import { BOARD_SIZE, Hero, Skill, Position, GameState, SkillExecuteResult, HeroS
 import { MovementSystem } from './movement-system';
 import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
+import { zhizhiValue } from './hero-zhizhi';
 import { recordBattleSkillUse } from './battle-statistics';
 import { youjunDashMaxDistance } from './wind-blade';
 import { filterPositionsByRage, getRageBinder, rageBlocksCast } from './taunt';
 import { getJinghongOuterRing, isJinghongCharging, isJinghongReleaseWindow, isLingxiEchoPending, findHnyShadow, getHnyFanPositions } from '../data/extended-heroes';
+import { getWangshuAllies } from './wangshu';
+import { jiangtaigongDragCells } from './water-marsh';
 
 /**
  * 技能系统
  */
 export class SkillSystem {
+    /** 动态射程：致知会拉长个别技能（如吟游诗人的协奏曲），没实现 rangeFor 的技能取原值 */
+    static rangeFor(skill: Skill, caster: Hero): number {
+        return skill.rangeFor?.(caster) ?? skill.range;
+    }
+
     /**
      * 获取技能有效目标位置
      * gameState 可选：游隼疾掠的落点范围取决于起点风道，需要读取棋盘效果；
@@ -64,6 +72,22 @@ export class SkillSystem {
             return caster.position ? [caster.position] : [];
         }
 
+        // 姜太公·钓雪：5×5 内挑一格空水下钩；姜太公·渭水垂竿：八条射线各两格
+        if (skill.id === 'jiangtaigong_skill1') {
+            return MovementSystem.getBoxPositions(caster.position, 5);
+        }
+        if (skill.id === 'jiangtaigong_skill2') {
+            return jiangtaigongDragCells(caster.position);
+        }
+
+        // Wangshu can heal herself. Only living allied characters are clickable, including diagonals.
+        if (skill.id === 'wangshu_skill2') {
+            const cells = MovementSystem.getBoxPositions(caster.position, 5);
+            if (!gameState) return cells;
+            const allies = getWangshuAllies(caster, gameState);
+            return cells.filter(([r, c]) => allies.some(ally => ally.position?.[0] === r && ally.position?.[1] === c));
+        }
+
         // 游隼疾掠：四方向冲刺落点；起点处于同轴友方风道时该方向可冲刺整行/整列。
         // 路径上的单位不再阻挡（友军照常穿过），但落点必须是空格
         if (skill.id === 'youjun_skill1') {
@@ -93,6 +117,24 @@ export class SkillSystem {
             return MovementSystem.getBoxPositions(caster.position, 5);
         }
 
+        // 折光技能一「凝光为棱」：5×5 内的一名敌人（targetType=enemy 会把空格与自己人滤掉）
+        if (skill.id === 'zhiguang_skill1') {
+            return MovementSystem.getBoxPositions(caster.position, 5);
+        }
+
+        // 折光技能二「棱光千折」：第一步只亮周身八格当方向标，点哪格就往哪边射
+        if (skill.id === 'zhiguang_skill2') {
+            const ring: Position[] = [];
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const pos: Position = [caster.position[0] + dr, caster.position[1] + dc];
+                    if (MovementSystem.inBounds(pos)) ring.push(pos);
+                }
+            }
+            return ring;
+        }
+
         // 泠汐技能1：与上一回合的回响合并时，实际范围扩大到 5×5，高亮要如实反映
         if (skill.id === 'lingxi_skill1' && gameState) {
             const merged = isLingxiEchoPending(caster, gameState, 'lingxi_echo1_round');
@@ -110,7 +152,7 @@ export class SkillSystem {
         switch (skill.rangeType) {
             case 'single':
                 // 单体目标（曼哈顿距离范围内）
-                return MovementSystem.getPositionsInRange(caster.position, skill.range);
+                return MovementSystem.getPositionsInRange(caster.position, SkillSystem.rangeFor(skill, caster));
 
             case 'cross':
                 // 十字范围（上下左右）
@@ -121,7 +163,7 @@ export class SkillSystem {
                 // 这里返回所有四个方向的位置，实际使用时需要玩家选择方向
                 const allDirections: Array<'up' | 'down' | 'left' | 'right'> = ['up', 'down', 'left', 'right'];
                 for (const dir of allDirections) {
-                    positions.push(...MovementSystem.getLinePositions(caster.position, dir, skill.range));
+                    positions.push(...MovementSystem.getLinePositions(caster.position, dir, SkillSystem.rangeFor(skill, caster)));
                 }
                 return positions;
 
@@ -269,9 +311,11 @@ export class SkillSystem {
                         const center: Position = [row, col];
                         finalTargetPositions = [center, ...MovementSystem.getAreaPositions(center, 3)];
                     } else {
-                        finalTargetPositions = MovementSystem.getLinePositions(caster.position, direction, skill.range);
-                        if (skill.id === 'feynman_skill1' && (caster.counters['能量'] ?? 0) >= 3) {
-                            caster.counters['能量'] -= 3;
+                        finalTargetPositions = MovementSystem.getLinePositions(caster.position, direction, SkillSystem.rangeFor(skill, caster));
+                        // 费曼致知3：扩范围所需能量 3 → 2
+                        const feynmanEnergyNeeded = zhizhiValue(caster, 3, 3, 2);
+                        if (skill.id === 'feynman_skill1' && (caster.counters['能量'] ?? 0) >= feynmanEnergyNeeded) {
+                            caster.counters['能量'] -= feynmanEnergyNeeded;
                             const widened: Position[] = [...finalTargetPositions];
                             for (const [row, col] of finalTargetPositions) {
                                 const sideA: Position = direction === 'up' || direction === 'down'
@@ -304,7 +348,7 @@ export class SkillSystem {
                 if (caster.position) {
                     const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
                     if (direction) {
-                        finalTargetPositions = MovementSystem.getLinePositions(caster.position, direction, skill.range);
+                        finalTargetPositions = MovementSystem.getLinePositions(caster.position, direction, SkillSystem.rangeFor(skill, caster));
                         caster.counters['__guying_skill1_dir'] =
                             direction === 'up' ? 0
                                 : direction === 'down' ? 1
@@ -372,6 +416,10 @@ export class SkillSystem {
                 gameState
             );
             const result = skill.execute(caster, targets, gameState);
+            // 凋零播撒的幽魂从选中的四格升起，空格也属于实际 2×2 作用区。
+            if (result.success && skill.id === 'wither_lord_skill1' && targetPositions.length === 2) {
+                result.fxCoveredPositions = finalTargetPositions.map(pos => [...pos] as Position);
+            }
             // 特效作用区兜优先级：技能自报的真实格 > 引擎展开群体范围时用的那份格子。
             // 后者让"选点高亮范围＝目标选择范围＝特效范围"三者天然同源，不再各算一遍
             if (result.success && !result.fxCoveredPositions && autoCoveredPositions.length > 0) {
@@ -398,6 +446,8 @@ export class SkillSystem {
             ) {
                 gameState.pendingExtraActionHeroIds ??= {};
                 gameState.pendingExtraActionHeroIds[caster.owner] = caster.id;
+                // 只有她自己"收势再起"这一手是纯移动；玄霄/寒江雪给她的再动是完整行动
+                caster.counters['__youjun_self_extra'] = 1;
                 gameState.battleLog?.push({
                     id: nextBattleLogId(),
                     type: 'passive' as const,
@@ -471,8 +521,11 @@ export class SkillSystem {
             gameState
         );
 
-        // 选择目标
-        const targets = this.selectTargets(availableTargets, skill.targetCount);
+        // 选择目标（英雄X 的致知1 会把随机改为按点击选定）
+        const targets = this.selectTargets(
+            availableTargets,
+            skill.targetCountFor?.(caster) ?? skill.targetCount
+        );
 
         if (targets.length === 0) {
             result.success = false;
@@ -480,7 +533,14 @@ export class SkillSystem {
             return result;
         }
 
-        result.log.push(`${caster.name}使用了${skill.name}`);
+        // 施法说明要排在它造成的伤害/治疗之前，所以直接写引擎日志：
+        // 若仍旧塞进 result.log 等 store 在 execute 返回后统一发布，
+        // "A使用了入道"就会出现在"A对B造成10点伤害"下面，读起来像先结算后施法。
+        DamageCalculator.addBattleLog(gameState, {
+            type: 'skill',
+            player: caster.owner,
+            message: `${caster.name}使用了${skill.name}`,
+        });
 
         // 处理伤害
         if (skill.baseDamage !== undefined) {
@@ -497,7 +557,8 @@ export class SkillSystem {
                     );
                     DamageCalculator.applyDamage(target, damage, caster, gameState);
                     result.damageDealt?.push(damage.finalDamage);
-                    result.log.push(`对${target.name}造成了${damage.finalDamage}点伤害`);
+                    // 伤害本身已由 DamageCalculator 记一条带飘字与特效的 damage 日志，
+                    // 这里再 echo 一行"对X造成了N点伤害"是纯重复（且排在伤害之后）
                 }
             });
         }
@@ -507,7 +568,7 @@ export class SkillSystem {
             for (const target of targets) {
                 const healed = DamageCalculator.applyHeal(target, skill.baseHeal, gameState, caster);
                 result.healingDone?.push(healed);
-                result.log.push(`为${target.name}恢复了${healed}点生命`);
+                // 回复量同样由 applyHeal 记 heal 日志，不再重复播报
             }
         }
 

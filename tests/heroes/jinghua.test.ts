@@ -162,10 +162,10 @@ describe('镜花·水月', () => {
         const hpBefore = enemy.currentHp;
         expect(resolveJinghuaSwapMove(stepper, [3, 3], state)).toBe('moonseat');
 
-        // 修复点：踏座只是"踩响"，队友这一手没打完之前镜花不得归场抢走行动
+        // 修复点：踏座是"走上去站住"，但镜花不得在他这一手打完前归场抢走行动
         expect(jinghua.state).toBe(HeroState.TEMP_DEAD);
-        expect(stepper.position).toEqual([2, 3]);
-        expect(state.board[3][3]).toBeNull();
+        expect(stepper.position).toEqual([3, 3]);   // 人真的在月座上
+        expect(state.board[3][3]).toBe(stepper);
         expect(settleJinghuaSeatReturn(stepper, state)).toBe(true);
 
         expect(jinghua.state).toBe(HeroState.ALIVE);
@@ -178,6 +178,49 @@ describe('镜花·水月', () => {
         expect(state.board[2][4]).toBeNull();
         expect(state.player1Heroes.some(hero => hero.name === '琉璃')).toBe(false);
         expect(state.player1BenchHeroIds).toContain('liuli');
+    });
+
+    it('月座：踏座者在行动结束前倒下，座仍兑现但不把尸体摆回棋盘', () => {
+        const { state, jinghua } = setup();
+        const stepper = addHero(state, 'youjun', 'player1', [2, 3]);
+        state.player1BenchHeroIds = ['liuli'];
+        jinghua.counters['__extended_target'] = 2 * 6 + 4;
+        jinghua.counters['__jinghua_summon_pick'] = 0;
+        jinghuaSkill2.execute!(jinghua, [], state);
+
+        expect(resolveJinghuaSwapMove(stepper, [3, 3], state)).toBe('moonseat');
+        expect(state.board[3][3]).toBe(stepper);
+        // 他在这一手里被反伤/追击打死：死亡已经把他从格子上抹掉
+        state.board[3][3] = null;
+        stepper.state = HeroState.DEAD;
+        stepper.currentHp = 0;
+        stepper.position = null;
+
+        expect(settleJinghuaSeatReturn(stepper, state)).toBe(true);
+        expect(jinghua.state).toBe(HeroState.ALIVE);
+        // 逐格扫盘：死掉的踏座者绝不能作为幽灵回到棋盘上
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) expect(state.board[r][c]).not.toBe(stepper);
+        }
+    });
+
+    it('月座：踏座后被强制位移挪出月座，归场时不把他硬拽回来', () => {
+        const { state, jinghua } = setup();
+        const stepper = addHero(state, 'youjun', 'player1', [2, 3]);
+        state.player1BenchHeroIds = ['liuli'];
+        jinghua.counters['__extended_target'] = 2 * 6 + 4;
+        jinghua.counters['__jinghua_summon_pick'] = 0;
+        jinghuaSkill2.execute!(jinghua, [], state);
+
+        expect(resolveJinghuaSwapMove(stepper, [3, 3], state)).toBe('moonseat');
+        // 模拟击退：他已经不在月座格上
+        state.board[3][3] = null;
+        state.board[1][3] = stepper;
+        stepper.position = [1, 3];
+
+        expect(settleJinghuaSeatReturn(stepper, state)).toBe(true);
+        expect(jinghua.position).toEqual([3, 3]);
+        expect(stepper.position).toEqual([1, 3]); // 留在原地，不被搬回月座旁
     });
 
     it('月座：替身自己去踏座，归场后棋盘不留幽灵棋子', () => {
@@ -390,21 +433,31 @@ describe('镜花·水月', () => {
             return { state, jinghua, ally, enemy };
         }
 
-        it('队友踏月座召还镜花后，其行动当场自动结束，不再悬空等手动点击', () => {
+        it('队友踏月座后这一手还在手里：结束行动才接镜花归场', () => {
             const { state, jinghua, ally } = loadSeatScene();
             useGameStore.getState().selectHeroForAction(ally);
             useGameStore.getState().moveHero([3, 3]);
 
+            // 踩响 ≠ 兑现。踏座者还站在月座上、行动没结束，
+            // 他仍然要用技能或攻击把这一手打完（旧实现在此刻自动收尾，等于吃掉这半回合）
+            expect(ally.position).toEqual([3, 3]);
+            expect(ally.hasActedThisTurn).toBe(false);
+            expect(jinghua.state).toBe(HeroState.TEMP_DEAD);
+            const mid = useGameStore.getState();
+            expect((mid.boardEffects ?? []).some(effect => effect.type === 'moon-seat')).toBe(true);
+            expect(mid.activeHero?.id).toBe(ally.id);
+            expect(mid.battleLog.some(entry => entry.message.includes('踏上月座'))).toBe(true);
+
+            // 这手打完才兑现：镜花归场、踏座者让位、月座消耗
+            useGameStore.getState().endHeroAction();
+
             expect(jinghua.state).toBe(HeroState.ALIVE);
             expect(jinghua.position).toEqual([3, 3]);
-            expect(ally.hasActedThisTurn).toBe(true); // 核心：让位即交付，行动自动收尾
+            expect(ally.position).not.toEqual([3, 3]);
             const store = useGameStore.getState();
             // boardEffects 在结算中被重新赋值，断言必须读 store 而不是本地快照
             expect((store.boardEffects ?? []).some(effect => effect.type === 'moon-seat')).toBe(false);
-            expect(store.selectedHero?.id).not.toBe(ally.id); // 焦点已离开踏座者
-            // 踏座不写误导性的"移动到月座"日志（人其实被安置到旁边）
-            expect(store.battleLog.some(entry =>
-                entry.type === 'move' && entry.message.includes(ally.name) && entry.message.includes('移动到'))).toBe(false);
+            expect(store.selectedHero?.id).not.toBe(ally.id); // 控制权已交出去
         });
 
         it('真身换位仍只是位移：换完保留后续行动，不被自动收尾误伤', () => {

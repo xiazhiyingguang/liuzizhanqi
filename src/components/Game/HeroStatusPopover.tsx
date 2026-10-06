@@ -11,6 +11,7 @@ import {
 } from '../../core/hero-status-presentation';
 import { DamageCalculator } from '../../core/damage-calculator';
 import HeroAvatar from '../ui/HeroAvatar';
+import { MOBILE_LAYOUT_QUERY } from '../../hooks/useMobileLayout';
 
 type Placement = 'right' | 'auto-vertical';
 
@@ -26,6 +27,8 @@ interface PopoverPosition {
     left: number;
     top: number;
     above: boolean;
+    width?: number;
+    maxHeight?: number;
 }
 
 const POPOVER_WIDTH = 320;
@@ -74,6 +77,23 @@ export default function HeroStatusPopover({
     const updatePosition = useCallback(() => {
         const rect = triggerRef.current?.getBoundingClientRect();
         if (!rect) return;
+
+        if (window.matchMedia(MOBILE_LAYOUT_QUERY).matches) {
+            const viewport = window.visualViewport;
+            const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
+            const width = viewport?.width ?? window.innerWidth, height = viewport?.height ?? window.innerHeight;
+            const panelWidth = Math.min(POPOVER_WIDTH, width - EDGE_GAP * 2);
+            const maxHeight = Math.min(460, height - EDGE_GAP * 2);
+            const panelHeight = Math.min(popoverRef.current?.scrollHeight ?? POPOVER_HEIGHT_BUDGET, maxHeight);
+            const below = rect.bottom + 10;
+            const desiredTop = below + panelHeight <= top + height - EDGE_GAP ? below : rect.top - panelHeight - 10;
+            setPosition({
+                left: Math.max(left + EDGE_GAP, Math.min(rect.left + rect.width / 2 - panelWidth / 2, left + width - panelWidth - EDGE_GAP)),
+                top: Math.max(top + EDGE_GAP, Math.min(desiredTop, top + height - panelHeight - EDGE_GAP)),
+                above: false, width: panelWidth, maxHeight
+            });
+            return;
+        }
 
         if (placement === 'right') {
             setPosition({
@@ -138,10 +158,14 @@ export default function HeroStatusPopover({
         };
         window.addEventListener('resize', reposition);
         window.addEventListener('scroll', reposition, true);
+        window.visualViewport?.addEventListener('resize', reposition);
+        window.visualViewport?.addEventListener('scroll', reposition);
         document.addEventListener('pointerdown', closeOnOutsidePointer);
         return () => {
             window.removeEventListener('resize', reposition);
             window.removeEventListener('scroll', reposition, true);
+            window.visualViewport?.removeEventListener('resize', reposition);
+            window.visualViewport?.removeEventListener('scroll', reposition);
             document.removeEventListener('pointerdown', closeOnOutsidePointer);
         };
     }, [hide, open, updatePosition]);
@@ -174,8 +198,8 @@ export default function HeroStatusPopover({
                 tabIndex={0}
                 aria-label={`${hero.name}，悬停或聚焦查看英雄详情`}
                 aria-describedby={open ? popoverId : undefined}
-                onMouseEnter={() => show(false)}
-                onMouseLeave={scheduleHide}
+                onMouseEnter={() => { if (Date.now() - lastTouchStartedAtRef.current >= 1000) show(false); }}
+                onMouseLeave={() => { if (Date.now() - lastTouchStartedAtRef.current >= 1000) scheduleHide(); }}
                 onFocus={() => {
                     if (Date.now() - lastTouchStartedAtRef.current < 1000) return;
                     show(true);
@@ -185,6 +209,9 @@ export default function HeroStatusPopover({
                 onTouchMove={finishLongPress}
                 onTouchEnd={finishLongPress}
                 onTouchCancel={finishLongPress}
+                onContextMenu={event => {
+                    if (Date.now() - lastTouchStartedAtRef.current < 1200) event.preventDefault();
+                }}
                 onClickCapture={event => {
                     if (!longPressTriggeredRef.current) return;
                     event.preventDefault();
@@ -200,13 +227,15 @@ export default function HeroStatusPopover({
                     ref={popoverRef}
                     id={popoverId}
                     role="tooltip"
-                    className="pointer-events-auto fixed z-[100] w-80 max-h-[460px] overflow-y-auto overscroll-contain rounded-xl border border-gold/25
+                    className="hero-status-tooltip pointer-events-auto fixed z-[100] w-80 max-h-[460px] overflow-y-auto overscroll-contain rounded-xl border border-gold/25
                         bg-[#f7f0df]/95 p-3.5 text-left shadow-[0_14px_42px_rgba(36,29,18,0.22)] backdrop-blur-md animate-fade-in"
                     onMouseEnter={clearTimer}
                     onMouseLeave={scheduleHide}
                     style={{
                         left: position.left,
                         top: position.top,
+                        width: position.width,
+                        maxHeight: position.maxHeight,
                         transform: position.above ? 'translateY(-100%)' : undefined
                     }}
                 >
@@ -271,7 +300,7 @@ export default function HeroStatusPopover({
                                     key={counter.label}
                                     className="rounded-full border border-gold/35 bg-gold/10 px-2 py-0.5 text-[10px] leading-none text-gold-dark font-body"
                                 >
-                                    {counter.label} ×{counter.value}
+                                    {counter.label}{counter.displayValue ? ` ${counter.displayValue}` : ` ×${counter.value}`}
                                 </span>
                             ))}
                         </div>

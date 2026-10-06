@@ -37,7 +37,7 @@ async function selectTeam(page, heroIds, playerKey) {
     await page.click('confirm-hero-selection');
 }
 
-async function deployTeam(page, placements, playerKey) {
+async function deployTeam(page, placements, playerKey, { exerciseUndeploy = false } = {}) {
     for (let index = 0; index < placements.length; index += 1) {
         const { heroId, row, col } = placements[index];
         await page.click(`deploy-hero-${heroId}`);
@@ -48,6 +48,36 @@ async function deployTeam(page, placements, playerKey) {
             `${playerKey} 部署第 ${index + 1} 名英雄`
         );
     }
+
+    if (exerciseUndeploy) {
+        // 撤下入口：点已上阵英雄的候选卡片 → 撤下 → 名额释放，替补可以顶上；
+        // 最后换回原阵容，保证后续战斗脚本面对的局面不变。
+        const { heroId, row, col } = placements[0];
+        const benchId = PLAYER_ONE_TEAM.find(id => !placements.some(p => p.heroId === id)) ?? 'mirror';
+
+        await page.click(`deploy-hero-${heroId}`);
+        await page.waitForTestId('undeploy-deployed-hero');
+        await page.click('undeploy-deployed-hero');
+        await waitForState(page,
+            `state.heroes.filter(hero => hero.owner === '${playerKey}').length === ${placements.length - 1}`,
+            `撤下 ${heroId} 后首发回到 ${placements.length - 1} 人`);
+
+        await page.click(`deploy-hero-${benchId}`);
+        await page.click(`deploy-cell-${row}-${col}`);
+        await waitForState(page,
+            `state.heroes.filter(hero => hero.owner === '${playerKey}' && hero.position && hero.position[0] === ${row} && hero.position[1] === ${col}).length === 1`,
+            `${benchId} 顶上空位`);
+
+        await page.click(`deploy-cell-${row}-${col}`);
+        await page.waitForTestId('undeploy-deployed-hero');
+        await page.click('undeploy-deployed-hero');
+        await page.click(`deploy-hero-${heroId}`);
+        await page.click(`deploy-cell-${row}-${col}`);
+        await waitForState(page,
+            `state.heroes.filter(hero => hero.owner === '${playerKey}').length === ${placements.length}`,
+            '换回原阵容');
+    }
+
     await page.click('confirm-deployment');
 }
 
@@ -71,6 +101,8 @@ async function testLocalCompleteFlow(baseUrl, sessions) {
     const { page } = session;
 
     await page.click('menu-local-game');
+    // 主菜单现在多了一层模式选择（标准=现行平衡不带武器 / 经典=战前武装），不点它进不去点将
+    await page.click('menu-mode-standard');
     await waitForState(page, `state.phase === 'hero-select' && state.selectingPlayer === 'player1'`, '玩家一点将阶段');
 
     await selectTeam(page, PLAYER_ONE_TEAM, 'player1');
@@ -78,7 +110,7 @@ async function testLocalCompleteFlow(baseUrl, sessions) {
     await selectTeam(page, PLAYER_TWO_TEAM, 'player2');
     await waitForState(page, `state.phase === 'deploy' && state.selectingPlayer === 'player1'`, '玩家一布阵阶段');
 
-    await deployTeam(page, PLAYER_ONE_DEPLOYMENT, 'player1');
+    await deployTeam(page, PLAYER_ONE_DEPLOYMENT, 'player1', { exerciseUndeploy: true });
     await waitForState(page, `state.selectingPlayer === 'player2'`, '切换到玩家二布阵');
     await deployTeam(page, PLAYER_TWO_DEPLOYMENT, 'player2');
     await waitForState(page, `state.phase === 'battle' && state.currentPlayer === 'player1'`, '战斗开始');
@@ -103,8 +135,9 @@ async function testLocalCompleteFlow(baseUrl, sessions) {
     assert.equal(page.errors.length, 0, `页面不应出现未捕获异常：${page.errors.join('\n')}`);
 }
 
-async function enterCodeRoom(page, code) {
+async function enterCodeRoom(page, code, modeTestId = 'menu-mode-standard') {
     await page.click('menu-online-game');
+    await page.click(modeTestId);
     await page.waitForExpression(
         `document.querySelector('[data-testid="online-connection-state"]')?.textContent?.trim() === 'connected'`,
         '联机服务连接',
@@ -181,6 +214,69 @@ async function testTwoClientOnlineSync(baseUrl, sessions) {
     assert.equal(second.page.errors.length, 0, `玩家二页面异常：${second.page.errors.join('\n')}`);
 }
 
+/**
+ * 经典模式联机全链路：房主开经典局，客机菜单故意选标准局。
+ * 这条用例锁的是"模式以房间为准"——客机拿不到房间模式时一端停在武装、另一端直接布阵，
+ * 服务端等不齐两次武装确认，房间就永久卡在 weapon-select（玩家表现为"卡在选择武器界面"）。
+ */
+async function testTwoClientOnlineClassic(baseUrl, sessions) {
+    const first = await launchBrowser({ baseUrl, label: '经典联机玩家一', headed });
+    const second = await launchBrowser({ baseUrl, label: '经典联机玩家二', headed });
+    sessions.push(first, second);
+    const code = String(1000 + Math.floor(Math.random() * 8000));
+
+    await enterCodeRoom(first.page, code, 'menu-mode-classic');
+    await first.page.waitForExpression(`document.body.innerText.includes('${code}')`, '玩家一等待房间');
+    await enterCodeRoom(second.page, code, 'menu-mode-standard');
+
+    await waitForState(first.page, `state.phase === 'hero-select' && state.localPlayerNumber === 1`, '玩家一进入点将', 20_000);
+    await waitForState(second.page, `state.phase === 'hero-select' && state.localPlayerNumber === 2`, '玩家二进入点将', 20_000);
+    assert.equal((await second.page.snapshot()).gameMode, 'classic', '客机必须跟随房间的经典模式');
+
+    await selectTeam(first.page, PLAYER_ONE_TEAM, 'player1');
+    await waitForState(second.page, `state.player1SelectedHeroIds.length === 6`, '玩家二收到玩家一点将同步');
+    await selectTeam(second.page, PLAYER_TWO_TEAM, 'player2');
+
+    await waitForState(first.page, `state.phase === 'weapon-select'`, '玩家一进入武装', 20_000);
+    await waitForState(second.page, `state.phase === 'weapon-select'`, '玩家二进入武装', 20_000);
+
+    await first.page.click('weapon-toggle-moran');
+    await first.page.click('weapon-toggle-zhenxiao');
+    await first.page.click('confirm-weapon-selection');
+    await waitForState(second.page, `state.player1ReadyWeaponSelect === true`, '玩家二收到对手武装确认', 20_000);
+
+    await second.page.click('weapon-toggle-liuli');
+    await second.page.click('weapon-toggle-wukong');
+    await second.page.click('confirm-weapon-selection');
+
+    await waitForState(first.page, `state.phase === 'deploy'`, '玩家一等到双方武装确认后进入布阵', 20_000);
+    await waitForState(second.page, `state.phase === 'deploy'`, '玩家二进入布阵', 20_000);
+
+    // deployTeam 自带"确认部署"收尾，这里不能再点一次（按钮会变成等待对手且禁用）
+    await deployTeam(first.page, PLAYER_ONE_DEPLOYMENT, 'player1');
+    await deployTeam(second.page, PLAYER_TWO_DEPLOYMENT, 'player2');
+
+    await waitForState(first.page, `state.phase === 'battle' && state.currentPlayer === 'player1'`, '玩家一进入联机战斗', 20_000);
+    await waitForState(second.page, `state.phase === 'battle' && state.currentPlayer === 'player1'`, '玩家二进入联机战斗', 20_000);
+
+    // 武装账本要跟着布阵同步到对面：对面看到的对手英雄也必须带着专属器
+    for (const [label, page] of [['玩家一', first.page], ['玩家二', second.page]]) {
+        const state = await page.snapshot();
+        for (const heroId of ['moran', 'zhenxiao', 'liuli', 'wukong']) {
+            const hero = state.heroes.find(item => item.id.startsWith(`${heroId}-`));
+            assert.ok(hero && hero.weaponId, `${label}视角下 ${heroId} 应带专属器`);
+        }
+    }
+
+    await first.page.click('battle-cell-0-2');
+    await first.page.waitForTestId('end-hero-action');
+    await first.page.click('end-hero-action');
+    await waitForState(second.page, `state.currentPlayer === 'player2'`, '玩家二收到回合交接', 20_000);
+
+    assert.equal(first.page.errors.length, 0, `玩家一页面异常：${first.page.errors.join('\n')}`);
+    assert.equal(second.page.errors.length, 0, `玩家二页面异常：${second.page.errors.join('\n')}`);
+}
+
 async function saveFailureScreenshots(sessions) {
     await mkdir(resultsDir, { recursive: true });
     await Promise.all(sessions.map(async (session, index) => {
@@ -199,6 +295,7 @@ async function main() {
     const tests = [
         ['选人 → 布阵 → 战斗 → 结算', testLocalCompleteFlow],
         ['双端联机选人、布阵与战斗同步', testTwoClientOnlineSync],
+        ['双端联机经典模式：武装到战斗全链路', testTwoClientOnlineClassic],
     ];
 
     try {

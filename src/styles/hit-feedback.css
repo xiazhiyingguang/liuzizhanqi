@@ -1,0 +1,59 @@
+.piece-hit-motion { display: flex; position: relative; transform-origin: 50% 58%; }
+.hit-contact { position: absolute; inset: 0; z-index: 29; pointer-events: none; --contact-ink: #875c4b; --contact-edge: #fff5dc; --contact-chip: #98816b; }
+.hit-contact-heavy { --contact-ink: #644334; --contact-chip: #95765a; }
+.hit-contact-critical { --contact-ink: #9c6728; --contact-edge: #fff5c9; --contact-chip: #b68c45; }
+.hit-contact-shield-hit, .hit-contact-shield-break { --contact-ink: #56788b; --contact-edge: #d5e6df; --contact-chip: #7395a2; }
+.hit-contact-core { position: absolute; width: 100%; height: 100%; overflow: visible; animation: contact-cut 230ms ease-out both; animation-delay: var(--contact-delay); }
+.contact-oriented { transform-origin: 50px 50px; transform: rotate(var(--contact-angle)); }
+.contact-cut-dark { fill: var(--contact-ink); opacity: .8; }
+.contact-cut-light { fill: var(--contact-edge); }
+.contact-cross { fill: none; stroke: var(--contact-edge); stroke-width: 1.2; }
+.hit-contact-critical .hit-contact-core, .hit-contact-heavy .hit-contact-core { animation-duration: 300ms; }
+.contact-shield-face { fill: #839fac; fill-opacity: .12; stroke: #b0cbc9; stroke-width: 1; }
+.contact-shield-seam { fill: none; stroke: #658391; stroke-width: .9; }
+.contact-shield-cut { fill: none; stroke: #e3efe3; stroke-width: 1.8; }
+.hit-contact-shield-hit .contact-shield-seam { opacity: .25; }
+.hit-contact-shield-hit .hit-contact-core { animation: contact-block 240ms ease-out both; animation-delay: var(--contact-delay); }
+.hit-contact-shield-break .hit-contact-core { animation: contact-shield-break 330ms ease-out both; animation-delay: var(--contact-delay); }
+.hit-contact-chips { position: absolute; inset: 0; }
+.hit-contact-chips i { position: absolute; left: 50%; top: 48%; background: var(--contact-chip); animation: contact-chip 440ms cubic-bezier(.17,.72,.25,1) both; animation-delay: var(--contact-delay); }
+.contact-chip-dust { width: 2%; height: 1%; clip-path: polygon(0 30%,85% 0,100% 70%,20% 100%); }
+.contact-chip-glass { width: calc(3% + var(--chip-i) * .15%); height: 7%; background: linear-gradient(125deg,#d6e6df 0 20%,#54758b 24% 45%,#91b5bf 55% 75%,transparent 90%) !important; clip-path: polygon(15% 0,100% 68%,48% 100%,0 62%); }
+.hit-contact-shield-hit .contact-chip-glass { height: 3%; opacity: .7; }
+.hit-break-label { position: absolute; left: 50%; top: -6px; color: #44677b; white-space: nowrap; font-size: clamp(11px,calc(var(--board-cell-size,64px) * .17),15px); font-family: var(--font-body,serif); font-weight: 700; text-shadow: 0 1px 1px #fffcf0; animation: contact-label 600ms ease-out both; animation-delay: var(--contact-delay); }
+@keyframes contact-cut {
+    0% { opacity: 0; transform: scale(.62); }
+    8% { opacity: 1; transform: scale(1); }
+    24% { opacity: .95; transform: scale(1.035); }
+    100% { opacity: 0; transform: scale(1.12); }
+}
+@keyframes contact-block {
+    0% { opacity: 0; transform: scale(.88); }
+    12% { opacity: .8; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.03); }
+}
+@keyframes contact-shield-break {
+    0% { opacity: 0; transform: scale(.86); }
+    10%,25% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.22); }
+}
+@keyframes contact-chip {
+    0%,6% { opacity: 0; transform: translate(-50%,-50%) rotate(var(--chip-angle)); }
+    12% { opacity: .9; }
+    60% { opacity: .6; }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--chip-x) * var(--board-cell-size,64px)),calc(-50% + var(--chip-y) * var(--board-cell-size,64px))) rotate(calc(var(--chip-angle) + 35deg)); }
+}
+@keyframes contact-label {
+    0% { opacity: 0; transform: translate(-50%,2px); }
+    12%,60% { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%,-9px); }
+}
+.floating-damage.is-shield { --damage-number-size: clamp(30px,calc(var(--board-cell-size) * .46),46px); color: #587f96; text-shadow: -1px -1px 0 #fff9ec,1px 1px 0 #fff9ec,0 2px 3px #243d4b55; }
+.battle-board-grid .floating-damage.is-crit { --damage-number-size: clamp(38px,calc(var(--board-cell-size) * .58),58px); color: #c5872b; text-shadow: -1px -1px 0 #fff9df,1px 1px 0 #fff9df,0 3px 4px #6f401a66; }
+.floating-damage .damage-caption { position: absolute; left: 50%; transform: translateX(-50%); top: calc(50% - var(--damage-number-size,30px) / 2 - 14px); font-size: 11px; letter-spacing: 1px; line-height: 1; color: inherit; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+    .hit-contact .hit-contact-core, .hit-break-label { animation-name: contact-accessible; animation-duration: 300ms; }
+    .hit-contact-chips { display: none; }
+    .hit-break-label { transform: translateX(-50%); }
+    @keyframes contact-accessible { 0%,100% { opacity: 0; } 15%,65% { opacity: .8; } }
+}

@@ -144,7 +144,8 @@ export function processWindBladeEntry(mover: Hero, cell: Position, gameState: Ga
     const result = DamageCalculator.calculate(
         source,
         mover,
-        WIND_BLADE_DAMAGE,
+        // 游隼致知2：风刃 4 → 5（这里直接读计数，避免 wind-blade ↔ hero-zhizhi 的循环引用）
+        source.counters['talent_2'] ? WIND_BLADE_DAMAGE + 1 : WIND_BLADE_DAMAGE,
         false,
         true,
         { fixedDamage: true, canCrit: false }

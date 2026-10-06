@@ -19,11 +19,33 @@
  * - tick      短促脉冲（钟表、锁链扣环）
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SAMPLE_RATE = 44100;
+
+/**
+ * 噪声源走可播种的伪随机：生成时按 skillId 播种，这样"只重造某一条音效"
+ * 不会把其他文件的音色悄悄换掉（默认仍是 Math.random，供未播种的临时调用兜底）。
+ */
+let rng = Math.random;
+function rand() { return rng(); }
+function seededRng(seed) {
+    let value = seed >>> 0;
+    return () => {
+        value += 0x6D2B79F5;
+        let t = value;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+function hashSeed(text) {
+    let h = 2166136261;
+    for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    return h >>> 0;
+}
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'sounds', 'skills');
 const MANIFEST_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data', 'skill-sound-files.ts');
 
@@ -125,7 +147,7 @@ function noiseBurst(dur, { from = 2000, to = 400, type = 'bandpass', q = 1, atta
         const t = i / n;
         const freq = from * Math.pow(to / from, t);
         const c = biquad(type, Math.min(freq, SAMPLE_RATE * 0.45), q);
-        const x0 = Math.random() * 2 - 1;
+        const x0 = rand() * 2 - 1;
         const y0 = c.b0 * x0 + c.b1 * x1 + c.b2 * x2 - c.a1 * y1 - c.a2 * y2;
         x2 = x1; x1 = x0; y2 = y1; y1 = y0;
         out[i] = y0 * env[i] * gain;
@@ -187,7 +209,7 @@ function pluck(dur, { freq = 330, damping = 0.996, gain = 1, bright = 0.5 } = {}
     const period = Math.max(2, Math.round(SAMPLE_RATE / freq));
     const ring = new Float32Array(period);
     for (let i = 0; i < period; i++) {
-        ring[i] = (Math.random() * 2 - 1) * bright;
+        ring[i] = (rand() * 2 - 1) * bright;
     }
     let idx = 0;
     for (let i = 0; i < n; i++) {
@@ -233,7 +255,7 @@ function drone(dur, { freqs = [110, 113], type = 'triangle', attack = 0.05, rele
     const n = Math.ceil(dur * SAMPLE_RATE);
     const out = new Float32Array(n);
     const env = envelope(dur, { attack, decay: 0.1, sustain: 0.8, release });
-    const phases = freqs.map(() => Math.random());
+    const phases = freqs.map(() => rand());
     for (let i = 0; i < n; i++) {
         const t = i / SAMPLE_RATE;
         const trem = tremoloHz > 0 ? 0.7 + 0.3 * Math.sin(2 * Math.PI * tremoloHz * t) : 1;
@@ -255,10 +277,10 @@ function wind(dur, { low = 300, high = 1600, lfoHz = 2.2, q = 1.6, attack = 0.08
     let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
     for (let i = 0; i < n; i++) {
         const t = i / SAMPLE_RATE;
-        const lfo = 0.5 + 0.5 * Math.sin(2 * Math.PI * lfoHz * t + Math.random() * 0.05);
+        const lfo = 0.5 + 0.5 * Math.sin(2 * Math.PI * lfoHz * t + rand() * 0.05);
         const freq = low + (high - low) * lfo;
         const c = biquad('bandpass', Math.min(freq, SAMPLE_RATE * 0.45), q);
-        const x0 = Math.random() * 2 - 1;
+        const x0 = rand() * 2 - 1;
         const y0 = c.b0 * x0 + c.b1 * x1 + c.b2 * x2 - c.a1 * y1 - c.a2 * y2;
         x2 = x1; x1 = x0; y2 = y1; y1 = y0;
         out[i] = y0 * env[i] * gain;
@@ -328,12 +350,29 @@ function encodeWav(samples) {
    族系复合模板（同族技能共用骨架，逐技能参数差异化）
    ============================================================ */
 
-/** 斩击族：带通噪声嗖声扫掠 + 低频冲击 +（可选）金属余韵 */
-function swordSlash({ dur = 0.55, from = 3600, to = 520, q = 1.4, hit = 150, hitGain = 0.9, ringFreq = null, ringGain = 0.25 } = {}) {
+/**
+ * 斩击族：刃背破风 → 接触撞击 → 钢的余韵。
+ * 余韵必须用**失谐**模态（1 : 2.39 : 4.16 这类非整数比）：钢条振动的本征频率不是谐波级数，
+ * 用 1:2:3 会听成钟或铃——这正是"武器是剑、音效不像剑"的主因。
+ */
+function swordSlash({
+    dur = 0.55, from = 3600, to = 520, q = 1.4, hit = 150, hitGain = 0.9,
+    ringFreq = null, ringGain = 0.25, steel = true, wind = 0.34,
+} = {}) {
     const b = buffer(dur);
+    // 起手约 90ms 的极薄高频嘶声：先听到"切开空气"，再听到刃 hit 到人
+    place(b, noiseBurst(0.09, { from: from * 1.4, to: from * 0.7, type: 'highpass', q: 0.8, attack: 0.002, release: 0.05, gain: wind }));
     place(b, noiseBurst(dur * 0.7, { from, to, type: 'bandpass', q, attack: 0.004, release: dur * 0.25, gain: 0.9 }));
     place(b, thump(0.3, { freq: hit, dropTo: hit * 0.35, gain: hitGain, crack: 0.3 }), dur * 0.18);
-    if (ringFreq) place(b, bell(dur * 0.8, { freq: ringFreq, ratio: 1.19, modDepth: 1.1, gain: ringGain }), dur * 0.2);
+    if (ringFreq) {
+        place(b, bell(dur * 0.8, { freq: ringFreq, ratio: 1.19, modDepth: 1.1, gain: ringGain }), dur * 0.2);
+        if (steel) {
+            place(b, bell(dur * 0.5, { freq: ringFreq * 2.39, ratio: 1.07, modDepth: 2.4, gain: ringGain * 0.45 }), dur * 0.21);
+            place(b, bell(dur * 0.32, { freq: ringFreq * 4.16, ratio: 1.03, modDepth: 3.6, gain: ringGain * 0.26 }), dur * 0.22);
+            // 高频嗡面：钢的"余音"其实是一小片窄带噪声在快速衰减
+            place(b, noiseBurst(dur * 0.3, { from: ringFreq * 3.2, to: ringFreq * 2.1, type: 'bandpass', q: 8, attack: 0.006, release: 0.16, gain: ringGain * 0.3 }), dur * 0.2);
+        }
+    }
     return b;
 }
 
@@ -1262,6 +1301,116 @@ const RECIPES = {
         place(b, bell(0.4, { freq: 622, ratio: 1.35, modDepth: 2.2, gain: 0.28 }), 0.12);
         return b;
     } },
+
+    /* ===== 云缨：星火照野 / 踏火长驱 / 天威·燎原百斩（长枪·刃） ===== */
+    yunying_skill1: { build: () => {
+        const b = buffer(0.85);
+        // 弧刃三横扫：同一口钢铃换三个高度，避免复制粘贴的电玩感
+        [0, 0.15, 0.3].forEach((at, i) => {
+            place(b, swordSlash({ dur: 0.4, from: 3000, to: 620, q: 1.6, hit: 170, hitGain: 0.55,
+                ringFreq: [880, 1046, 784][i], ringGain: 0.22 }), at);
+        });
+        place(b, noiseBurst(0.35, { from: 5200, to: 1500, type: 'bandpass', q: 1.2, attack: 0.01, release: 0.2, gain: 0.26 }), 0.1);
+        return b;
+    } },
+    yunying_skill2: { build: () => {
+        const b = buffer(0.75);
+        // 长驱一记：更重的突刺，撞击压得更低、钢吟更闷
+        place(b, swordSlash({ dur: 0.55, from: 2600, to: 380, q: 1.3, hit: 110, hitGain: 1.1, ringFreq: 587, ringGain: 0.3 }));
+        place(b, thump(0.35, { freq: 92, dropTo: 34, gain: 0.8, crack: 0.5 }), 0.12);
+        return b;
+    } },
+    yunying_tianwei: { build: () => {
+        const b = buffer(1.15);
+        // 百斩：一路连斩渐强，末尾落点火圈炸开
+        [0, 0.11, 0.22, 0.33, 0.44].forEach((at, i) => {
+            place(b, swordSlash({ dur: 0.34, from: 2800 + i * 180, to: 520, q: 1.5, hit: 150,
+                hitGain: 0.5 + i * 0.12, ringFreq: 740 + i * 90, ringGain: 0.2 }), at);
+        });
+        place(b, thump(0.5, { freq: 130, dropTo: 40, gain: 1, crack: 0.5 }), 0.62);
+        place(b, noiseBurst(0.5, { from: 4200, to: 500, type: 'bandpass', q: 0.9, attack: 0.01, release: 0.3, gain: 0.45 }), 0.62);
+        return b;
+    } },
+
+    /* ===== 惊鸿·止水：掠水惊鸿 / 决渊（剑·水） ===== */
+    jinghong_skill1: { build: () => {
+        const b = buffer(0.7);
+        // 轻剑：起手最高、余韵最短，配一层被切开的水花
+        place(b, swordSlash({ dur: 0.42, from: 4200, to: 900, q: 1.8, hit: 190, hitGain: 0.6, ringFreq: 1318, ringGain: 0.24 }));
+        place(b, noiseBurst(0.22, { from: 1800, to: 6200, type: 'bandpass', q: 2.4, attack: 0.006, release: 0.12, gain: 0.3 }), 0.13);
+        return b;
+    } },
+    jinghong_skill2: { build: () => {
+        const b = buffer(1);
+        // 蓄力段低鸣被拉起，随后两记交叉剑光
+        place(b, drone(0.42, { freqs: [196, 294.5], type: 'triangle', attack: 0.05, release: 0.12, gain: 0.34 }));
+        place(b, swordSlash({ dur: 0.45, from: 4000, to: 700, q: 1.7, hit: 150, hitGain: 0.9, ringFreq: 1174, ringGain: 0.3 }), 0.36);
+        place(b, swordSlash({ dur: 0.45, from: 3200, to: 560, q: 1.5, hit: 130, hitGain: 0.8, ringFreq: 880, ringGain: 0.26 }), 0.5);
+        return b;
+    } },
+
+    /* ===== 血契：血誓横扫 / 以血还血（重刃） ===== */
+    xueqi_skill1: { build: () => {
+        const b = buffer(0.9);
+        // 重剑横扫：钢吟挑低频、撞击加厚，底下垫一层黏稠血气
+        place(b, swordSlash({ dur: 0.62, from: 2200, to: 300, q: 1.1, hit: 96, hitGain: 1.15, ringFreq: 392, ringGain: 0.34 }));
+        place(b, drone(0.5, { freqs: [73, 74.6], type: 'sine', attack: 0.03, release: 0.25, gain: 0.34 }), 0.1);
+        return b;
+    } },
+    xueqi_skill2: { build: () => {
+        const b = buffer(0.8);
+        // 以血还血：先一记钝击（盾面挨上），钢的余韵只留极短一截
+        place(b, thump(0.42, { freq: 108, dropTo: 38, gain: 1.1, crack: 0.55 }));
+        place(b, swordSlash({ dur: 0.3, from: 1900, to: 420, q: 1.2, hit: 140, hitGain: 0.5, ringFreq: 523, ringGain: 0.16 }), 0.16);
+        return b;
+    } },
+
+    /* ===== 游隼：疾掠 / 布风刃（飞刀） ===== */
+    youjun_skill1: { build: () => {
+        const b = buffer(0.6);
+        // 疾掠：破风为主，刃只轻轻一咬，风噪要盖过钢声
+        place(b, wind(0.4, { low: 260, high: 2600, lfoHz: 9, q: 1.1, attack: 0.02, release: 0.18, gain: 0.8 }));
+        place(b, swordSlash({ dur: 0.26, from: 3800, to: 820, q: 2, hit: 210, hitGain: 0.4, ringFreq: 1568, ringGain: 0.16, wind: 0.2 }), 0.12);
+        return b;
+    } },
+    youjun_skill2: { build: () => {
+        const b = buffer(0.85);
+        // 周身布刃：三声短掷，每枚刀片的金属尾音错开高度
+        [0, 0.16, 0.32].forEach((at, i) => {
+            place(b, swordSlash({ dur: 0.3, from: 3400, to: 700, q: 1.9, hit: 230, hitGain: 0.42,
+                ringFreq: [1244, 1046, 1396][i], ringGain: 0.2, wind: 0.26 }), at);
+        });
+        return b;
+    } },
+
+    /* ===== 夺岁：收年刀（斩岁 / 偿岁 / 血诏）===== */
+    duosui_skill1: { build: () => {
+        const b = buffer(0.95);
+        // 斩岁：一刀带走寿数。钢声要闷（收年刀不追求锋利的高频），
+        // 底下压一条持续下坠的"抽离"音，落点是一记像心跳漏了一拍的低闷响。
+        place(b, swordSlash({ dur: 0.55, from: 1700, to: 240, q: 1.05, hit: 88, hitGain: 1.2, ringFreq: 294, ringGain: 0.3 }));
+        place(b, tone(0.5, { freq: 330, freqTo: 92, type: 'sawtooth', attack: 0.02, release: 0.2, gain: 0.26 }), 0.1);
+        place(b, thump(0.42, { freq: 96, dropTo: 38, gain: 0.9, crack: 0.28 }), 0.3);
+        return b;
+    } },
+    duosui_skill2: { build: () => {
+        const b = buffer(0.9);
+        // 偿岁：血往夺岁身上收。先一记短斩，再让噪声由低到高"倒吸"回去，
+        // 结尾一枚清亮的护盾叮声——听感上要能听出"收进来一面盾"。
+        place(b, swordSlash({ dur: 0.34, from: 2600, to: 620, q: 1.5, hit: 150, hitGain: 0.62, ringFreq: 587, ringGain: 0.22 }));
+        place(b, noiseBurst(0.4, { from: 420, to: 3400, type: 'bandpass', q: 2.2, attack: 0.14, release: 0.1, gain: 0.34 }), 0.14);
+        place(b, bell(0.44, { freq: 1046, gain: 0.3 }), 0.42);
+        return b;
+    } },
+    duosui_tianwei: { build: () => {
+        const b = buffer(1.05);
+        // 血诏：宣诏落印。低频厚鸣先立起来，一枚高 bell 当"印"，
+        // 最后压一刀预备的横扫，提示下一次攻击被养厚了。
+        place(b, drone(0.6, { freqs: [110, 164.8], type: 'sine', attack: 0.04, release: 0.24, gain: 0.36 }));
+        place(b, bell(0.5, { freq: 1396, gain: 0.26 }), 0.16);
+        place(b, swordSlash({ dur: 0.5, from: 2100, to: 320, q: 1.2, hit: 110, hitGain: 0.95, ringFreq: 440, ringGain: 0.28 }), 0.5);
+        return b;
+    } },
 };
 
 /* ============================================================
@@ -1275,15 +1424,41 @@ function main() {
         console.error('RECIPES 为空，退出');
         process.exit(1);
     }
+    // --only=a,b 只重造指定几条：其余文件与清单保持原样，避免"改一个换掉一片"
+    const onlyArg = process.argv.find(arg => arg.startsWith('--only='));
+    const only = onlyArg ? new Set(onlyArg.slice('--only='.length).split(',').filter(Boolean)) : null;
+    const selected = entries.filter(([skillId]) => !only || only.has(skillId));
+    if (selected.length === 0) {
+        console.error(`--only 里没有匹配的配方：${[...only].join(', ')}`);
+        process.exit(1);
+    }
+    const manifestPath = MANIFEST_PATH;
+    const existing = readFileSync(manifestPath, 'utf8');
     const manifest = [];
-    for (const [skillId, recipe] of entries) {
+    for (const [skillId, recipe] of selected) {
+        rng = seededRng(hashSeed(skillId));
         const raw = recipe.build();
         const final = deClick(normalize(raw, 0.85));
         const wav = encodeWav(final);
         writeFileSync(join(OUT_DIR, `${skillId}.wav`), wav);
         manifest.push({ skillId, file: `skills/${skillId}.wav`, ms: Math.round((final.length / SAMPLE_RATE) * 1000) });
     }
+    if (only) {
+        // 局部重造：只替换清单里对应的行，其余条目不动
+        const lines = existing.split('\n');
+        for (const m of manifest) {
+            const idx = lines.findIndex(line => line.startsWith(`    ${m.skillId}: `));
+            const row = `    ${m.skillId}: '${m.file}',`;
+            if (idx >= 0) lines[idx] = row;
+            else lines.splice(lines.length - 2, 0, row);
+        }
+        writeFileSync(manifestPath, lines.join('\n'));
+    }
 
+    if (only) {
+        console.log(`已局部重造 ${manifest.length} 个音效：${manifest.map(m => m.skillId).join(', ')}`);
+        return;
+    }
     const lines = [
         '/**',
         ' * 技能专属音效文件清单（由 scripts/generate-skill-sounds.mjs 自动生成，请勿手改）',
@@ -1300,4 +1475,7 @@ function main() {
     for (const m of manifest) console.log(`  ${m.skillId.padEnd(26)} ${String(m.ms).padStart(5)} ms`);
 }
 
-main();
+// Material clips reuse the DSP without regenerating unrelated character sounds.
+export { buffer, place, noiseBurst, tone, bell, thump, wind, drone, normalize, deClick, encodeWav };
+export function seedSound(id) { rng = seededRng(hashSeed(id)); }
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

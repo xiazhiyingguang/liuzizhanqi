@@ -1,16 +1,18 @@
 import { useGameStore } from '../store/game-store';
-import { soundManager } from '../core/sound-manager';
-import { getSkillSound } from '../data/skill-sounds';
+import { collectFormShiftLogIds } from '../core/mechanism-fx-events';
 import {
     collectImpactPositions,
     computeFxAngleDeg,
     computeFxDirection,
+    computeSkillAreaBounds,
     resolveSkillFx,
     SKILL_FX_PROFILES
 } from '../core/skill-fx';
 import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
 import { MovementSystem } from '../core/movement-system';
 import { getSkill } from '../data/skills';
+import { collapseCoalescedSkillFxRequests } from '../data/extended-skills';
+import type { PendingSkillFxRequest } from '../data/extended-skills';
 import type { Player, Position } from '../types/game';
 
 /**
@@ -131,7 +133,8 @@ const CLEAR_WHEN_MISSING_KEYS = [
     'reinforceResumeContext',
     'resumePlayer',
     'pendingForcedActionHeroId',
-    'forcedActionResumePlayer'
+    'forcedActionResumePlayer',
+    'skillFxExtras'
 ] as const;
 
 export function applyServerGameState(gameState: any) {
@@ -154,6 +157,7 @@ export function applyServerGameState(gameState: any) {
 /** 一次待确认的施法表现回放：记录行动方施法瞬间本地 store 里才有的信息 */
 export interface OnlineCastReplay {
     skillId: string;
+    sourceHeroId?: string;
     owner: Player;
     fromPos: Position;
     targetPos: Position;
@@ -165,9 +169,8 @@ export interface OnlineCastReplay {
  * 联机对端的施法表现回放（准备阶段）。
  *
  * 战斗阶段行动方提交的是"技能已结算完"的权威快照，对端直接 setState 落地、
- * 不会重跑 executeSkill —— 而音效挂在 executeSkillBase、特效挂在 executeSkill
- * 包装层，因此未出手的一方原本看不到任何战斗表现。这里按 action 载荷重建：
- * 音效与行动方同一时机播放（结算开始即响），特效所需数据先从本地快照取。
+ * 不会重跑 executeSkill。这里按 action 载荷重建事件，音效和画面统一由
+ * pushSkillFx 派发，特效所需数据先从本地快照取。
  */
 export function prepareOnlineCastReplay(action: any): OnlineCastReplay | null {
     if (action?.type !== 'skill') return null;
@@ -177,10 +180,10 @@ export function prepareOnlineCastReplay(action: any): OnlineCastReplay | null {
 
     const state = useGameStore.getState();
     const hero = [...state.player1Heroes, ...state.player2Heroes].find(h => h.id === heroId);
-    soundManager.playSkill(skillId, getSkillSound(skillId));
 
     return {
         skillId,
+        sourceHeroId: hero?.id,
         owner: hero?.owner ?? state.currentPlayer,
         // 瞬移/位移类技能会改写 hero.position，必须在快照落地前读起始格
         fromPos: hero?.position ?? (targetPos as Position),
@@ -194,42 +197,142 @@ export function prepareOnlineCastReplay(action: any): OnlineCastReplay | null {
  * 本次动作产生了非 system 类新日志，才视为真实施法并派发特效。
  * 新日志按 id 集合差分取出：battleLog 里伤害日志是原地 push、其余是换新数组，
  * 两者混排后并不按时间有序，按锚点切片会把本次的伤害日志漏掉。
+ *
+ * 也供"纯状态同步"路径（game-state-update）复用：挂起选格确认、行动结束的延迟段
+ * 这些走 sync 而不是 action 的更新，若不在这里重建，对手整段都看不到画面与音效。
  */
+export function commitOnlineTriggeredFx(logIdsBefore: Set<string>): void {
+    const state = useGameStore.getState();
+    const requests: PendingSkillFxRequest[] = [];
+    for (const log of state.battleLog.filter(entry => !logIdsBefore.has(entry.id))) {
+        const request = log.details?.skillFxRequest as PendingSkillFxRequest | undefined;
+        if (!request || !SKILL_FX_PROFILES[request.skillId]) continue;
+        requests.push(request);
+    }
+    // 与本地派发同一套合并口径：逐格上报的恢复段只响一次音效
+    for (const request of collapseCoalescedSkillFxRequests(requests)) {
+        const angleDeg = computeFxAngleDeg(request.fromPos, request.targetPos);
+        state.pushSkillFx({ ...request, profile: resolveSkillFx(request.skillId), angleDeg,
+            direction: computeFxDirection(angleDeg), coveredPositions: request.coveredPositions ?? request.impactPositions });
+    }
+}
+
 export function commitOnlineCastReplay(replay: OnlineCastReplay | null): void {
     if (!replay) return;
     const state = useGameStore.getState();
     const freshLogs = state.battleLog.filter(entry => !replay.logIdsBefore.has(entry.id));
     if (!freshLogs.some(entry => entry.type !== 'system')) return;
 
-    const angleDeg = computeFxAngleDeg(replay.fromPos, replay.targetPos);
+    const extras = state.skillFxExtras;
+    useGameStore.setState({ skillFxExtras: undefined });
+    const fromPos = extras?.fromPos ?? replay.fromPos;
+    const targetPos = extras?.targetPos ?? replay.targetPos;
+    const angleDeg = computeFxAngleDeg(fromPos, targetPos);
     // 与行动方 executeSkill 包装层同判据：命中格取本次新增日志，区域格按技能几何重算。
     // 两者只依赖静态技能数据与已随快照同步的 battleLog，无需新增网络字段。
     // 特例：绯雪技能1击碎冰冻时，行动方以 fxVariant 切换「破冰爆震」形态，
     // 对端按其专属技能日志（"击碎了…的冰冻"）识别同一形态并同步铺 3x3 爆震范围。
     const shatteredFrozen = replay.skillId === 'feixue_skill1' &&
         freshLogs.some(entry => entry.type === 'skill' && /击碎了.+的冰冻/.test(entry.message));
-    const profile = shatteredFrozen
+    const profile = extras?.fxVariant && SKILL_FX_PROFILES[extras.fxVariant]
+        ? SKILL_FX_PROFILES[extras.fxVariant]
+        : shatteredFrozen
         ? (SKILL_FX_PROFILES.feixue_shatter ?? resolveSkillFx(replay.skillId))
         : resolveSkillFx(replay.skillId);
-    const impacts = collectImpactPositions(freshLogs, replay.targetPos);
+    const ownLogs = freshLogs.filter(entry => !entry.details?.skillFxRequest &&
+        (!entry.details?.sourceHeroId || entry.details.sourceHeroId === replay.sourceHeroId));
+    const impacts = collectImpactPositions(ownLogs, targetPos);
+    const coveredPositions = extras?.coveredPositions?.length ? extras.coveredPositions
+        : shatteredFrozen ? [targetPos, ...MovementSystem.getAreaPositions(targetPos, 3)]
+        : computeFxCoveredPositions(getSkill(replay.skillId), fromPos, targetPos, profile);
     state.pushSkillFx({
         profile,
+        skillId: replay.skillId,
+        sourceHeroId: replay.sourceHeroId,
+        logIds: replay.skillId === 'jetzmi_skill2'
+            ? [...ownLogs.map(entry => entry.id), ...collectFormShiftLogIds(freshLogs, replay.sourceHeroId)]
+            : ownLogs.map(entry => entry.id),
+        damagePositions: impacts.damagePositions ?? [],
+        empowered: extras?.empowered,
         owner: replay.owner,
-        fromPos: replay.fromPos,
-        targetPos: replay.targetPos,
+        fromPos,
+        targetPos,
         angleDeg,
         direction: computeFxDirection(angleDeg),
-        impactPositions: impacts.impactPositions,
-        softImpactPositions: impacts.softImpactPositions,
-        coveredPositions: shatteredFrozen && replay.targetPos
-            ? [replay.targetPos, ...MovementSystem.getAreaPositions(replay.targetPos, 3)]
-            : computeFxCoveredPositions(
-                getSkill(replay.skillId),
-                replay.fromPos,
-                replay.targetPos,
-                profile
-            ),
+        impactPositions: ['coin-blessing', 'chord-aura', 'chord-notes'].includes(profile.kind)
+            ? coveredPositions : impacts.impactPositions,
+        softImpactPositions: profile.recovery === 'sonata' ? coveredPositions : impacts.softImpactPositions,
+        coveredPositions,
+        splashPositions: extras?.splashPositions,
+        chainLinks: extras?.chainLinks,
+        areaBounds: profile.fxArea === 'none' ? undefined : computeSkillAreaBounds(getSkill(replay.skillId) ?? { type: 'special', rangeType: 'single' }, coveredPositions) ?? undefined,
     });
+}
+
+/** 服务端席位重连宽限（对应 server.js 的 RECONNECT_GRACE_MS），仅用于对面也掉线时的倒计时显示 */
+const RESUME_OPPONENT_GRACE_MS = 120_000;
+
+/**
+ * 掉线重连后重建局面：战斗阶段直接落服务端权威快照；选将/布阵阶段按服务端记录重放。
+ * 抽到 online-state 里是因为两条回席路径（连接自动重连、刷新后重新输入房间码）
+ * 必须走同一份实现，否则一边能救回对局、另一边不能。
+ */
+export function applyResumePayload(payload: any): void {
+    const store = useGameStore.getState();
+    useGameStore.setState({ suppressOnlineBroadcast: true });
+    try {
+        store.initGame();
+        // 模式要在回放选将之前落位：确认选将时按它决定进"武装"还是直接"布阵"
+        useGameStore.setState({ gameMode: payload.gameMode === 'classic' ? 'classic' : 'standard' });
+        // initGame 会清掉联机临时状态，重连标记必须落在它之后
+        useGameStore.setState({
+            isOnlineMode: true,
+            onlineRoomId: payload.roomId ?? useGameStore.getState().onlineRoomId,
+            localPlayerNumber: payload.playerNumber ?? useGameStore.getState().localPlayerNumber,
+            onlineSelfReconnecting: false,
+            onlineOpponentOfflineUntil: payload.opponentOffline
+                ? Date.now() + RESUME_OPPONENT_GRACE_MS
+                : undefined
+        });
+
+        if (payload.gameState) {
+            applyServerGameState(payload.gameState);
+            return;
+        }
+
+        for (const side of ['player1', 'player2'] as const) {
+            for (const heroId of payload.heroSelections?.[side] ?? []) {
+                useGameStore.getState().selectHeroForPlayer(side, heroId);
+            }
+            if (payload.heroSelectReady?.[side]) {
+                useGameStore.getState().confirmHeroSelectionForPlayer(side);
+            }
+        }
+        // 武装账本重放：标准模式房间里 phase 已是 deploy，这段会被阶段守卫自然挡掉
+        for (const side of ['player1', 'player2'] as const) {
+            for (const heroId of Object.keys(payload.weaponSelections?.[side] ?? {})) {
+                useGameStore.getState().toggleWeaponForPlayer(side, heroId);
+            }
+            if (payload.weaponReady?.[side]) {
+                useGameStore.getState().confirmWeaponSelectionForPlayer(side);
+            }
+        }
+        if (payload.phase === 'deploy' || payload.phase === 'battle') {
+            for (const side of ['player1', 'player2'] as const) {
+                for (const [heroId, cell] of payload.deployments?.[side] ?? []) {
+                    const [row, col] = String(cell).split(',').map(Number);
+                    useGameStore.getState().deployHeroForPlayer(side, heroId, [row, col]);
+                }
+                if (payload.deployReady?.[side]) {
+                    useGameStore.getState().confirmDeploymentForPlayer(side);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[联机同步] 重连后重建局面失败:', error);
+    } finally {
+        useGameStore.setState({ suppressOnlineBroadcast: false });
+    }
 }
 
 /**
@@ -237,7 +340,9 @@ export function commitOnlineCastReplay(replay: OnlineCastReplay | null): void {
  * 抽成单一入口，是为了让联机回归测试驱动与 useOnlineSync 完全相同的分支。
  */
 export function applySnapshotAction(action: any, gameState: any): void {
+    const logIdsBefore = new Set(useGameStore.getState().battleLog.map(log => log.id));
     const castReplay = prepareOnlineCastReplay(action);
     applyServerGameState(gameState);
+    commitOnlineTriggeredFx(logIdsBefore);
     commitOnlineCastReplay(castReplay);
 }

@@ -140,6 +140,9 @@ const AREA_TITLES: Record<BoardEffect['type'], string> = {
     'water-moon': '水月之影',
     'moon-seat': '月座',
     'shadow-mark': '残影',
+    'light-prism': '光棱',
+    'water-marsh': '水泽',
+    'fish-hook': '鱼钩',
     brush: '毛笔',
 };
 

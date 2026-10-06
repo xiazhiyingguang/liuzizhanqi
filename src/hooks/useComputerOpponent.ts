@@ -15,6 +15,8 @@ import {
     chooseComputerTemporaryDeadTarget,
     chooseComputerWukongStepPosition,
     chooseComputerWukongStrikeTarget,
+    chooseJinghuaSummonTemplate,
+    chooseJinghuaSwapTarget,
     isSelfPropellingSkill,
     planJointMoveForHero,
     resetCachedComputerTeam,
@@ -24,12 +26,14 @@ import {
     type ComputerJointMovePlan,
 } from '../core/computer-ai';
 import { noteAiDecision } from '../services/battle-replay';
+import { GameEngine } from '../core/game-engine';
 import { useGameStore } from '../store/game-store';
 import { getSkill } from '../data/skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
+import { HeroState } from '../types/game';
 import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
-import { AVAILABLE_HERO_IDS, getHeroInfo } from '../data/heroes';
-import { getHeroAbilityRatings } from '../data/hero-ratings';
+import { AVAILABLE_HERO_IDS } from '../data/heroes';
+import { heroXRedirectCost } from '../core/hero-zhizhi';
 import { MovementSystem } from '../core/movement-system';
 
 const AI_PLAYER = 'player2' as const;
@@ -141,6 +145,56 @@ function fallbackTargetPosition(
     })[0] ?? null;
 }
 
+/**
+ * 疾掠是否会咬到人：伤害只结算"起点与落点之间"的那些格子，
+ * 所以冲 1 格、或直线上没有敌人的落点，放出来都是一次零伤害的位移。
+ */
+function dashPiercesEnemy(
+    state: ReturnType<typeof useGameStore.getState>,
+    caster: Hero,
+    landing: Position
+): boolean {
+    const from = caster.position;
+    if (!from) return false;
+    const direction = MovementSystem.getDirection(from, landing);
+    const distance = MovementSystem.getManhattanDistance(from, landing);
+    if (!direction || distance < 2) return false;
+    const deltas: Record<string, [number, number]> =
+        { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] };
+    const [dr, dc] = deltas[direction];
+    for (let step = 1; step < distance; step++) {
+        const occupant = state.board[from[0] + dr * step]?.[from[1] + dc * step];
+        if (occupant && occupant.owner !== caster.owner && occupant.state === HeroState.ALIVE) return true;
+    }
+    return false;
+}
+
+/** 锚点还算"新鲜"的距离：从那一格出手够得到任一敌人，才值得花掉一次瞬移链 */
+const LIBAI_ANCHOR_USEFUL_RANGE = 2;
+/** 方案分高到只剩斩杀能给出的量级时，别为了走位放掉这一刀 */
+const LIBAI_KILL_PLAN_SCORE = 200;
+
+/**
+ * 李太白该不该先走一步再放技能。
+ * 他的历史锚点由 `GameEngine.recordLibaiStay` 在"自己走完一次移动"时记账（强制位移不算），
+ * 站着不动就永远攒不出锚点，被动链一次也不会启动——等于把他一半输出删了。
+ */
+function libaiShouldWalkFirst(
+    state: GameState,
+    caster: Hero,
+    move: Position | null,
+    skillPlan: { score: number } | null
+): boolean {
+    if (caster.passiveId !== 'libai_passive' || caster.hasMovedThisTurn || !caster.position || !move) return false;
+    if (skillPlan && skillPlan.score >= LIBAI_KILL_PLAN_SCORE) return false;
+    const anchors = GameEngine.libaiHistoryPositions(caster);
+    if (anchors.length === 0) return true;
+    const enemies = (caster.owner === 'player1' ? state.player2Heroes : state.player1Heroes)
+        .filter(hero => hero.state === HeroState.ALIVE && hero.position);
+    return !anchors.some(cell => enemies.some(enemy =>
+        Math.abs(enemy.position![0] - cell[0]) + Math.abs(enemy.position![1] - cell[1]) <= LIBAI_ANCHOR_USEFUL_RANGE));
+}
+
 function nextPlannedTarget(
     state: ReturnType<typeof useGameStore.getState>,
     caster: Hero,
@@ -156,13 +210,38 @@ function nextPlannedTarget(
         const [first] = pending;
         const isDiagonal = (position: Position) =>
             Math.abs(position[0] - first[0]) === 1 && Math.abs(position[1] - first[1]) === 1;
-        const fromPlan = plan?.targetPositions.find(position =>
-            isDiagonal(position) && isAllowed(position) && !pending.some(candidate => samePosition(candidate, position))
-        );
-        if (fromPlan) return fromPlan;
-        const fallback = allowed.find(isDiagonal);
-        if (fallback) return fallback;
-        return null;
+        // 第二角不能照着"刚重新规划出来的方案"找：每次点击都会重算一次方案，
+        // 而方案选择带容差随机，两次很容易落在不同的 2x2 上，那时旧实现退化成
+        // "取高亮表里第一个对角格"，罩不到人（实测随机布阵 120 次里失败 52 次）。
+        // 直接按棋盘现况挑能把敌人圈进去的那一格。
+        const enemiesInRegion = (second: Position) => {
+            const minRow = Math.min(first[0], second[0]);
+            const maxRow = Math.max(first[0], second[0]);
+            const minCol = Math.min(first[1], second[1]);
+            const maxCol = Math.max(first[1], second[1]);
+            let count = 0;
+            for (let row = minRow; row <= maxRow; row++) {
+                for (let col = minCol; col <= maxCol; col++) {
+                    const occupant = state.board[row]?.[col];
+                    if (occupant?.owner !== caster.owner && occupant?.state === HeroState.ALIVE) count++;
+                }
+            }
+            return count;
+        };
+        const options = allowed.filter(position => isDiagonal(position));
+        let best: Position | null = null;
+        let bestCover = 0;
+        for (const option of options) {
+            const cover = enemiesInRegion(option);
+            if (cover > bestCover) {
+                bestCover = cover;
+                best = option;
+            }
+        }
+        if (best) return best;
+        // 一个敌人都圈不住（首点本身来自罩得住人的方案时不会走到这里）：
+        // 仍回一格合法对角，别把回合挂在"等你点第二角"上
+        return options[0] ?? null;
     }
 
     // 南风引风成道：两步点击，风向计数器是否已写入决定这一步点方向格还是点行列格
@@ -170,6 +249,16 @@ function nextPlannedTarget(
         const step = caster.counters['__nanfeng_skill2_dir'] === undefined ? 0 : 1;
         const fromPlan = plan.targetPositions[step];
         if (isAllowed(fromPlan)) return fromPlan;
+    }
+
+    // 游隼疾掠：落点必须是"真能穿到人"的那条直线。
+    // 走位后重新规划常与方案错位，旧逻辑这时会退回 fallbackTargetPosition，
+    // 在合法落点里随便挑一格空冲（实测每局约 1.3 次空放），把冲刺当成免费位移。
+    if (skill.id === 'youjun_skill1') {
+        const fromPlan = plan?.targetPositions.find(position =>
+            isAllowed(position) && !pending.some(candidate => samePosition(candidate, position)));
+        if (fromPlan) return fromPlan;
+        return allowed.find(position => isAllowed(position) && dashPiercesEnemy(state, caster, position)) ?? null;
     }
 
     const unused = plan?.targetPositions.find(position =>
@@ -186,7 +275,7 @@ function configurePassiveChoice(state: ReturnType<typeof useGameStore.getState>,
     const store = useGameStore.getState();
     if (
         caster.passiveId === 'hero_x_passive' &&
-        (caster.counters['增势'] ?? 0) >= 3 &&
+        (caster.counters['增势'] ?? 0) >= heroXRedirectCost(caster) &&
         !state.heroXRedirectTargetIds?.[caster.id]
     ) {
         const target = chooseComputerSupportTarget(state, caster);
@@ -259,37 +348,15 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'jinghua_skill1' && caster.passiveId === 'jinghua_passive') {
-        // 水月换身：把最深入的友方换出来——仅当镜花自己站在安全位时才值得换
-        if (!caster.position) { store.endHeroAction(); return; }
-        const foesAround = (pos: Position) => {
-            let count = 0;
-            for (let r = 0; r < 6; r++) {
-                for (let c = 0; c < 6; c++) {
-                    const unit = state.board[r][c];
-                    if (unit && unit.owner !== caster.owner && unit.state === 'alive' &&
-                        Math.abs(r - pos[0]) + Math.abs(c - pos[1]) <= 1) count++;
-                }
-            }
-            return count;
-        };
-        if (foesAround([...caster.position] as Position) === 0) {
-            let bestAlly: Position | null = null;
-            let bestDanger = 1; // 至少贴着1名敌人才值得换
-            const allies = caster.owner === 'player1' ? state.player1Heroes : state.player2Heroes;
-            for (const ally of allies) {
-                if (ally.id === caster.id || ally.state !== 'alive' || !ally.position) continue;
-                const danger = foesAround(ally.position as Position);
-                if (danger > bestDanger) {
-                    bestDanger = danger;
-                    bestAlly = [...ally.position] as Position;
-                }
-            }
-            if (bestAlly) {
-                store.executeSkill(bestAlly);
-                return;
-            }
+        // 水月换身：判据与规划端共用 chooseJinghuaSwapTarget。换不动时把技能选掉退回走位，
+        // 不能再 endHeroAction——那等于把整次行动白送给一个注定落空的方案
+        const swap = chooseJinghuaSwapTarget(state, caster);
+        if (swap) {
+            store.executeSkill(swap);
+            return;
         }
-        store.endHeroAction();
+        caster.counters['__ai_jinghua_swap_aborted'] = state.roundNumber;
+        useGameStore.setState({ selectedSkill: null, skillRange: [], highlightedPositions: [] });
         return;
     }
 
@@ -326,13 +393,10 @@ function executeSelectedSkillStep(
             }
         }
         if (!bestLanding) { store.endHeroAction(); return; }
-        // 等价于人类点选候补：挑面板最能打的候补当替身（印月按镜影层数放大攻防，
-        // 输出/成长越高的候补吃得越满），写入选择计数器后走同一条 execute 校验
-        const valueOf = (templateId: string) => {
-            const ratings = getHeroAbilityRatings(getHeroInfo(templateId)?.name ?? '');
-            return ratings ? ratings.输出 * 2 + ratings.成长 : 0;
-        };
-        const bestBench = [...bench].sort((a, b) => valueOf(b) - valueOf(a))[0];
+        // 等价于人类点选候补：与模拟评估共用同一个选择口径（chooseJinghuaSummonTemplate），
+        // 否则会出现"按 A 算的分、实际派 B 登场"的错位
+        const bestBench = chooseJinghuaSummonTemplate(bench);
+        if (!bestBench) { store.endHeroAction(); return; }
         caster.counters['__jinghua_summon_pick'] = bench.indexOf(bestBench);
         store.executeSkill(bestLanding);
         return;
@@ -782,6 +846,14 @@ function executeBattleStep(
         const hero = [...state.player1Heroes, ...state.player2Heroes]
             .find(candidate => candidate.id === state.pendingBoardAction?.heroId);
         if (hero?.owner === aiPlayer) {
+            if (state.pendingBoardAction.type === 'jiangtaigong-hook') {
+                // 玩家在自己回合里踩了电脑埋的鱼钩：这一格只有电脑答得了。
+                // 不能走下面"挂起漂到别人回合就作废"那条——照它办，姜太公的钩子对人类走位永远不咬
+                const position = chooseComputerPendingBoardPosition(state, hero);
+                if (position) store.resolvePendingBoardAction(position, { byComputer: true });
+                else store.abandonPendingBoardAction();
+                return;
+            }
             if (hasDanglingPendingFor(state, aiPlayer)) {
                 // 挂起漂到了别人的回合：这一格只有电脑解得开，但按正常解析结算会替她走一遍
                 // endHeroAction（把她的行动序号与效果过期时间提前扣掉），所以只作废、不结算
@@ -790,10 +862,17 @@ function executeBattleStep(
             }
             const position = chooseComputerPendingBoardPosition(state, hero);
             if (position) store.resolvePendingBoardAction(position, { byComputer: true });
-            else if (state.pendingBoardAction.type === 'yunying-tianwei') {
+            else if (state.pendingBoardAction.type === 'yunying-tianwei'
+                || state.pendingBoardAction.type === 'zhiguang-tianwei') {
                 // 电脑挑不出值得斩的落点：交给"行动收尾自动放行"这条兜底出口，别在挂起处原地卡住
                 store.endHeroAction();
             }
+            return;
+        }
+        if (hero && state.pendingBoardAction.type === 'jiangtaigong-hook') {
+            // 电脑的单位被玩家的鱼钩钩住了：落点归玩家点。电脑这一拍什么都不做——
+            // 继续往下走会把自己那手漂进别人的挂起里，抛掷就永远没人答
+            if (hero.state !== HeroState.ALIVE || !hero.position) store.abandonPendingBoardAction();
             return;
         }
     }
@@ -843,10 +922,14 @@ function executeBattleStep(
     // 其余技能按"原地打"与"先挪一步再打"两种总分比较，谁高用谁。
     const planIsDamage = getSkill(skillPlan?.skillId ?? '')?.type === 'damage';
     const planScoreBar = planIsDamage ? JOINT_PLAN_SCORE_THRESHOLD : JOINT_PLAN_UTILITY_SCORE_THRESHOLD;
-    const castInPlace = !!skillPlan && (
+    const move = chooseComputerMove(state, caster);
+    // 李太白的输出大头在瞬移链里，而链的锚点只由"他自己走完一次移动"产生：
+    // 站着放技能是局部最优，代价是锚点永远为空、被动一次都不启动（实测 60 局走位 0 次）。
+    // 所以本回合还没移动、且锚点陈旧或压根没有锚点时，先走一步把落点存成锚点。
+    const walkForAnchor = libaiShouldWalkFirst(state, caster, move, skillPlan);
+    const castInPlace = !walkForAnchor && !!skillPlan && (
         skillPlan.score >= planScoreBar || isSelfPropellingSkill(skillPlan.skillId)
     );
-    const move = chooseComputerMove(state, caster);
     const canReposition = !caster.hasMovedThisTurn && !!move && !isSelfPropellingSkill(skillPlan?.skillId);
     // 联合规划返回非 null，即代表"先移动再释放"的总分显著高于原地方案（门槛在规划器内）
     const joint = canReposition ? rememberJointMovePlan(state, caster, skillPlan) : null;
@@ -893,6 +976,17 @@ export function runComputerOpponentStep(repeatCount = 0): void {
             useGameStore.getState().confirmHeroSelectionForPlayer(AI_PLAYER);
             useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成选将` });
         }
+        return;
+    }
+
+    if (state.phase === 'weapon-select' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyWeaponSelect) {
+        // 经典模式：电脑默认把可用专属器全带上，与"玩家全启用"对称，平衡读数不会被单边武器污染
+        for (const heroId of state.player2SelectedHeroIds) {
+            if (useGameStore.getState().player2WeaponIds?.[heroId]) continue;
+            useGameStore.getState().toggleWeaponForPlayer(AI_PLAYER, heroId);
+        }
+        useGameStore.getState().confirmWeaponSelectionForPlayer(AI_PLAYER);
+        useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成武装` });
         return;
     }
 
@@ -954,31 +1048,77 @@ function deployComputerReinforcement(aiPlayer: Player): void {
     useGameStore.getState().deployReinforcement(position);
 }
 
-/** 驱动玩家2的选将、布阵和战斗。每一步之间保留短暂停顿，便于玩家观察电脑决策。 */
+/**
+ * 此刻该由哪一侧出手：补员优先，其次是"挂起漂到了非行动方手里"的那一侧，最后才是当前行动方。
+ *
+ * 姜太公的鱼钩天生就是这种：钩是在对手回合里被踩响的，落点却归钩主点（联机侧为此专门放行了
+ * sync-game-state），所以钩主那一刻不是行动方。跑批与"AI 接管"下两侧都由电脑代打，
+ * 步进器若只走 currentPlayer，钩主永远轮不到答这一手（实测 50 局里 6 局停在这里）。
+ * 真实对局里这一手由人类点，不会撞上——所以只有跑批/接管需要这个口径。
+ */
+export function battleActorFor(state: Pick<GameState,
+    'currentPlayer' | 'reinforcingPlayer' | 'pendingBoardAction' | 'player1Heroes' | 'player2Heroes'>): Player {
+    if (state.reinforcingPlayer) return state.reinforcingPlayer;
+    const pending = state.pendingBoardAction;
+    if (pending) {
+        const owner = [...state.player1Heroes, ...state.player2Heroes]
+            .find(hero => hero.id === pending.heroId)?.owner;
+        if (owner && owner !== state.currentPlayer) return owner;
+    }
+    return state.currentPlayer;
+}
+
+/** 电脑此刻是否该出手（选将/武装/布阵/战斗/补员各阶段的统一判据） */
+function shouldComputerAct(state: GameState): boolean {
+    if (!state.isAiMode || state.aiPlayer !== AI_PLAYER || state.isOnlineMode) return false;
+    return (
+        (state.phase === 'hero-select' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyHeroSelect) ||
+        (state.phase === 'weapon-select' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyWeaponSelect) ||
+        (state.phase === 'deploy' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyDeploy) ||
+        // 正常回合由当前行动方驱动；补员挂起期间由补员方驱动；接管开启时玩家那侧也算。
+        pilotedBattleSide(state) !== null
+    );
+}
+
+/**
+ * 驱动玩家2的选将、布阵和战斗。每一步之间保留短暂停顿，便于玩家观察电脑决策。
+ *
+ * 这里刻意不用 `useGameStore(state => state)` 订阅：本 hook 挂在 App 上，整店订阅等于
+ * "任何一次状态提交都重渲染整棵 App（棋盘 36 格 + 两侧名单 + 技能面板 + 战报）"，
+ * 手机上一次技能结算要提交 6~20 次，就是卡顿的主体。改成 store.subscribe 命令式驱动，
+ * 本 hook 不再触发任何 React 渲染。
+ */
 export function useComputerOpponent(): void {
-    const state = useGameStore(state => state);
     const lastExecutedSignatureRef = useRef('');
     const repeatCountRef = useRef(0);
 
     useEffect(() => {
-        if (!state.isAiMode || state.aiPlayer !== AI_PLAYER || state.isOnlineMode) return;
-        const shouldAct =
-            (state.phase === 'hero-select' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyHeroSelect) ||
-            (state.phase === 'deploy' && state.selectingPlayer === AI_PLAYER && !state.player2ReadyDeploy) ||
-            // 正常回合由当前行动方驱动；补员挂起期间由补员方驱动。
-            // 接管开启时玩家那一侧也算"该出手的一方"。
-            pilotedBattleSide(state) !== null;
-        if (!shouldAct) return;
+        let timer: number | null = null;
 
-        const timer = window.setTimeout(() => {
-            const current = useGameStore.getState();
-            const signature = stateSignature(current);
-            if (signature === lastExecutedSignatureRef.current) repeatCountRef.current++;
-            else repeatCountRef.current = 0;
-            lastExecutedSignatureRef.current = signature;
-            runComputerOpponentStep(repeatCountRef.current);
-        }, THINK_DELAY_MS);
+        const schedule = () => {
+            if (timer !== null) window.clearTimeout(timer);
+            if (!shouldComputerAct(useGameStore.getState())) {
+                timer = null;
+                return;
+            }
+            timer = window.setTimeout(() => {
+                timer = null;
+                const current = useGameStore.getState();
+                const signature = stateSignature(current);
+                if (signature === lastExecutedSignatureRef.current) repeatCountRef.current++;
+                else repeatCountRef.current = 0;
+                lastExecutedSignatureRef.current = signature;
+                runComputerOpponentStep(repeatCountRef.current);
+                // 这一步没产生任何提交时（例如等待玩家），也要给下一次机会留个轮询
+                schedule();
+            }, THINK_DELAY_MS);
+        };
 
-        return () => window.clearTimeout(timer);
-    }, [state]);
+        const unsubscribe = useGameStore.subscribe(schedule);
+        schedule();
+        return () => {
+            unsubscribe();
+            if (timer !== null) window.clearTimeout(timer);
+        };
+    }, []);
 }

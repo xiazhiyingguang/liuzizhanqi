@@ -34,6 +34,22 @@ function formatNumber(value: number, digits = 0): string {
     });
 }
 
+/**
+ * 战录列表排序：点当前列即翻转升降序。
+ * 并列项始终按"登场次数多者在前、再按名字"收口，不随方向翻转——
+ * 否则升序时会顺带把同值的人倒过来排，看起来像随机乱序。
+ */
+export function sortCareerRecords(
+    records: HeroCareerMetrics[],
+    sortKey: SortKey,
+    ascending: boolean
+): HeroCareerMetrics[] {
+    return [...records].sort((left, right) =>
+        (ascending ? -1 : 1) * (right[sortKey] - left[sortKey])
+        || right.appearances - left.appearances
+        || left.name.localeCompare(right.name, 'zh-CN'));
+}
+
 function SummaryCard({ mark, label, value, detail }: {
     mark: string;
     label: string;
@@ -100,7 +116,7 @@ function HeroRecordRow({ record, rank, maximumDamage, maximumDamageTaken, maximu
 }) {
     return (
         <article className="rounded-2xl border border-ink/[0.08] bg-white/45 px-4 py-3 transition-colors hover:bg-white/70">
-            <div className="grid min-w-[880px] grid-cols-[minmax(205px,1.35fr)_repeat(5,minmax(105px,1fr))] items-center gap-5">
+            <div className="career-statistics-row grid min-w-[880px] grid-cols-[minmax(205px,1.35fr)_repeat(5,minmax(105px,1fr))] items-center gap-5">
                 <div className="flex min-w-0 items-center gap-3">
                     <span className="w-6 flex-none text-center font-title text-sm text-gold-dark">{rank}</span>
                     <div className="h-12 w-12 flex-none overflow-hidden rounded-xl border border-ink/10 bg-rice-dark/50">
@@ -149,12 +165,25 @@ function HeroRecordRow({ record, rank, maximumDamage, maximumDamageTaken, maximu
 
 export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatisticsPanelProps) {
     const [sortKey, setSortKey] = useState<SortKey>('pickRate');
+    const [sortAscending, setSortAscending] = useState(false);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-    const records = useMemo(() => Object.values(data.heroes)
-        .map(record => getHeroCareerMetrics(record, data.totalMatches))
-        .sort((left, right) => right[sortKey] - left[sortKey] || right.appearances - left.appearances || left.name.localeCompare(right.name, 'zh-CN')),
-    [data, sortKey]);
+    // 再点同一个排序项就翻向；换项时回到该列默认的"从高到低"。
+    // 并列项始终按"登场次数多者在前、再按名字"排，不随方向翻转，否则升序时会出现莫名倒序。
+    const pickSort = (key: SortKey) => {
+        if (key === sortKey) {
+            setSortAscending(value => !value);
+            return;
+        }
+        setSortKey(key);
+        setSortAscending(false);
+    };
+
+    const records = useMemo(() => sortCareerRecords(
+        Object.values(data.heroes).map(record => getHeroCareerMetrics(record, data.totalMatches)),
+        sortKey,
+        sortAscending
+    ), [data, sortKey, sortAscending]);
 
     const maximumDamage = Math.max(1, ...records.map(record => record.averageDamageDealt));
     const maximumDamageTaken = Math.max(1, ...records.map(record => record.averageDamageTaken));
@@ -165,7 +194,7 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
         : '尚无记录';
 
     return (
-        <main className="ink-paper relative flex h-full min-h-screen flex-col overflow-hidden text-ink">
+        <main className="career-statistics-page ink-paper relative flex h-full min-h-screen flex-col overflow-hidden text-ink">
             <div className="pointer-events-none absolute inset-0 opacity-40" aria-hidden="true">
                 <div className="absolute -left-28 top-24 h-72 w-72 rounded-full bg-indigo-ink/[0.06] blur-3xl" />
                 <div className="absolute -right-24 bottom-10 h-80 w-80 rounded-full bg-gold/[0.08] blur-3xl" />
@@ -219,21 +248,31 @@ export function CareerStatisticsPanel({ data, onBack, onClear }: CareerStatistic
                                 <p className="mt-1 text-[10px] tracking-wider text-ink-faint">登场率按全部对局的双方阵容次数计算</p>
                             </div>
                             <div className="flex flex-wrap gap-1.5" aria-label="统计排序方式">
-                                {SORT_OPTIONS.map(option => (
-                                    <button
-                                        key={option.key}
-                                        type="button"
-                                        data-sfx="tab"
-                                        onClick={() => setSortKey(option.key)}
-                                        className={`rounded-full border px-3 py-1.5 text-[10px] transition ${
-                                            sortKey === option.key
-                                                ? 'border-vermillion/35 bg-vermillion/[0.07] text-vermillion'
-                                                : 'border-ink/10 bg-white/35 text-ink-faint hover:border-ink/20 hover:text-ink'
-                                        }`}
-                                    >
-                                        {option.label}
-                                    </button>
-                                ))}
+                                {SORT_OPTIONS.map(option => {
+                                    const active = sortKey === option.key;
+                                    return (
+                                        <button
+                                            key={option.key}
+                                            type="button"
+                                            data-sfx="tab"
+                                            data-testid={`career-sort-${option.key}`}
+                                            aria-pressed={active}
+                                            title={active
+                                                ? (sortAscending ? `${option.label}：升序，点击改为降序` : `${option.label}：降序，点击改为升序`)
+                                                : `按${option.label}排序`}
+                                            onClick={() => pickSort(option.key)}
+                                            className={`rounded-full border px-3 py-1.5 text-[10px] transition ${
+                                                active
+                                                    ? 'border-vermillion/35 bg-vermillion/[0.07] text-vermillion'
+                                                    : 'border-ink/10 bg-white/35 text-ink-faint hover:border-ink/20 hover:text-ink'
+                                            }`}
+                                        >
+                                            {option.label}
+                                            {/* 方向箭头只在当前列上出现：不然看不出"再点一次会反过来" */}
+                                            {active && <span aria-hidden="true">{sortAscending ? ' ↑' : ' ↓'}</span>}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
 

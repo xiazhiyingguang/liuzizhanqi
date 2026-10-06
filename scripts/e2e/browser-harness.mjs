@@ -129,6 +129,8 @@ class CdpPage {
         this.sequence = 0;
         this.pending = new Map();
         this.errors = [];
+        /** CDP 事件订阅表：Tracing / Performance 这类流式事件靠它取数 */
+        this.listeners = [];
     }
 
     async connect() {
@@ -172,6 +174,22 @@ class CdpPage {
         if (message.method === 'Runtime.exceptionThrown') {
             this.errors.push(message.params?.exceptionDetails?.text || '页面发生未捕获异常');
         }
+        for (const listener of this.listeners.slice()) {
+            if (!listener.method || listener.method === message.method) listener.handler(message.params ?? {});
+        }
+    }
+
+    /**
+     * 订阅 CDP 事件（method 省略表示全部）。返回取消函数。
+     * 只做同步分发，异步取值请在 handler 里自行排队。
+     */
+    on(method, handler) {
+        const listener = { method, handler };
+        this.listeners.push(listener);
+        return () => {
+            const index = this.listeners.indexOf(listener);
+            if (index >= 0) this.listeners.splice(index, 1);
+        };
     }
 
     send(method, params = {}) {
@@ -310,7 +328,10 @@ export async function launchBrowser({ baseUrl, label, headed = false }) {
         '--no-sandbox',
         '--window-size=1440,960',
     ];
-    if (!headed) args.push('--headless=new', '--disable-gpu');
+    // E2E_GPU=1 走真实 GPU 光栅管线：手机卡顿归因时，软件合成会把 blur/box-shadow
+    // 的代价放大十几倍，照着它优化会砍错东西
+    if (!headed) args.push('--headless=new');
+    if (!headed && !process.env.E2E_GPU) args.push('--disable-gpu');
 
     const processHandle = spawn(executable, [...args, 'about:blank'], { stdio: 'ignore' });
     const debugOrigin = `http://127.0.0.1:${debugPort}`;

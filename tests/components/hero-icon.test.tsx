@@ -21,6 +21,8 @@ describe('英雄选将线性图标', () => {
     });
 
     it('部署实例与分身的 id 也能解析回本体图标', () => {
+        expect(renderToStaticMarkup(<HeroIcon heroId="wangshu-player1-abc" />))
+            .toBe(renderToStaticMarkup(<HeroIcon heroId="wangshu" />));
         expect(renderToStaticMarkup(<HeroIcon heroId="youjun-player1-abc" />))
             .toBe(renderToStaticMarkup(<HeroIcon heroId="youjun" />));
         expect(renderToStaticMarkup(<HeroIcon heroId="wukong-clone|wukong-player1-x|1" />))

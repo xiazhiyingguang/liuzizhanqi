@@ -46,6 +46,7 @@ const MASTER_LEVEL = 0.9;
 const DEFAULT_BGM_VOLUME = 0.32;
 const SCHEDULE_AHEAD = 0.18;
 const TICK_INTERVAL = 40;
+const VOLUME_RAMP_SECONDS = 0.03;
 
 const BATTLE_MP3_TRACK_ID = 'battle-mp3';
 const BATTLE_MP3_URL = `${import.meta.env.BASE_URL ?? '/'}audio/mofengdou.mp3`;
@@ -162,6 +163,11 @@ class AudioManager {
         return this.sfxGain;
     }
 
+    /** Share the unlocked context; battle SFX keep their own mute and gain. */
+    getAudioContext(): AudioContext | null {
+        return this.ctx;
+    }
+
     /**
      * UI 点击音效入口：由全局 pointerdown 委托调用。
      * 首次点击时顺带解锁 AudioContext；若恢复尚未完成则本次静默跳过，下一次起正常发声。
@@ -220,7 +226,7 @@ class AudioManager {
         this.sfxGain = ctx.createGain();
         this.sfxGain.gain.value = 0.6;
         this.sfxGain.connect(this.masterGain);
-        this.applyVolumes();
+        this.applyVolumes(false);
 
         const noiseLength = Math.floor(ctx.sampleRate * 0.3);
         this.noiseBuffer = ctx.createBuffer(1, noiseLength, ctx.sampleRate);
@@ -230,10 +236,27 @@ class AudioManager {
         }
     }
 
-    private applyVolumes(): void {
+    private applyVolumes(smooth = true): void {
         if (!this.ctx || !this.masterGain || !this.bgmGain) return;
-        this.masterGain.gain.value = this.muted ? 0 : MASTER_LEVEL;
-        this.bgmGain.gain.value = this.volume;
+        const now = this.ctx.currentTime;
+        for (const [gain, target] of [
+            [this.masterGain.gain, this.muted ? 0 : MASTER_LEVEL],
+            [this.bgmGain.gain, this.volume],
+        ] as const) {
+            if (!smooth) {
+                gain.value = target;
+                continue;
+            }
+            // Do not cut a playing waveform at an arbitrary sample: a short ramp
+            // avoids a click when enabling music or dragging the volume slider.
+            if (typeof gain.cancelAndHoldAtTime === 'function') {
+                gain.cancelAndHoldAtTime(now);
+            } else {
+                gain.cancelScheduledValues(now);
+                gain.setValueAtTime(gain.value, now);
+            }
+            gain.linearRampToValueAtTime(target, now + VOLUME_RAMP_SECONDS);
+        }
     }
 
     private persist(): void {
@@ -431,7 +454,16 @@ class AudioManager {
             this.stopScheduler();
             return;
         }
+        if (ctx.state !== 'running') return;
         const stepDuration = 60 / active.track.bpm / active.track.stepsPerBeat;
+        // Mobile rendering and background timer throttling can delay tick().
+        // Keep the musical phase, but skip missed beats instead of starting all
+        // their oscillators at once with timestamps in the past.
+        if (this.nextStepTime < ctx.currentTime) {
+            const skipped = Math.ceil((ctx.currentTime - this.nextStepTime) / stepDuration);
+            this.nextStepTime += skipped * stepDuration;
+            this.currentStep = (this.currentStep + skipped) % active.track.totalSteps;
+        }
         while (this.nextStepTime < ctx.currentTime + SCHEDULE_AHEAD) {
             for (const event of this.eventsByStep[this.currentStep] ?? []) {
                 this.playNote(event, this.nextStepTime, stepDuration, active);

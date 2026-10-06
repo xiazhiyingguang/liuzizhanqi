@@ -120,22 +120,22 @@ describe('computeFxCellDelayMs / computeFxTailMs', () => {
         expect(computeFxCellDelayMs([0, 0], [5, 5])).toBe(225);
     });
 
-    it('单格事件不需要额外存活时长', () => {
-        expect(computeFxTailMs(fxEvent({}))).toBe(0);
+    it('单格事件保留起手至命中的时间偏移', () => {
+        expect(computeFxTailMs(fxEvent({}))).toBe(120);
     });
 
     it('多格波浪时长按最远格延迟追加', () => {
         const tail = computeFxTailMs(fxEvent({
             impactPositions: [[2, 2], [0, 0]],
         }));
-        expect(tail).toBe(90 + 140);
+        expect(tail).toBe(240 + 90 + 140);
     });
 
     it('区域底光格也纳入尾时长（底光同样按格延后起播）', () => {
         const tail = computeFxTailMs(fxEvent({
             coveredPositions: [[2, 2], [5, 5]],
         }));
-        expect(tail).toBe(135 + 140);
+        expect(tail).toBe(240 + 135 + 140);
     });
 });
 

@@ -142,7 +142,8 @@ describe('Zhenxiao', () => {
         DamageCalculator.applyDamage(hero, hit, enemy, state);
 
         expect(EffectManager.hasEffect(hero, '金银错')).toBe(true);
-        expect(enemy.currentHp).toBe(enemy.maxHp - 6);
+        // 回击走完整伤害结算：他自己刚耗掉 9 点血（19.6% → 被动「血锋」+9% 增伤），6 点回击被抬到 7
+        expect(enemy.currentHp).toBe(enemy.maxHp - 7);
         expect(hero.currentHp).toBe(Math.min(hero.maxHp, hpAfterCost - 8 + 3));
     });
 });
@@ -223,20 +224,32 @@ describe('Liuli', () => {
         expect(EffectManager.getCounter(liuli, '禅定')).toBe(2);
     });
 
-    it('guards every ally within one cell instead of a single clicked target', () => {
+    it('只援护点到的那一名友方，圈里的其他人不跟着挂', () => {
         const state = makeGameState();
         const liuli = addHero(state, 'liuli', 'player1', [2, 2]);
         const allyA = addHero(state, 'moran', 'player1', [2, 3]);
         const allyB = addHero(state, 'baize', 'player1', [3, 3]);
-        const farAlly = addHero(state, 'zhenxiao', 'player1', [2, 5]);
 
         const result = SkillSystem.executeSkill(liuli, liuliSkill1, [[2, 3]], state);
 
         expect(result.success).toBe(true);
         expect(EffectManager.hasEffect(allyA, '援护')).toBe(true);
-        expect(EffectManager.hasEffect(allyB, '援护')).toBe(true);
-        expect(EffectManager.hasEffect(farAlly, '援护')).toBe(false);
+        expect(EffectManager.hasEffect(allyB, '援护')).toBe(false);
         expect(liuli.counters['禅定']).toBe(1);
+    });
+
+    it('换人援护时旧的援护随下一次出手撤掉', () => {
+        const state = makeGameState();
+        const liuli = addHero(state, 'liuli', 'player1', [2, 2]);
+        const first = addHero(state, 'moran', 'player1', [2, 3]);
+        const second = addHero(state, 'baize', 'player1', [3, 2]);
+
+        SkillSystem.executeSkill(liuli, liuliSkill1, [[2, 3]], state);
+        expect(EffectManager.hasEffect(first, '援护')).toBe(true);
+
+        SkillSystem.executeSkill(liuli, liuliSkill1, [[3, 2]], state);
+        expect(EffectManager.hasEffect(second, '援护')).toBe(true);
+        expect(EffectManager.hasEffect(first, '援护')).toBe(false);
     });
 
     it('consumes all meditation to heal 10% max HP per stack', () => {
@@ -596,6 +609,61 @@ describe('Nightowl', () => {
 
         expect(EffectManager.hasEffect(hero, '潜行')).toBe(true);
         expect(hero.counters['ignore_defense_next']).toBe(1);
+    });
+
+    it('被动影遁：本回合没打到人的，回合结束自动隐入潜行', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'nightowl', 'player1', [2, 2]);
+        const enemy = addHero(state, 'moran', 'player2', [0, 0]);
+
+        hero.hasActedThisTurn = true;
+        enemy.hasActedThisTurn = true;
+        GameEngine.endHeroAction(enemy, state);   // 双方都行动完 → 回合结束效果
+
+        expect(EffectManager.hasEffect(hero, '潜行')).toBe(true);
+        expect(hero.counters['stealth_turns']).toBe(1);
+    });
+
+    it('被动影遁：真打中人的那一回合不再隐入', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'nightowl', 'player1', [2, 2]);
+        const enemy = addHero(state, 'moran', 'player2', [2, 4]);
+
+        DamageCalculator.applyDamage(enemy, DamageCalculator.calculate(hero, enemy, 5), hero, state);
+        hero.hasActedThisTurn = true;
+        enemy.hasActedThisTurn = true;
+        GameEngine.endHeroAction(enemy, state);
+
+        expect(EffectManager.hasEffect(hero, '潜行')).toBe(false);
+    });
+
+    it('同一回合只叠一层潜行：标记给了潜行，回合末就不再叠第二层', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'nightowl', 'player1', [2, 2]);
+        const enemy = addHero(state, 'moran', 'player2', [2, 4]);
+
+        nightowlSkill1.execute!(hero, [enemy], state);
+        expect(hero.counters['stealth_turns']).toBe(1);
+
+        hero.hasActedThisTurn = true;
+        enemy.hasActedThisTurn = true;
+        GameEngine.endHeroAction(enemy, state);
+
+        // 层数直接喂给技能二的倍率与致知一的暴击，一回合叠两层等于翻倍
+        expect(hero.counters['stealth_turns']).toBe(1);
+    });
+
+    it('技能二击杀目标则保持潜行，空刀才现形', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'nightowl', 'player1', [2, 2]);
+        const prey = addHero(state, 'moran', 'player2', [2, 4]);
+
+        nightowlSkill1.execute!(hero, [prey], state);
+        prey.currentHp = 1;
+        expect(nightowlSkill2.execute!(hero, [prey], state).success).toBe(true);
+
+        expect(EffectManager.hasEffect(hero, '潜行')).toBe(true);
+        expect(hero.counters['stealth_turns']).toBe(1);
     });
 });
 

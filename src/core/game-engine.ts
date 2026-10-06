@@ -1,12 +1,29 @@
 import { nextBattleLogId } from './battle-log-id';
+import { requestMechanismFx } from './mechanism-fx';
 import { GameState, Hero, HeroState, BattleLogEntry, Player, Position } from '../types/game';
 import { MovementSystem } from './movement-system';
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
+import { applyWeaponOnFormShift } from './weapon-effects';
+import { hasZhizhi, zhizhiValue } from './hero-zhizhi';
+import { enterNightowlStealth } from './nightowl-stealth';
 import { findSoulLampBeneficiary, isJinghongCharging, placeBounties, purgeYinyangLinksOf, syncPositionAnchoredEffects } from '../data/extended-heroes';
-import { resolveHnyReplay, resolveLingxiEcho1, settleJinghuaSeatReturn, SHANGGUAN_BRUSH_DAMAGE, tickJinghuaMoonSeats } from '../data/extended-skills';
+import { resolveHnyReplay, resolveLingxiEcho1, settleJinghuaSeatReturn, settleXuechangAtTurnStart, SHANGGUAN_BRUSH_DAMAGE, placeZhiguangPassivePrism, tickJinghuaMoonSeats, requestSkillFx } from '../data/extended-skills';
+import { consumeZhiyuanTianweiLead } from './kite-spool';
+import { resolveXihuanBlessing } from '../data/extended-skills';
 import { isRealCharacterHero, recordBattleHealing } from './battle-statistics';
 import { lanesAtPosition, windLaneNextCell } from './wind-lane';
+
+/**
+ * 对局回合上限：打满即强制结算，按场上存活人数判定胜负；
+ * 人数相同时比剩余生命+护盾，仍持平判玩家2告负（沿用既有惯例）。
+ */
+export const MAX_BATTLE_ROUNDS = 30;
+/**
+ * 控制保险丝：双方都无人可行动时会不断推进回合让眩晕递减，
+ * 但必须赶在上限裁决之前把控制清掉，否则僵局的胜负只能交给战力判定。
+ */
+const STUN_FUSE_ROUNDS = MAX_BATTLE_ROUNDS - 5;
 
 /**
  * 游戏引擎 - 主控制器
@@ -25,6 +42,31 @@ export class GameEngine {
         if (!emptyPos) return false;
 
         return this.reviveHeroAtPosition(hero, emptyPos, hpPercent, gameState);
+    }
+
+    /**
+     * 李太白被动「醉步留痕」：记下他自己移动结束时的停留位置（滚动保留两处）。
+     *
+     * 必须以"他自己走完一次移动"为口径，不能在回合初统一补录：帝兰的击退、
+     * 沉渊的拖拽、镜花/醉枕刀的换位等强制位移会把他推到别处，回合初记下的
+     * 那一格根本不是他停过的位置，被动链于是能瞬移到从没去过的地方。
+     */
+    static recordLibaiStay(hero: Hero): void {
+        if (hero.passiveId !== 'libai_passive' || hero.state !== HeroState.ALIVE || !hero.position) return;
+        const prev = hero.counters['__libai_prev_pos'];
+        if (prev === (hero.position[0] * 6 + hero.position[1])) return; // 原地未动不重复记账
+        if (prev !== undefined) hero.counters['__libai_prev2_pos'] = prev;
+        hero.counters['__libai_prev_pos'] = hero.position[0] * 6 + hero.position[1];
+    }
+
+    /** 读取他的历史锚点（上次/上上次"自己走完一次移动"的落点），编码与 recordLibaiStay 同源 */
+    static libaiHistoryPositions(hero: Hero): Position[] {
+        const positions: Position[] = [];
+        const prev = hero.counters['__libai_prev_pos'];
+        const prev2 = hero.counters['__libai_prev2_pos'];
+        if (prev !== undefined) positions.push([Math.floor(prev / 6), prev % 6]);
+        if (prev2 !== undefined) positions.push([Math.floor(prev2 / 6), prev2 % 6]);
+        return positions;
     }
 
     /**
@@ -141,9 +183,13 @@ export class GameEngine {
                 (hero.counters['soul_lamp_revive_round'] ?? Infinity) <= gameState.roundNumber
             );
         for (const hero of scheduledRevives) {
-            const soulCount = [...gameState.player1Heroes, ...gameState.player2Heroes]
+            const allLiving = [...gameState.player1Heroes, ...gameState.player2Heroes];
+            const soulCount = allLiving
                 .filter(candidate => candidate.state !== HeroState.ALIVE).length;
-            const missingHealRate = Math.min(1, soulCount * 0.2);
+            const lamp = allLiving.find(candidate =>
+                candidate.passiveId === 'soul_lamp_passive' && candidate.owner === hero.owner);
+            // 致知2：每层亡灵之魂的已损生命回复量 20% → 30%
+            const missingHealRate = Math.min(1, soulCount * zhizhiValue(lamp, 2, 0.2, 0.3));
             if (this.resurrectHero(hero, 0.01, gameState)) {
                 // 按设计口径：复活时恢复「亡灵之魂×20%」的已损生命值，比例上限100%（最多补满）
                 const lostHp = Math.max(0, hero.maxHp - hero.currentHp);
@@ -204,10 +250,16 @@ export class GameEngine {
                 if (hero.passiveId === 'schrodinger_passive') {
                     hero.counters['schrodinger_extra_used'] = 0;
                 }
+                if (hero.counters['__xueqi_immune']) {
+                    // 血契致知3 的"立契后本回合不倒"只覆盖立契那一回合，回合初收回
+                    delete hero.counters['__xueqi_immune'];
+                }
                 if (hero.passiveId === 'yinyang_passive') {
-                    // 被动：阳线/阴线的攻防加成每回合+5%（上限50%），并同步到已生效的链接效果上
-                    hero.counters['yinyang_yang_rate'] = Math.min(0.5, (hero.counters['yinyang_yang_rate'] ?? 0.2) + 0.05);
-                    hero.counters['yinyang_yin_rate'] = Math.min(0.5, (hero.counters['yinyang_yin_rate'] ?? 0.2) + 0.05);
+                    // 被动：阳线/阴线的攻防加成每回合+5%（上限50%），并同步到已生效的链接效果上；
+                    // 致知2把每回合的增长抬到 10%
+                    const growth = zhizhiValue(hero, 2, 0.05, 0.1);
+                    hero.counters['yinyang_yang_rate'] = Math.min(0.5, (hero.counters['yinyang_yang_rate'] ?? 0.2) + growth);
+                    hero.counters['yinyang_yin_rate'] = Math.min(0.5, (hero.counters['yinyang_yin_rate'] ?? 0.2) + growth);
                     const all = [...gameState.player1Heroes, ...gameState.player2Heroes];
                     for (const target of all) {
                         for (const effect of target.effects) {
@@ -225,14 +277,6 @@ export class GameEngine {
                 if (hero.counters['dai_skill2_cd']) {
                     // 时空旅者·戴尔技能2「时空置换」冷却，与莫问同节奏按回合推进
                     hero.counters['dai_skill2_cd'] = Math.max(0, hero.counters['dai_skill2_cd'] - 1);
-                }
-                if (hero.passiveId === 'libai_passive' && hero.state === HeroState.ALIVE) {
-                    // 记录上次/上上次停留位置（滚动）：供被动瞬移链使用
-                    const prev = hero.counters['__libai_prev_pos'];
-                    if (prev !== undefined) hero.counters['__libai_prev2_pos'] = prev;
-                    if (hero.position) {
-                        hero.counters['__libai_prev_pos'] = hero.position[0] * 6 + hero.position[1];
-                    }
                 }
                 if (hero.passiveId === 'youjun_passive' && hero.state === HeroState.ALIVE && hero.position) {
                     // 上一轮累计位移定格为「上回合移动距离」（疾掠倍率读取项），重新开始累计；
@@ -290,7 +334,7 @@ export class GameEngine {
      * 当 currentPlayer 一方没有可行动英雄（全员眩晕/已行动）时，自动跳过该玩家：
      * - 另一方有可行动英雄 -> 切换过去
      * - 双方都没有 -> 推进回合（让控制效果递减）
-     * - 连续超过 50 轮仍无法行动 -> 强制清除双方所有控制效果，防止死局
+     * - 连续多轮（STUN_FUSE_ROUNDS）仍无法行动 -> 强制清除双方所有控制效果，防止死局
      * 返回是否执行了跳过。
      */
     static advancePastBlockedPlayer(gameState: GameState): boolean {
@@ -312,12 +356,12 @@ export class GameEngine {
         }
 
         // 双方都无法行动：推进回合，让控制效果递减
-        if (gameState.roundNumber < 50) {
+        if (gameState.roundNumber < STUN_FUSE_ROUNDS) {
             this.endTurn(gameState);
             return true;
         }
 
-        // 保险丝：连续 50 轮双方都无法行动（控制效果被反复刷新），强制清除控制效果，避免死局
+        // 保险丝：连续多轮双方都无法行动（控制效果被反复刷新），强制清除控制效果，避免死局
         const allHeroes = [...gameState.player1Heroes, ...gameState.player2Heroes];
         let cleared = 0;
         for (const hero of allHeroes) {
@@ -410,6 +454,17 @@ export class GameEngine {
 
         // 花弄影「弄影」：她行动结束，影子在影格重演本动作的最后一击（先于胜负检查，重演击杀可影响战局）
         resolveHnyReplay(hero, gameState);
+
+        // 纸鸢天威「纸鸢引线」：她击杀时把线交给下一个出手的队友，这名队友行动结束时响起自己的天威
+        const ledBy = consumeZhiyuanTianweiLead(hero, gameState);
+        if (ledBy && hero.tianweiId) {
+            this.addLog(gameState, {
+                type: 'tianwei',
+                player: hero.owner,
+                message: `${ledBy.name}的引线到了：${hero.name}行动结束，天威随之响起`,
+            });
+            DamageCalculator.triggerTianwei(hero, gameState);
+        }
 
         // 胜负必须先于换边、额外行动和进入下一轮结算。
         // TEMP_DEAD 不算场上存活单位，因此最后一个单位暂时阵亡会在这里立即失败。
@@ -525,7 +580,13 @@ export class GameEngine {
                 // 游隼被动「再动」：本次额外行动仅允许移动；
                 // 收回风刃刷新疾掠后由 canUseSkill/selectSkill 放行技能1
                 if (extraHero.passiveId === 'youjun_passive') {
-                    extraHero.counters['youjun_extra_move_only'] = 1;
+                    if (extraHero.counters['__youjun_self_extra'] === 1) {
+                        extraHero.counters['youjun_extra_move_only'] = 1;
+                        delete extraHero.counters['__youjun_self_extra'];
+                    } else {
+                        // 别人（玄霄等）给的再动：完整一次行动，技能照放
+                        delete extraHero.counters['youjun_extra_move_only'];
+                    }
                 }
 
                 // 记录原本应该轮到的玩家（如果还没记录过，且当前不是已经在额外行动中）
@@ -706,14 +767,15 @@ export class GameEngine {
         }
 
         // 回合上限裁决：双方均采取保守策略时可能出现无限拉锯（如对称踱步互不进攻），
-        // 达到上限后按场上战力强制分出胜负，保证对局必然收敛。
-        const MAX_ROUNDS = 50;
-        if (gameState.phase !== 'ended' && gameState.roundNumber >= MAX_ROUNDS) {
+        // 打满上限后按场上存活人数强制分出胜负，保证对局必然收敛。
+        if (gameState.phase !== 'ended' && gameState.roundNumber >= MAX_BATTLE_ROUNDS) {
             const p1Count = this.countRealAliveOnBoard(gameState, 'player1');
             const p2Count = this.countRealAliveOnBoard(gameState, 'player2');
             let winner: Player;
+            let basis: string;
             if (p1Count !== p2Count) {
                 winner = p1Count > p2Count ? 'player1' : 'player2';
+                basis = `存活人数${p1Count}比${p2Count}`;
             } else {
                 // 人数相同：比存活总战力（生命值+护盾）；仍持平按既有惯例判先手方告负
                 const totalPower = (heroes: Hero[]) =>
@@ -721,13 +783,14 @@ export class GameEngine {
                 const p1Power = totalPower(gameState.player1Heroes);
                 const p2Power = totalPower(gameState.player2Heroes);
                 winner = p1Power > p2Power ? 'player1' : 'player2';
+                basis = `双方各${p1Count}人，剩余战力${p1Power}比${p2Power}`;
             }
             gameState.winner = winner;
             gameState.phase = 'ended';
             this.addLog(gameState, {
                 type: 'system',
                 player: winner,
-                message: `对局达到回合上限（${MAX_ROUNDS}回合），按场上战力判定：${winner === 'player1' ? '玩家1' : '玩家2'}获胜！`
+                message: `对局达到回合上限（${MAX_BATTLE_ROUNDS}回合），按${basis}判定：${winner === 'player1' ? '玩家1' : '玩家2'}获胜！`
             });
         }
     }
@@ -825,6 +888,10 @@ export class GameEngine {
         for (const hero of allHeroes) {
             if (hero.state !== HeroState.ALIVE) continue;
 
+            // 夺岁「血偿」：砍走的那笔血按轮次戳分两期还回来。
+            // 走回合开始而不是效果时长衰减——被眩晕、被跳过、被换位都不该改掉还血节奏。
+            settleXuechangAtTurnStart(hero, gameState);
+
             if (hero.passiveId === 'baize_passive') {
                 const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
                 const aliveAllies = allies.filter(h => h.state === HeroState.ALIVE);
@@ -844,35 +911,8 @@ export class GameEngine {
                 });
             }
 
-            if (hero.passiveId === 'mowen_passive') {
-                if (hero.counters['talent_1'] && !hero.counters['__mowen_talent1_applied']) {
-                    hero.counters['__mowen_talent1_applied'] = 1;
-                    hero.maxHp += 8;
-                    hero.currentHp += 8;
-                    hero.counters['mowen_prev_hp'] = hero.maxHp;
-                }
-            }
-
-            if (
-                hero.passiveId === 'feixue_passive' &&
-                hero.counters['talent_1'] &&
-                !hero.counters['__feixue_talent1_applied']
-            ) {
-                hero.counters['__feixue_talent1_applied'] = 1;
-                hero.maxHp += 8;
-                hero.currentHp += 8;
-            }
-
-            // 墨阑致知1：生命增加10
-            if (
-                hero.passiveId === 'moran_passive' &&
-                hero.counters['talent_1'] &&
-                !hero.counters['__moran_talent1_applied']
-            ) {
-                hero.counters['__moran_talent1_applied'] = 1;
-                hero.maxHp += 10;
-                hero.currentHp += 10;
-            }
+            // 致知的常驻属性（生命/移动/基础攻击）在登场时就由 core/hero-zhizhi 落好，
+            // 不再在回合初补——补员与镜花替身重新 createHero 也能一次到位。
 
             if (hero.passiveId === 'bounty_passive' && hero.counters['bounty_placed'] !== 1) {
                 // 被动：战斗开始（第一回合）向敌方全员发布一次悬赏，四种赏金各一枚、互不重复
@@ -883,6 +923,24 @@ export class GameEngine {
                         type: 'passive',
                         player: hero.owner,
                         message: `${hero.name}被动触发，发布悬赏：${assignments.join('、')}`
+                    });
+                }
+            }
+
+            // 折光「拾光」：每轮开始在场上一处随机空格撒一枚光棱，给她这一轮的光束留下折射点。
+            // 棋盘效果的回合递减发生在本函数之前，所以第 N 轮撒下的棱能活过 N、N+1、N+2 三轮
+            if (
+                hero.passiveId === 'zhiguang_passive' &&
+                hero.position &&
+                hero.counters['zhiguang_prism_round'] !== gameState.roundNumber
+            ) {
+                hero.counters['zhiguang_prism_round'] = gameState.roundNumber;
+                const cell = placeZhiguangPassivePrism(hero, gameState);
+                if (cell) {
+                    this.addLog(gameState, {
+                        type: 'passive',
+                        player: hero.owner,
+                        message: `${hero.name}被动·拾光：流光在(${cell[0] + 1},${cell[1] + 1})凝成一枚光棱`
                     });
                 }
             }
@@ -957,7 +1015,8 @@ export class GameEngine {
             gameState.board[destination[0]][destination[1]] = hero;
             hero.position = destination;
             pushed = true;
-            DamageCalculator.applyDilanMovementDamage(hero, 1, gameState);
+            // 风道是铺道那一方摆布的位移，所以羽化照常记账（敌方羽化来源同队才吃）
+            DamageCalculator.applyDilanMovementDamage(hero, 1, gameState, lane.owner);
             this.addLog(gameState, {
                 type: 'passive',
                 player: lane.owner,
@@ -1049,6 +1108,12 @@ export class GameEngine {
         } else {
             this.applyDirectHeal(hero, hero.maxHp * 0.5, gameState);
         }
+        this.addLog(gameState, { type: 'passive', player: hero.owner, message: `${hero.name}财气聚满，通灵为财神`,
+            details: { kind: 'wangcai-awaken', sourceHeroId: hero.id } });
+        const logId = gameState.battleLog[gameState.battleLog.length - 1]?.id;
+        if (hero.position) requestSkillFx({ skillId: 'wangcai_awaken', owner: hero.owner, sourceHeroId: hero.id,
+            fromPos: [...hero.position], targetPos: [...hero.position], impactPositions: [], damagePositions: [],
+            logIds: logId ? [logId] : [] }, gameState);
     }
 
     /**
@@ -1059,6 +1124,18 @@ export class GameEngine {
 
         for (const hero of allHeroes) {
             if (hero.state !== HeroState.ALIVE) continue;
+
+            // 夜枭「影遁」：本回合没打到任何敌人的，回合末自动隐入潜行（策划案被动第一条）。
+            // 判据用"是否造成过实际伤害"，所以只丢标记的技能1算未攻击，反击与追击都算攻击过。
+            if (hero.passiveId === 'nightowl_passive' &&
+                hero.counters['__attacked_round'] !== gameState.roundNumber &&
+                enterNightowlStealth(hero, gameState.roundNumber)) {
+                this.addLog(gameState, {
+                    type: 'passive',
+                    player: hero.owner,
+                    message: `${hero.name}未出手，隐入暗影（潜行第${hero.counters['stealth_turns']}回合）`,
+                });
+            }
 
             // 惊鸿·止水「止水」蓄力：整回合结束时按已损生命回复——不是她放完技能就回，
             // 所以这一回合里她挨的打越多，回合末回得也越多。
@@ -1082,8 +1159,8 @@ export class GameEngine {
             if (hero.passiveId === 'skeletonking_passive') {
                 const dead = allHeroes.filter(item => item.state !== HeroState.ALIVE).length;
                 if (dead > 0) {
-                    // 叠加式护盾：每名阵亡单位提供3点，没有致知时上限为10（致知可提高上限）
-                    const shieldCap = 10;
+                    // 叠加式护盾：每名阵亡单位提供3点，没有致知时上限为10（致知2提高到15）
+                    const shieldCap = zhizhiValue(hero, 2, 10, 15);
                     const gained = Math.min(shieldCap, hero.shield + dead * 3) - hero.shield;
                     hero.shield = Math.min(shieldCap, hero.shield + dead * 3);
                     if (gained > 0) {
@@ -1100,12 +1177,15 @@ export class GameEngine {
                 const enemies = hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes;
                 for (const enemy of enemies) {
                     if (enemy.state !== HeroState.ALIVE || !enemy.position) continue;
-                    if (MovementSystem.getManhattanDistance(hero.position, enemy.position) > 2) continue;
+                    const distance = MovementSystem.getManhattanDistance(hero.position, enemy.position);
+                    if (distance > 2) continue;
+                    // 致知2：贴身（1格内）的敌人一次吃 2 层，2 格外的仍只 1 层
+                    const stacks = hasZhizhi(hero, 2) && distance <= 1 ? 2 : 1;
                     EffectManager.addEffect(enemy, {
                         type: 'debuff',
                         name: '震怒',
                         duration: -1,
-                        stackCount: 1,
+                        stackCount: stacks,
                         sourceHeroId: hero.id,
                         description: '达到3层时眩晕',
                     });
@@ -1128,11 +1208,14 @@ export class GameEngine {
                         this.addLog(gameState, {
                             type: 'passive',
                             player: enemy.owner,
-                            message: `${enemy.name}获得震怒+1（当前${rage?.stackCount ?? 1}层）`
+                            message: `${enemy.name}获得震怒+${stacks}（当前${rage?.stackCount ?? stacks}层）`
                         });
                     }
                 }
             }
+
+            // 羲和被动「回晖」：回合末照一口给我方百分比血量最低的角色
+            if (hero.passiveId === 'xihuan_passive') resolveXihuanBlessing(hero, gameState);
 
             if (hero.passiveId === 'hanjiangxue_passive') {
                 // 被动·雪誓：回合结束时，为生命百分比最低的友方（不含自己）附加冰甲（不可叠加）
@@ -1147,7 +1230,7 @@ export class GameEngine {
                         bestAlly = ally;
                     }
                 }
-                if (bestAlly && EffectManager.addIceArmor(bestAlly, hero.id)) {
+                if (bestAlly && EffectManager.addIceArmor(bestAlly, hero.id, zhizhiValue(hero, 3, 0.2, 0.4))) {
                     this.addLog(gameState, {
                         type: 'passive',
                         player: hero.owner,
@@ -1229,6 +1312,7 @@ export class GameEngine {
         // 已统一重置，此处若再重置为 false，会让"已出手→暂时阵亡→当回合复活"的英雄
         // 无限获得额外行动。回合开始触发的魂灯复活不受影响（重置循环在其之后执行）。
         gameState.board[revivePosition[0]][revivePosition[1]] = hero;
+        const isLampReturn = hero.counters['soul_lamp_revive_round'] !== undefined || hero.passiveId === 'soul_lamp_passive';
         delete hero.counters['soul_lamp_revive_round'];
         this.recordResurrection(hero, gameState);
         this.recordRewindSnapshot(hero, gameState);
@@ -1248,6 +1332,16 @@ export class GameEngine {
             player: hero.owner,
             message: `${hero.name}复活了！生命值：${hero.currentHp}`
         });
+
+        if (isLampReturn) {
+            const lamp = [...gameState.player1Heroes, ...gameState.player2Heroes].find(candidate =>
+                candidate.owner === hero.owner && candidate.passiveId === 'soul_lamp_passive');
+            requestSkillFx({ skillId: 'soul_lamp_revive', owner: hero.owner, sourceHeroId: lamp?.id ?? hero.id,
+                fromPos: [...(lamp?.position ?? revivePosition)], targetPos: [...revivePosition],
+                impactPositions: [[...revivePosition]], softImpactPositions: [[...revivePosition]], damagePositions: [],
+                logIds: [gameState.battleLog[gameState.battleLog.length - 1].id],
+            }, gameState);
+        }
 
         return true;
     }
@@ -1333,16 +1427,17 @@ export class GameEngine {
                         type: 'buff',
                         name: '缚魂吸血',
                         duration: -1,
-                        value: hero.counters['soul_lamp_vampire_rate'] ?? 0.3,
+                        // 致知3：吸血初始 30% → 50%
+                        value: hero.counters['soul_lamp_vampire_rate'] ?? zhizhiValue(hero, 3, 0.3, 0.5),
                         sourceHeroId: hero.id,
                         description: '缚魂灯暂时阵亡期间提供的吸血，魂灯复活后消失',
                     });
                 }
             }
-            // 每次死亡使吸血效果增强20%，上限90%
+            // 每次死亡使吸血效果增强20%，上限90%（致知3 把上限抬到 100%）
             hero.counters['soul_lamp_vampire_rate'] = Math.min(
-                0.9,
-                (hero.counters['soul_lamp_vampire_rate'] ?? 0.3) + 0.2
+                zhizhiValue(hero, 3, 0.9, 1),
+                (hero.counters['soul_lamp_vampire_rate'] ?? zhizhiValue(hero, 3, 0.3, 0.5)) + 0.2
             );
         }
 
@@ -1368,6 +1463,11 @@ export class GameEngine {
             player: hero.owner,
             message: `${hero.name}暂时阵亡`
         });
+        if (hero.passiveId === 'jetzmi_passive' && oldPosition) {
+            requestMechanismFx(hero, hero.counters['jetzmi_form'] === 1 ? 'jetzmi_king_shift' : 'jetzmi_lord_shift', gameState, {
+                fromPos: oldPosition, targetPos: oldPosition, logId: gameState.battleLog[gameState.battleLog.length - 1]?.id,
+            });
+        }
 
         this.checkWinCondition(gameState);
     }
@@ -1381,6 +1481,8 @@ export class GameEngine {
         if (hero.state !== HeroState.ALIVE) return;
 
         hero.counters['jetzmi_form'] = hero.counters['jetzmi_form'] === 1 ? 0 : 1;
+        // 双生之镰：主动切形算一次"转化形态"，回 5 点生命
+        applyWeaponOnFormShift(hero, gameState);
 
         // 计入一次死亡事件（亡灵共鸣）
         if (hero.owner === 'player1') gameState.deathCounters.player1Dead++;
@@ -1391,6 +1493,9 @@ export class GameEngine {
             type: 'system',
             player: hero.owner,
             message: `${hero.name}切换为${hero.counters['jetzmi_form'] === 1 ? '终焉国王' : '亡灵城主'}形态`
+        });
+        requestMechanismFx(hero, hero.counters['jetzmi_form'] === 1 ? 'jetzmi_king_shift' : 'jetzmi_lord_shift', gameState, {
+            logId: gameState.battleLog[gameState.battleLog.length - 1]?.id,
         });
     }
 
@@ -1406,8 +1511,11 @@ export class GameEngine {
 
         gameState.battleLog.push(newEntry);
 
+        // 必须原地截断：换成新数组会让所有持有旧引用的写入者（store 侧、各技能的直接 push）
+        // 分叉到两条数组上，被挤掉的条目随后会被 mergeEngineLogs 当成"新日志"整批贴回末尾，
+        // 表现为战报顺序大乱（早期伤害出现在几十条之后）。
         if (gameState.battleLog.length > 200) {
-            gameState.battleLog = gameState.battleLog.slice(-200);
+            gameState.battleLog.splice(0, gameState.battleLog.length - 200);
         }
     }
 

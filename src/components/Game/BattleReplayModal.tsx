@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useBattleReplay } from '../../hooks/useBattleReplay';
 import { computeFrameDeltas, type BattleReplay, type ReplayMarkKind } from '../../core/battle-replay';
 import { tokenizeBattleLogContent } from '../../core/battle-presentation';
@@ -90,8 +90,10 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
     }, [onClose, stepBy]);
 
     useEffect(() => {
+        // 拖时间轴时这份面板重排：必须停在顶端，否则"本步战报"被顶出可视区，
+        // 看到的反而是下面一叠旧战报，读起来像内容在乱跳
         const panel = narrationRef.current;
-        if (panel) panel.scrollTop = panel.scrollHeight;
+        if (panel) panel.scrollTop = 0;
     }, [current]);
 
     if (!frame) {
@@ -113,9 +115,9 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
 
     return (
         <Shell onClose={onClose}>
-            <div className="relative z-10 flex h-[min(92vh,860px)] w-[min(1120px,96vw)] flex-col overflow-hidden ink-card animate-fade-up">
-                <header className="flex min-h-[74px] items-center justify-between gap-4 border-b border-gold/15 px-5 py-3">
-                    <div className="min-w-0">
+            <div className="battle-replay-card relative z-10 flex h-[min(92vh,860px)] w-[min(1120px,96vw)] flex-col overflow-hidden ink-card animate-fade-up">
+                <header className="replay-header flex min-h-[74px] items-center justify-between gap-4 border-b border-gold/15 px-5 py-3">
+                    <div className="min-w-0 flex-1">
                         <h2 id="battle-replay-title" className="font-title text-lg text-ink">对局回放</h2>
                         <p
                             className="mt-0.5 truncate text-[11px] text-ink-faint"
@@ -127,21 +129,21 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                         </p>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
-                        <span className="text-[11px] text-ink-faint">← → 逐步，空格播放</span>
+                        <span className="replay-keyboard-hint text-[11px] text-ink-faint">← → 逐步，空格播放</span>
                         <InkButton variant="ghost" size="sm" sfx="cancel" onClick={onClose}>关闭</InkButton>
                     </div>
                 </header>
 
-                <div className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
-                    <div className="replay-stable-scroll flex min-w-0 flex-col gap-3 overflow-y-auto light-scrollbar pr-1">
+                <div className="replay-content flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
+                    <div className="replay-board-column replay-stable-scroll flex min-w-0 flex-col gap-3 overflow-y-auto light-scrollbar pr-1">
                         <ReplayBoard frame={frame} statics={replay.statics} deltas={deltas} />
                         <ReplayRoster replay={replay} frameIndex={current} />
                     </div>
 
-                    <aside className="flex w-[320px] flex-shrink-0 flex-col gap-3 min-h-0">
+                    <aside className="replay-narration flex w-[320px] flex-shrink-0 flex-col gap-3 min-h-0">
                         <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-ink/8 bg-rice-light/60">
                             <h3 className="border-b border-ink/8 px-3 py-2 font-title text-sm text-ink">本步战报</h3>
-                            <div ref={narrationRef} className="replay-stable-scroll min-h-0 flex-1 overflow-y-auto light-scrollbar px-3 py-2">
+                            <div ref={narrationRef} className="replay-log-scroll replay-stable-scroll min-h-0 flex-1 overflow-y-auto light-scrollbar px-3 py-2">
                                 {stepLogs.length === 0 ? (
                                     <p className="text-[12px] text-ink-faint">（本步没有产生新战报，多为流程推进或站位变化）</p>
                                 ) : stepLogs.map(entry => (
@@ -157,12 +159,12 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                             </div>
                         </section>
 
-                        <section className="rounded-lg border border-ink/8 bg-rice-light/60 px-3 py-2">
+                        <section className="replay-marks-panel rounded-lg border border-ink/8 bg-rice-light/60 px-3 py-2">
                             <h3 className="font-title text-sm text-ink">
                                 关键节点
                                 <span className="ml-1.5 text-[10px] font-normal text-ink-faint">回合切换见时间轴刻度</span>
                             </h3>
-                            <div className="replay-stable-scroll mt-2 flex max-h-[168px] flex-wrap gap-1.5 overflow-y-auto light-scrollbar">
+                            <div className="replay-marks replay-stable-scroll mt-2 flex max-h-[168px] flex-wrap gap-1.5 overflow-y-auto light-scrollbar">
                                 {markChips.length === 0 ? (
                                     <p className="text-[12px] text-ink-faint">本局没有识别到击杀/天威等关键节点。</p>
                                 ) : markChips.map(mark => (
@@ -182,8 +184,8 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                     </aside>
                 </div>
 
-                <footer className="border-t border-gold/15 px-5 py-3">
-                    <div className="mb-2 flex items-center gap-2">
+                <footer className="replay-footer border-t border-gold/15 px-5 py-3">
+                    <div className="replay-transport mb-2 flex items-center gap-2">
                         <button type="button" className="replay-btn" onClick={() => { setPlaying(false); setFrameIndex(0); }} aria-label="回到开局">⏮</button>
                         <button type="button" className="replay-btn" onClick={() => stepBy(-1)} aria-label="上一步">‹</button>
                         <button type="button" className="replay-btn replay-btn-play" onClick={() => setPlaying(value => !value)} aria-label={playing ? '暂停' : '播放'}>
@@ -201,7 +203,9 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                             <option value={1}>1×</option>
                             <option value={2}>2×</option>
                         </select>
-                        <span className="ml-auto text-[11px] text-ink-faint">{frame.actions}/{frame.required} 行动次数</span>
+                        <span className="replay-action-count ml-auto text-[11px] text-ink-faint" title="本步已用 / 需要的行动次数">
+                            行动 {frame.actions}/{frame.required}
+                        </span>
                     </div>
 
                     <div className="replay-track">
@@ -209,7 +213,9 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                             <span
                                 key={`tick-${mark.frame}-${mark.kind}`}
                                 className={`replay-tick replay-mark-${mark.kind}`}
-                                style={{ left: `${(mark.frame / lastIndex) * 100}%` }}
+                                // 刻度位置要和滑块中心对得上：滑块的可行程两端各少半个 thumb，
+                                // 直接按 100% 铺就会让"当前步"的刻度系统性偏右半个拇指宽
+                                style={{ '--replay-ratio': lastIndex > 0 ? mark.frame / lastIndex : 0 } as CSSProperties}
                                 title={MARK_LABELS[mark.kind]}
                             />
                         ))}
@@ -231,7 +237,7 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
 
 function Shell({ children, onClose }: BattleReplayModalProps & { children: React.ReactNode }) {
     return (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="battle-replay-title">
+        <div className="battle-replay-modal fixed inset-0 z-[75] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="battle-replay-title">
             <button
                 type="button"
                 data-sfx="cancel"
@@ -258,9 +264,9 @@ function ReplayRoster({ replay, frameIndex }: { replay: BattleReplay; frameIndex
     return (
         // 花名册整块高度固定、行高固定：增益/减益随帧增减会把行撑高，
         // 逐帧翻动时下半栏就会上下抽动，连带左栏滚动位置一起晃
-        <div className="grid h-[178px] flex-shrink-0 grid-cols-2 gap-2">
+        <div className="replay-roster grid h-[178px] flex-shrink-0 grid-cols-2 gap-2">
             {byOwner.map(({ owner, units }) => (
-                <section key={owner} className="flex min-h-0 flex-col rounded-lg border border-ink/8 bg-rice-light/60 px-2.5 py-2">
+                <section key={owner} data-owner={owner} className="flex min-h-0 flex-col rounded-lg border border-ink/8 bg-rice-light/60 px-2.5 py-2">
                     <h4 className="mb-1.5 flex-shrink-0 font-title text-xs text-ink-faint">{owner === 'player1' ? '玩家一' : '玩家二'}</h4>
                     <ul className="replay-stable-scroll min-h-0 flex-1 space-y-1 overflow-y-auto">
                         {units.map(unit => {

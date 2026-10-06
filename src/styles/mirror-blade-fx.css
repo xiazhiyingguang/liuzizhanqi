@@ -1,0 +1,59 @@
+/* 银蓝棱镜 + 淡紫折射。飞行只动画 transform/opacity，无跨棋盘的 SVG 滤镜或描线重绘。 */
+.fx-mirror-projectile {
+    position: absolute; left: 50%; top: 50%;
+    width: calc(var(--board-cell-size) * .49); height: calc(var(--board-cell-size) * .2);
+    margin-left: calc(var(--board-cell-size) * -.245); margin-top: calc(var(--board-cell-size) * -.1);
+    opacity: 0; will-change: transform, opacity;
+}
+.fx-mirror-pitch { position: absolute; width: calc(var(--board-cell-size) + 6px); height: 0; visibility: hidden; }
+.fx-mirror-prism {
+    position: absolute; inset: 0;
+    clip-path: polygon(100% 50%, 34% 0, 0 50%, 34% 100%);
+    background: conic-gradient(from 0deg at 34% 50%, #fff 0deg 90deg, #9acbe0 90deg 180deg, #d8edf9 180deg 270deg, #bdabdf 270deg 360deg);
+}
+.fx-mirror-prism::after {
+    content: ''; position: absolute; left: 3%; right: 0; top: 48%; height: 1px; background: #f5fdff;
+}
+.fx-mirror-tail {
+    position: absolute; top: 30%; right: 72%; width: 135%; height: 40%;
+    clip-path: polygon(0 50%, 100% 0, 100% 100%);
+    background: linear-gradient(90deg, transparent, #c6e6f040);
+}
+.fx-mirror-summon {
+    position: absolute; inset: 17%; border: 1px solid #bad8eb; border-radius: 50%; opacity: 0;
+    animation: mb-summon 380ms ease-out forwards;
+}
+.fx-mirror-impact > i { position: absolute; opacity: 0; }
+.fx-mirror-cut {
+    left: 12%; top: 48%; width: 76%; height: 3%;
+    background: linear-gradient(90deg, transparent, #daf5ff, white, #c5b4e9, transparent);
+    animation: mb-cut 260ms ease-out forwards;
+}
+.fx-mirror-hit-ring {
+    inset: 30%; border: 1px solid #d2eaf0; border-radius: 50%;
+    animation: mb-hit-ring 360ms ease-out forwards;
+}
+.fx-mirror-shard {
+    left: 47%; top: 44%; width: 6%; height: 12%;
+    clip-path: polygon(50% 0, 100% 65%, 40% 100%, 0 45%);
+    background: linear-gradient(115deg, #fff, #b3cdea 48%, #c0a9d9);
+    animation: mb-shard 360ms ease-out forwards;
+}
+.skill-fx.skill-fx-kind-mirror-blades .fx-anchor.fx-mirror-impact > i { animation-delay: var(--mb-hit); }
+@keyframes mb-summon {
+    0% { opacity: 0; transform: scale(.65) rotate(-25deg); }
+    28% { opacity: .65; }
+    100% { opacity: 0; transform: scale(1.18) rotate(20deg); }
+}
+@keyframes mb-cut {
+    0% { opacity: 0; transform: rotate(var(--mb-angle)) scaleX(.15); }
+    16% { opacity: 1; transform: rotate(var(--mb-angle)) scaleX(.85); }
+    100% { opacity: 0; transform: rotate(var(--mb-angle)) scaleX(1.25); }
+}
+@keyframes mb-hit-ring { 0% { opacity: 0; transform: scale(.6); } 12% { opacity: .65; } 100% { opacity: 0; transform: scale(2); } }
+@keyframes mb-shard {
+    0% { opacity: 0; transform: rotate(var(--mb-shard-angle)) translateY(0) scale(.6); }
+    15% { opacity: .8; }
+    100% { opacity: 0; transform: rotate(var(--mb-shard-angle)) translateY(calc(var(--board-cell-size) * -.4)) rotate(60deg) scale(.25); }
+}
+@media (prefers-reduced-motion: reduce) { .fx-mirror-launch { display: none; } }

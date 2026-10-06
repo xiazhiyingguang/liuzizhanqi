@@ -1,0 +1,494 @@
+{
+  "mode": "built-in image_gen",
+  "created": "2026-10-05",
+  "count": 44,
+  "style": "Chinese ink-wash matched to user's second reference",
+  "transparent_background": false,
+  "weapons": [
+    {
+      "id": "moran",
+      "heroName": "墨阑",
+      "weaponName": "问道",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 墨阑's 问道: one long slender Chinese straight jian sword with a silver-white blade, subtle dark central ink line, black lacquer grip, small antique gold cloud guard and jade pommel, teal-blue tassel and a short translucent pale silk ribbon. Restrained scholarly atmosphere. Small black bamboo-like engraved accents painted into the hilt; sparse black ink trails echo the blade. Mostly ivory, black, antique gold and muted teal.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ],
+      "file": "moran.png"
+    },
+    {
+      "id": "zhenxiao",
+      "heroName": "震霄",
+      "weaponName": "惊雷碎岳",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 震霄's 惊雷碎岳: one powerful broad single-edged Chinese dao saber with a pronounced curved silver-gray cutting edge, charcoal-blue spine, intricate antique-gold dragon guard, navy grip. Golden lightning-like inlays on the blade, subtle pale-blue and charcoal brush-stroke thunder energy. Bold but refined, hand-painted metallic planes through broken angular brushwork, not photographic. Full blade visible. Predominantly ink black, ivory, antique gold and muted steel blue.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ],
+      "file": "zhenxiao.png"
+    },
+    {
+      "id": "wukong",
+      "heroName": "孙悟空",
+      "weaponName": "万仞",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 孙悟空's 万仞: one long straight blunt cylindrical battle staff, dark ink-black central shaft with small deep-red accents, balanced ornate antique-gold end caps bearing stylized dragon/cloud engravings and scattered distressed gold marks. A restrained red silk ribbon flows from one end through surrounding ink sweeps. Staff occupies most of diagonal, both ends complete. Mostly black, antique gold, ivory with small crimson accents. It is a long staff, no blade.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ],
+      "file": "wukong.png"
+    },
+    {
+      "id": "wangshu",
+      "heroName": "望舒",
+      "weaponName": "朔望仪",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 望舒's 朔望仪: for this asset the SECOND attached image, the moon staff, is the SUBJECT DESIGN reference only; reproduce its graceful long slim handle, large nested delicate circular lunar rings around an ivory crescent, fine gold chainwork, sparse white blossoms, moon-phase beads, pale-blue and ivory ribbons and tassels. Make one beautiful coherent lunar ritual staff. Apply the FIRST attached folding-fan painting's ink-wash brushwork and warm paper background to this staff. Use an airy pale ink-wash backdrop with ample negative space, not the moon staff reference's dense full landscape. Palette white, charcoal, muted silver-blue and antique gold.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png",
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\moon-staff.png"
+      ],
+      "file": "wangshu.png"
+    },
+    {
+      "id": "xueqi",
+      "heroName": "血契",
+      "weaponName": "赤枷",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 血契's 赤枷: one unmistakable RED LONG-HANDLED SCYTHE. The blade must be predominantly deep blood red and crimson, large curved crescent mounted perpendicular to the top of a long dark-red/black shaft, arcing sideways then curving down to a sharp inward tip. Painted dark-red blade facets, irregular delicate antique-gold tracery, subtle black brush textures, burgundy grip wraps and a few restrained red silk strips. Strong scythe silhouette. Surround with a pale-gray ink spiral with a few small crimson splashes. No chains as the main weapon, no sword. The user explicitly requires a red scythe.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ],
+      "file": "xueqi.png"
+    },
+    {
+      "id": "huifeng",
+      "heroName": "回锋",
+      "weaponName": "千锋尽",
+      "system": "武曲",
+      "file": "huifeng.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 千锋尽, signature artifact of 回锋. A matched pair of agile recurved short swords with sleek dark steel, bright silver cutting edges, layered blade fins, antique gold collar and teal engraved wind channels; black grips. Two blades form a balanced open V, no debris.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "xuanxiao",
+      "heroName": "玄霄",
+      "weaponName": "天机扇",
+      "system": "天师",
+      "file": "xuanxiao.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 天机扇, signature artifact of 玄霄. A single fully opened elegant Daoist folding fan, ivory silk leaf painted with subtle abstract ink cloud lines and gold celestial geometric constellations, carved black bamboo ribs and antique gold pivot with teal jade bead tassel. No writing, no letters.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "nightowl",
+      "heroName": "暗影猎手·夜枭",
+      "weaponName": "夜陨",
+      "system": "武曲",
+      "file": "nightowl-v2.png",
+      "prompt": "Use case: stylized-concept. Asset: square individual weapon portrait for an existing Chinese fantasy game ink-wash collection. Image 1 is the PRIMARY STYLE reference only: match its warm ivory fibrous xuan-paper, layered watercolor ink wash, angular dry-brush facets on the weapon itself, finely painted antique gold tracery, rich ink black, elegant silk accents and quiet negative space. Image 2 is the old weapon to be completely redesigned as specified, retaining the hero's theme. Make ONE complete weapon, centered large, all extremities inside the square canvas with generous 8% margin. Opaque paper backdrop with restrained flowing charcoal ink sweeps. Intricate hand-painted illustration, no photorealism or 3D render, no text, watermark, characters, hands, UI, collage. Square 1254 x 1254 composition; no transparency. SUBJECT: 暗影猎手·夜枭's 夜陨. Replace the two blades with ONE elegant recurved longbow and ONE matching slim arrow. The silhouette MUST be visibly a bow: two gracefully curved black-lacquer limbs joined at a narrow central handgrip, one taut continuous bowstring connecting the limb tips. Single arrow along the open interior, with sharp silver arrowhead and dark feather fletching. Slim antique-gold owl-feather ornaments around the grip and limb tips, tiny violet gem at the grip, muted violet-black ribbon and short tassel, sophisticated predatory nocturnal mood. Ink black, silver-gray, antique gold, subdued violet. Prioritize the strong readable arch and exposed string. No blade pair, no crossbow.",
+      "referenced_image_paths": [
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/references/ink-fan-style.png",
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/nightowl.png"
+      ]
+    },
+    {
+      "id": "liuli",
+      "heroName": "琉璃",
+      "weaponName": "净琉璃",
+      "system": "霸魁",
+      "file": "liuli.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 净琉璃, signature artifact of 琉璃. A single Buddhist guardian ritual staff with an elegant pale translucent jade-glass lotus top, antique-gold curved frame and six small gold rings contained close to crown, strong dark staff body wrapped with ivory cord, soft aqua lotus light. Full-length coherent staff.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "baize",
+      "heroName": "白泽",
+      "weaponName": "天禄书",
+      "system": "素问",
+      "file": "baize.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 天禄书, signature artifact of 白泽. An open ancient Chinese healing bestiary book with thick ivory pages, pale jade and antique-gold protective binding, embossed mythical beast relief on the binding and delicate nonlinguistic cloud diagrams on pages. One book, pages blank of readable writing; small jade glow.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "changli",
+      "heroName": "长离",
+      "weaponName": "不灭星火",
+      "system": "化识",
+      "file": "changli.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 不灭星火, signature artifact of 长离. A single fire ritual focus: an antique black-and-gold circular hand-held reliquary with sculpted phoenix-wing lattice enclosing one luminous crimson amber ember, dark carved grip beneath, tiny warm gold fire filaments contained inside the lattice; coherent tangible artifact, no bird.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "mirror",
+      "heroName": "镜",
+      "weaponName": "破镜之刃",
+      "system": "武曲",
+      "file": "mirror.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 破镜之刃, signature artifact of 镜. A matched pair of crystalline mirror short swords with faceted reflective silver blades, jagged but deliberate mirrored facets, black hilts, antique gold collars and faint lilac reflections. Elegant symmetric mirrored crescent guards; two physical intact swords, no loose shards.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "mowen",
+      "heroName": "时光剑客·莫问",
+      "weaponName": "溯光",
+      "system": "武曲",
+      "file": "mowen.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 溯光, signature artifact of 时光剑客·莫问. A single slender long Chinese jian sword, silver blade with a narrow luminous amber central channel, antique-gold circular clockwork crossguard with small precise gear teeth, dark handle and jade hourglass pommel; amber time motifs integrated into weapon, no clock background.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "guying",
+      "heroName": "孤影",
+      "weaponName": "寒渊",
+      "system": "武曲",
+      "file": "guying.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 寒渊, signature artifact of 孤影. A single austere long straight icy Chinese sword with dark blue-steel core, frost-white razor edge, translucent pale aqua crystal guard shaped like cold angular wings, black grip and silver pommel; localized delicate frost on blade, elegant lonely silhouette.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "hanjiangxue",
+      "heroName": "寒江雪",
+      "weaponName": "冰心",
+      "system": "天师",
+      "file": "hanjiangxue.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 冰心, signature artifact of 寒江雪. A single ice-mage focus staff, pale silver stem with deep teal wrapped grip, faceted clear ice crystal heart enclosed in an antique-silver crescent crown, delicate symmetrical snowflake filigree and very faint icy-blue glow. Crystal heart is clearly one ornament, full staff.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "skeletonking",
+      "heroName": "骸骨君王·厄瑞波斯",
+      "weaponName": "冥王权杖",
+      "system": "武曲",
+      "file": "skeletonking.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 冥王权杖, signature artifact of 骸骨君王·厄瑞波斯. A single imposing necromancer king's scepter, blackened metal shaft, ornate antique gold skeletal crown holding an ivory skull carving and a deep emerald soul gemstone, dark velvet wrapping; controlled green glow only in gemstone. Full scepter, not a person.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "jetzmi",
+      "heroName": "亡灵城主·杰茨米",
+      "weaponName": "双生之镰",
+      "system": "武曲",
+      "file": "jetzmi.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 双生之镰, the signature PAIRED SCYTHES of 亡灵城主·杰茨米. Show exactly TWO complete long-handled scythes as ONE coherent pair with clear space separating both silhouettes. One is ivory bone, antique gold and cool pale teal spirit light; the other ink black, antique gold and muted violet. Two crescent blades, each mounted sideways at the TOP of its own long handle, sweep in opposite directions. Each blade is joined physically to its handle. Balanced twin scythes, not detached crescent jewelry or bows.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "pipa",
+      "heroName": "五弦琵琶",
+      "weaponName": "五弦·谐鸣",
+      "system": "天师",
+      "file": "pipa.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 五弦·谐鸣, signature artifact of 五弦琵琶. A single full five-string Chinese pipa lute, pear-shaped ebony wooden soundbox with warm ivory resonant face, exactly five delicate strings and five tuning pegs, antique gold floral edging and teal jade flower inlay; fine hand-painted wood texture, no floating notes.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "bounty",
+      "heroName": "赏金猎人",
+      "weaponName": "追命",
+      "system": "天师",
+      "file": "bounty-v2.png",
+      "prompt": "Use case: stylized-concept. Asset: square individual weapon portrait for an existing Chinese fantasy game ink-wash collection. Image 1 is the PRIMARY STYLE reference only: match its warm ivory fibrous xuan-paper, layered watercolor ink wash, angular dry-brush facets on the weapon itself, finely painted antique gold tracery, rich ink black, elegant silk accents and quiet negative space. Image 2 is the old weapon to be completely redesigned as specified, retaining the hero's theme. Make ONE complete weapon, centered large, all extremities inside the square canvas with generous 8% margin. Opaque paper backdrop with restrained flowing charcoal ink sweeps. Intricate hand-painted illustration, no photorealism or 3D render, no text, watermark, characters, hands, UI, collage. Square 1254 x 1254 composition; no transparency. SUBJECT: 赏金猎人's 追命. Replace the crossbow with ONE GOLDEN BOUNTY DAGGER, unmistakably a short compact dagger rather than a sword: a short pointed double-edged pale-gold blade with a crisp central ridge, engraved antique-gold scrollwork and fine bounty-token medallion motif, a small tasteful swept gold crossguard, dark wrapped short grip with gold fittings, tiny emerald inset and a small gold coin pendant attached at the pommel by a fine chain. Beautiful warm golden blade dominates the colors, distinguish its gold facets through painterly brushwork. A restrained dark wine-red silk cord curves near the hilt. Full single dagger diagonally across canvas, balanced airy ink swirls, sophisticated precious hunter's weapon. No bow, crossbow, long sword, firearms, pile of coins, written currency symbols.",
+      "referenced_image_paths": [
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/references/ink-fan-style.png",
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/bounty.png"
+      ]
+    },
+    {
+      "id": "yinyang",
+      "heroName": "阴阳师",
+      "weaponName": "两界符",
+      "system": "天师",
+      "file": "yinyang.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 两界符, signature artifact of 阴阳师. A single paired yin-yang ritual talisman artifact: two narrow ivory and black jade tablets joined by an antique-gold circular clasp, one ivory tablet with dark abstract geometric ritual lines, one obsidian tablet with pale gold geometric lines; short red silk cords. No readable writing.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "soul_lamp",
+      "heroName": "缚魂灯",
+      "weaponName": "幽明引",
+      "system": "天师",
+      "file": "soul_lamp.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 幽明引, signature artifact of 缚魂灯. A single ancient hanging spirit lantern with blackened bronze gothic-Chinese frame, antique gold corner filigree, four pale translucent panels around one aqua soul-flame, curved carrying ring and a small chain tassel; entire lantern and handle visible, flame contained inside.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "bard",
+      "heroName": "吟游诗人",
+      "weaponName": "交响诗篇",
+      "system": "素问",
+      "file": "bard.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 交响诗篇, signature artifact of 吟游诗人. A single elegant small harp-like fantasy lyre with dark polished walnut arms, warm antique-gold floral carvings, ivory bridge and seven taut silver strings; a small teal crystal set at the central curve, refined joyful bard instrument, no musical notation, no extra book.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "wither_lord",
+      "heroName": "凋零之主",
+      "weaponName": "万物凋零",
+      "system": "化识",
+      "file": "wither_lord-v2.png",
+      "prompt": "Use case: stylized-concept. Asset: square individual weapon portrait for an existing Chinese fantasy game ink-wash collection. Image 1 is the PRIMARY STYLE reference only: match its warm ivory fibrous xuan-paper, layered watercolor ink wash, angular dry-brush facets on the weapon itself, finely painted antique gold tracery, rich ink black, elegant silk accents and quiet negative space. Image 2 is the old weapon to be completely redesigned as specified, retaining the hero's theme. Make ONE complete weapon, centered large, all extremities inside the square canvas with generous 8% margin. Opaque paper backdrop with restrained flowing charcoal ink sweeps. Intricate hand-painted illustration, no photorealism or 3D render, no text, watermark, characters, hands, UI, collage. Square 1254 x 1254 composition; no transparency. SUBJECT: 凋零之主's 万物凋零. Completely redesign the old crude bramble staff into ONE exquisite slender sovereign's magic staff with a beautiful clean flowing silhouette. Long smooth ink-black shaft with delicate antique-gold vine inlay. Crown: a graceful sculptural arc of two thin gilded bare branches sweeping around a SINGLE translucent smoky-amethyst teardrop crystal, suspended inside an elegant openwork wilted-lotus crown; layered soft dark-violet and gray lotus petals fold around its base. Delicate geometric-free botanical filigree, very sparse dried leaves, two fine chains with violet crystal drops, muted translucent violet-gray silk streamers. Suggest withering through a few fading petals dissolving into gentle ink wash. Noble, ethereal, beautiful and restrained, no lumpy cracked sphere, no dense thorn spikes, no skull, no rot, no monstrous clutter. Crown and pointed base fully visible with margin, diagonal arrangement. Ink black, smoky amethyst, faded violet, warm antique gold.",
+      "referenced_image_paths": [
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/references/ink-fan-style.png",
+        "D:/code/Game/six-chess-battle/public/weapon-images/ink-collection/wither_lord.png"
+      ]
+    },
+    {
+      "id": "t_painting",
+      "heroName": "T型帛画",
+      "weaponName": "日月帛",
+      "system": "化识",
+      "file": "t_painting.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 日月帛, signature artifact of T型帛画. A single ancient Chinese T-shaped silk funerary banner, crossbar wider than vertical panel, antique dark wooden suspension rod, weathered ivory silk bordered in muted cinnabar and gold, hand-painted abstract sun moon, black turtle and golden crow motifs; no text, full banner, no scene.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "feynman",
+      "heroName": "粒子加速者·费曼",
+      "weaponName": "粒子对撞机",
+      "system": "化识",
+      "file": "feynman.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 粒子对撞机, signature artifact of 粒子加速者·费曼. A single hand-sized circular particle collider gauntlet-like magical scientific apparatus: a finely machined antique-brass toroidal ring, black ceramic segmented outer casing, tiny teal energy node at center with two counter-rotating luminous particle paths contained within ring; coherent crafted hardware, no text.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "wangcai",
+      "heroName": "旺财",
+      "weaponName": "聚宝盆",
+      "system": "通灵",
+      "file": "wangcai.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 聚宝盆, signature artifact of 旺财. A single auspicious Chinese treasure basin, low round warm antique-gold bowl with embossed cloud-and-coin relief, turquoise jade inlay feet and a few small gold ingots nested inside; restrained wealth glow close to basin rim. No animal, no spilling coins outside, no text.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "lilith",
+      "heroName": "恐惧编织者·莉莉丝",
+      "weaponName": "梦魇之弦",
+      "system": "化识",
+      "file": "lilith.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 梦魇之弦, signature artifact of 恐惧编织者·莉莉丝. A single dark elegant recurve bow with ebony limbs shaped like thin bat-wing ribs, antique silver thorn filigree, taut pale violet bowstring and a small amethyst at black wrapped grip. Coherent whole bow, tiny sinister purple light, no person, no arrows.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "libai",
+      "heroName": "李太白",
+      "weaponName": "醉月",
+      "system": "武曲",
+      "file": "libai.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 醉月, signature artifact of 李太白. A single elegant long Chinese jian sword, moon-silver blade etched with delicate crescent reflections, white wrapped grip, antique gold cloud crossguard and a pale jade pommel with slender ivory and muted cyan tassel; poetic wandering sword, no wine jug, no scabbard.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "zuizhendao",
+      "heroName": "醉枕刀",
+      "weaponName": "酒狂",
+      "system": "武曲",
+      "file": "zuizhendao.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 酒狂, signature artifact of 醉枕刀. A single robust curved Chinese dao saber with broad silver blade and restrained gold wine-ripple engravings, dark wood grip wrapped in worn burgundy cloth, antique gold simple circular guard and a small red tassel; weathered bold drunken swordsman weapon, no jug.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "feixue",
+      "heroName": "绯雪",
+      "weaponName": "霜碎",
+      "system": "武曲",
+      "file": "feixue.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 霜碎, signature artifact of 绯雪. A matched pair of ice assassin blades, short curved silver knives with dark red grips, translucent pale-blue crystalline spines and antique silver snowflake guards; subtle crimson jewel each and sharp frost-white edges. Two complete blades, cold refined assassin elegance.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "fengling",
+      "heroName": "风铃",
+      "weaponName": "猎砂之爪",
+      "system": "武曲",
+      "file": "fengling.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 猎砂之爪, signature artifact of 风铃. A matched pair of desert hunter claw gauntlets, each with three long curved steel claws, dark brown leather fingerless bracer base, antique brass geometric sand-grain engravings and small amber stones. Clearly two wearable claw weapons, not detached hands, no person.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "dilan",
+      "heroName": "帝兰",
+      "weaponName": "青鸾羽",
+      "system": "天师",
+      "file": "dilan.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 青鸾羽, signature artifact of 帝兰. A single elegant ritual feather fan built from layered blue-green phoenix feathers, translucent jade rachis, antique gold sweeping bird-wing frame and small dark handle with turquoise tassel; refined airy long teardrop shape, intricate iridescent feather texture, no bird.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "nanfeng",
+      "heroName": "南风",
+      "weaponName": "熏风笛",
+      "system": "化识",
+      "file": "nanfeng.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 熏风笛, signature artifact of 南风. A single slender Chinese bamboo flute, pale jade-green polished bamboo with exactly six visible finger holes, warm antique gold end rings, dark bamboo node details and one short green silk tassel; delicate carved flowing wind lines, no floating musical notation.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "shangguan",
+      "heroName": "上官婉儿",
+      "weaponName": "飞白",
+      "system": "化识",
+      "file": "shangguan.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 飞白, signature artifact of 上官婉儿. A single large elegant Chinese calligraphy brush, black lacquer shaft with antique gold cloud filigree and white jade collar, ivory brush hairs tapering to a crisp black ink-soaked tip, teal jade finial and small dark tassel. Ink markings contained on hairs, no writing or floating ink cloud.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "chenyuan",
+      "heroName": "沉渊·镇岳",
+      "weaponName": "镇岳",
+      "system": "霸魁",
+      "file": "chenyuan-v2.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 镇岳, signature artifact of 沉渊·镇岳. A single massive guardian war hammer, broad rectangular black stone head with icy silver mountain-relief borders and ancient gold seams, dark long handle bound with weathered leather and pale jade collar; a small frosted teal stone inset in hammer head, powerful heavy silhouette.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ],
+      "originalFile": "chenyuan.png",
+      "refinement": "See refinement-prompts.json: wider safe margins around the hammerhead"
+    },
+    {
+      "id": "dai",
+      "heroName": "时空旅者·戴尔",
+      "weaponName": "时之沙",
+      "system": "天师",
+      "file": "dai.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 时之沙, signature artifact of 时空旅者·戴尔. A single exquisite hand-held magical hourglass with clear twin glass bulbs, fine golden sand caught midfall, antique brass top and bottom caps connected by three dark curved support rods, teal clockwork jewel in cap and subtle hour arcs engraved in brass. No surrounding clocks.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "youjun",
+      "heroName": "游隼",
+      "weaponName": "掠风翎",
+      "system": "武曲",
+      "file": "youjun.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 掠风翎, signature artifact of 游隼. A matched pair of sleek falcon-feather throwing knives, silver tapered aerodynamic blades with feather-like ridges, black wrapped compact handles and antique gold feather guards; muted teal central grooves. Two full blades arranged in balanced open V, no bird.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "xubai",
+      "heroName": "叙白",
+      "weaponName": "澄心笺",
+      "system": "素问",
+      "file": "xubai.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 澄心笺, signature artifact of 叙白. A single elegant healing stationery artifact: an ivory paper scroll partly unrolled between short dark-wood end rods, antique gold lotus border, pale jade protective clasp and one small white silk cord; only very faint abstract flowing ink line motifs, no words or legible characters, calm aqua highlights.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "lingxi",
+      "heroName": "泠汐",
+      "weaponName": "汐音螺",
+      "system": "天师",
+      "file": "lingxi.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 汐音螺, signature artifact of 泠汐. A single ornate ocean ritual conch, spiraling pearlescent ivory shell with translucent aqua edge and antique gold filigree tracing the spiral, inset tiny pale-blue pearls and teal silk binding at narrow end; opening readable, localized faint aqua tide glow, no water background.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "yunying",
+      "heroName": "云缨",
+      "weaponName": "赤霄",
+      "system": "武曲",
+      "file": "yunying.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 赤霄, 云缨's signature long FIRE SPEAR. Exactly one long straight spear shaft with an attached sharply pointed long steel spearhead at one end, antique-gold flame-shaped socket, red silk tassel under the spearhead, dark-red lacquer shaft and gold small end cap at the opposite end. The red flame effect hugs the spear tip in painterly brush strokes. Complete spear, both ends visible. Not a sword, staff without point, or detached spearhead.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "jinghong",
+      "heroName": "惊鸿·止水",
+      "weaponName": "惊鸿照影",
+      "system": "武曲",
+      "file": "jinghong.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 惊鸿照影, signature artifact of 惊鸿·止水. A single refined straight Chinese longsword with luminous silver mirror-polished blade, pale jade green narrow fuller, antique gold crane-wing crossguard, ivory grip and a pale teal tassel; graceful water-still reflection integrated on blade, no bird, no scabbard.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "jinghua",
+      "heroName": "镜花·水月",
+      "weaponName": "水月鉴",
+      "system": "通灵",
+      "file": "jinghua.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 水月鉴, signature artifact of 镜花·水月. A single ancient Chinese hand mirror with circular polished silver moon surface reflecting abstract pale water ripples, antique gold and teal jade lotus-petal rim, a short carved ivory handle and pearl tassel; reflective surface belongs to object, no faces or background reflection.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "huanongying",
+      "heroName": "花弄影",
+      "weaponName": "破月扇",
+      "system": "武曲",
+      "file": "huanongying.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 破月扇, signature artifact of 花弄影. A single opened martial folding fan, deep black silk leaf with a subtle silver crescent and antique gold blossom outline, sharp silver blade-like ribs and antique gold pivot with muted violet tassel; clear fan shape, elegant concealed weapon, no writing.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    },
+    {
+      "id": "zhiguang",
+      "heroName": "折光",
+      "weaponName": "虹棱",
+      "system": "化识",
+      "file": "zhiguang.png",
+      "prompt": "Use case: stylized-concept.\nCreate ONE individual Chinese fantasy weapon artwork, not a collage.\nSTYLE REFERENCE: The attached folding-fan painting is the PRIMARY stylistic reference. Closely match its mature hand-painted Chinese ink-wash / watercolor illustration: warm off-white fibrous xuan-paper ground, expressive angular broken brush marks, layered translucent washes, dry-brush ink edges, finely painted antique gold tracery, rich black areas, nuanced colored accents, flowing painterly details. Render the WEAPON ITSELF with this brushwork, not merely an ink background behind a digitally rendered object. Intricate and elegant as the reference, with strong readable weapon silhouette.\nBACKDROP: opaque warm ivory paper with flowing asymmetrical pale-gray and charcoal ink sweeps, scattered restrained ink flecks, substantial quiet negative space like the folding-fan reference. No circle graphic, no geometric halo. The entire background must be opaque, not transparent.\nCOMPOSITION: full single weapon centered, large in the canvas, complete with margin, elegant diagonal composition suitable for its silhouette; its flowing ribbons may arc around it. No characters, hands, text, logos or UI. Square canvas.\nAVOID: photographic object rendering, polished 3D surfaces, thick cartoon outlines, flat cel-shading, uniform vector curves, glossy catalog lighting, realistic studio shadows, checkerboard, copying the reference fan as an extra prop, forcing floral designs onto every weapon.\nSUBJECT: 虹棱, signature artifact of 折光. A single magical refracting crystal prism, faceted elongated hexagonal clear crystal enclosed by a minimal antique-gold three-point cage with small dark jade grip pedestal as part of artifact, internal soft spectral cyan lavender amber light refracting through crystal; no external rainbow scene.",
+      "referenced_image_paths": [
+        "D:\\code\\Game\\six-chess-battle\\public\\weapon-images\\ink-collection\\references\\ink-fan-style.png"
+      ]
+    }
+  ]
+}

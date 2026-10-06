@@ -17,4 +17,16 @@ describe('主界面视觉版本', () => {
         expect(html).toContain('联机对战');
         expect(html).toContain('武器图鉴');
     });
+
+    it('人机对战不再有二级难度菜单，入口直接标明宗师档', () => {
+        const html = renderToStaticMarkup(<MainMenu />);
+
+        expect(html).not.toContain('menu-ai-master');
+        expect(html).not.toContain('menu-ai-normal');
+        expect(html).not.toContain('menu-ai-easy');
+        expect(html).not.toContain('menu-ai-difficulty-back');
+        expect(html).not.toContain('简单电脑');
+        expect(html).not.toContain('普通电脑');
+        expect(html).toContain('宗师电脑');
+    });
 });

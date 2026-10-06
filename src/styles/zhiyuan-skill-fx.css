@@ -1,0 +1,101 @@
+/*
+ * 纸鸢「断线·冲天」：线轴一次烧光换连击，画面是左右来回的乱剪。
+ * 刻意不做成整齐三连——每道斜斩各自的角度、横向错位、起播时刻都不同，
+ * 且扫掠方向逐道翻转（--fxzr-dir: ±1），要的是"断了线的鸢子乱甩"那股失控劲。
+ */
+
+.fxzr-slash,
+.fxzr-slash *,
+.fxzr-thread {
+    pointer-events: none;
+    position: absolute;
+    display: block;
+}
+
+.fxzr-slash {
+    left: 50%;
+    top: 50%;
+    width: 148%;
+    height: 11%;
+    margin: -5.5% 0 0 -74%;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        color-mix(in srgb, var(--fx-c1, #b8402f) 70%, transparent) 34%,
+        var(--fx-c2, #ffe9c9) 58%,
+        #fff 66%,
+        transparent 100%);
+    filter: drop-shadow(0 0 6px var(--fx-glow, rgba(184, 64, 47, .55)));
+    opacity: 0;
+    transform: rotate(var(--fxzr-rot)) translateX(calc(var(--fxzr-dir) * -64%)) translateX(var(--fxzr-off)) scaleX(.55);
+    animation: fxzr-swing 340ms cubic-bezier(.2, .72, .28, 1) forwards;
+    animation-delay: var(--fxzr-delay);
+}
+
+/* 刃芯：贴着主刃的一道白炽细线，扫过去时才亮足 */
+.fxzr-core {
+    left: 8%;
+    top: 34%;
+    width: 84%;
+    height: 26%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, #fff 52%, transparent);
+    opacity: .2;
+    animation: fxzr-core-flare 340ms ease-out forwards;
+    animation-delay: var(--fxzr-delay);
+}
+
+/* 断线：两根被崩断的细线斜着抽过去，节奏比刀光更散 */
+.fxzr-thread {
+    left: 50%;
+    top: 50%;
+    width: 176%;
+    height: 2.5%;
+    margin: -1.25% 0 0 -88%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, var(--fx-c1, #b8402f) 40%, var(--fx-c2, #ffe9c9) 62%, transparent);
+    opacity: 0;
+    transform: rotate(var(--fxzr-rot)) translateX(calc(var(--fxzr-dir) * -70%));
+    animation: fxzr-whip 520ms ease-out forwards;
+    animation-delay: var(--fxzr-delay);
+}
+
+.fxzr-slash-1 { --fxzr-rot: -62deg; --fxzr-dir: 1;  --fxzr-off: -6%; --fxzr-delay: 0ms; }
+.fxzr-slash-2 { --fxzr-rot: 54deg;  --fxzr-dir: -1; --fxzr-off: 7%;  --fxzr-delay: 96ms; }
+.fxzr-slash-3 { --fxzr-rot: -38deg; --fxzr-dir: 1;  --fxzr-off: 11%; --fxzr-delay: 188ms; }
+.fxzr-slash-4 { --fxzr-rot: 68deg;  --fxzr-dir: -1; --fxzr-off: -9%; --fxzr-delay: 268ms; }
+.fxzr-slash-5 { --fxzr-rot: -22deg; --fxzr-dir: 1;  --fxzr-off: 3%;  --fxzr-delay: 372ms; }
+
+.fxzr-thread-a { --fxzr-rot: 12deg;  --fxzr-dir: -1; --fxzr-delay: 60ms; }
+.fxzr-thread-b { --fxzr-rot: -74deg; --fxzr-dir: 1;  --fxzr-delay: 240ms; }
+
+@keyframes fxzr-swing {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--fxzr-rot)) translateX(calc(var(--fxzr-dir) * -64%)) translateX(var(--fxzr-off)) scaleX(.55);
+    }
+    22% { opacity: .96; }
+    70% { opacity: .8; }
+    100% {
+        opacity: 0;
+        transform: rotate(var(--fxzr-rot)) translateX(calc(var(--fxzr-dir) * 64%)) translateX(var(--fxzr-off)) scaleX(1.14);
+    }
+}
+
+@keyframes fxzr-core-flare {
+    0% { opacity: 0; }
+    34% { opacity: .95; }
+    100% { opacity: 0; }
+}
+
+@keyframes fxzr-whip {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--fxzr-rot)) translateX(calc(var(--fxzr-dir) * -70%)) scaleY(1);
+    }
+    18% { opacity: .8; }
+    100% {
+        opacity: 0;
+        transform: rotate(calc(var(--fxzr-rot) + 16deg * var(--fxzr-dir))) translateX(calc(var(--fxzr-dir) * 72%)) scaleY(.4);
+    }
+}

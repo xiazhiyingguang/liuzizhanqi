@@ -4,7 +4,7 @@ import { disconnectFromServer, leaveRoom } from '../../services/socket-service';
 import InkButton from '../ui/InkButton';
 
 interface SetupExitButtonProps {
-    stage: '点将' | '布阵';
+    stage: '点将' | '武装' | '布阵';
 }
 
 interface SetupExitButtonViewProps extends SetupExitButtonProps {

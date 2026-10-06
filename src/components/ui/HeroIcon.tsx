@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { resolveHeroTemplateId } from '../../data/hero-assets';
+import { AVAILABLE_HERO_IDS } from '../../data/heroes';
 
 interface HeroIconProps {
     heroId: string;
@@ -589,6 +590,79 @@ function HuanongyingIcon() {
     );
 }
 
+/** 折光 — 一枚三棱晶，一束光穿进来被折成两个方向 */
+function ZhiguangIcon() {
+    return (
+        <Stroke>
+            <path d="M16 6.4 L25.4 24.6 L6.6 24.6 Z" strokeWidth={1.5} />
+            <path d="M16 6.4 L16 24.6" strokeWidth={1.1} opacity={0.55} />
+            <path d="M2.6 15.4 L11.4 15.4" strokeWidth={1.5} />
+            <path d="M19.4 15.4 L29.4 11.2" strokeWidth={1.5} />
+            <path d="M19.4 17.6 L28.6 21.4" strokeWidth={1.2} opacity={0.7} />
+        </Stroke>
+    );
+}
+
+function ZhiyuanIcon() {
+    // 纸鸢 — 菱形纸鸢 + 十字竹骨 + 飘带双结 + 牵到指间的一根线
+    return (
+        <Stroke>
+            <path d="M17.4 4.6 L26.2 12.2 L17.4 21.6 L8.8 12.2 Z" strokeWidth={1.5} />
+            <path d="M17.4 4.6 L17.4 21.6" strokeWidth={1.1} opacity={0.55} />
+            <path d="M8.8 12.2 L26.2 12.2" strokeWidth={1.1} opacity={0.55} />
+            <path d="M17.4 21.6 Q13.6 25.2 15.4 28.4" strokeWidth={1.2} opacity={0.8} />
+            <path d="M13.1 24.4 L17.2 25.6" strokeWidth={1.3} />
+            <path d="M14.6 27.6 L18.6 28.4" strokeWidth={1.3} />
+            <path d="M26.2 12.2 L31.4 17.4" strokeWidth={1.2} opacity={0.7} />
+        </Stroke>
+    );
+}
+
+function DuosuiIcon() {
+    // 夺岁 — 厚背收年刀：刀身下压，砍断那根悬着的寿线，断口下三滴血错落
+    return (
+        <Stroke>
+            <path d="M5.4 20.6 Q13.2 24.4 22.6 20.2 L27.4 12.4 L23.2 19.2 Q14.6 22.6 6.6 18.4 Z" strokeWidth={1.3} />
+            <path d="M22.6 20.2 L27.4 12.4" strokeWidth={1.6} />
+            <path d="M4.2 24.6 L8.6 22.2" strokeWidth={1.5} opacity={0.7} />
+            <path d="M25.6 5.4 Q21.2 9.6 20.4 13.8" strokeWidth={1.2} opacity={0.85} />
+            <path d="M19.2 16.4 L21.6 15.2" strokeWidth={1.2} opacity={0.6} />
+            <circle cx="15.8" cy="26.4" r="1.1" fill="currentColor" stroke="none" opacity={0.75} />
+            <circle cx="19.6" cy="27.6" r="0.85" fill="currentColor" stroke="none" opacity={0.55} />
+            <circle cx="12.6" cy="27.9" r="0.7" fill="currentColor" stroke="none" opacity={0.45} />
+        </Stroke>
+    );
+}
+
+function XihuanIcon() {
+    // 羲和 — 一轮曦光被一道横线抹平：外环 + 内环 + 水平光 + 散开的余晖
+    return (
+        <Stroke>
+            <circle cx="16" cy="15.4" r="8.6" strokeWidth={1.5} />
+            <circle cx="16" cy="15.4" r="4.2" strokeWidth={1.1} opacity={0.6} />
+            <path d="M3.6 19.6 L28.4 19.6" strokeWidth={1.6} />
+            <path d="M16 3.4 L16 6.2" strokeWidth={1.2} opacity={0.7} />
+            <path d="M25.6 6.4 L23.6 8.6" strokeWidth={1.2} opacity={0.7} />
+            <path d="M6.4 6.4 L8.4 8.6" strokeWidth={1.2} opacity={0.7} />
+            <path d="M9.2 25.4 L13.4 24.2 M18.6 25.8 L23.2 24.4" strokeWidth={1.1} opacity={0.55} />
+        </Stroke>
+    );
+}
+
+function JiangtaigongIcon() {
+    // 姜太公 — 一竿垂进水里：斜钓竿 + 垂线 + 鱼钩 + 水面两圈涟漪
+    return (
+        <Stroke>
+            <path d="M6.4 5.6 L17.6 12.4" strokeWidth={1.8} />
+            <path d="M17.6 12.4 L17.6 20.2" strokeWidth={1.2} opacity={0.85} />
+            <path d="M17.6 20.2 q0 3.4 -2.6 3.4 q-2.2 0 -2.2 -2.2" strokeWidth={1.5} />
+            <path d="M4.6 24.6 Q8.4 21.8 12.4 24.6 Q16.4 27.4 20.4 24.6 Q23.6 22.4 27.4 24.6" strokeWidth={1.4} opacity={0.8} />
+            <path d="M7.6 28.2 Q12.4 26 17.2 28.2 Q21.4 29.8 25.6 28.2" strokeWidth={1.1} opacity={0.5} />
+            <circle cx="6.4" cy="5.6" r="1.1" fill="currentColor" stroke="none" opacity={0.7} />
+        </Stroke>
+    );
+}
+
 /* 通用/默认图标 */
 function DefaultIcon() {
     return (
@@ -612,6 +686,15 @@ function YunyingIcon() {
             <circle cx="24" cy="24" r="1" fill="currentColor" opacity="0.4" />
         </g>
     );
+}
+
+function WangshuIcon() {
+    return <g stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 5A11 11 0 1 0 27 21A10 10 0 0 1 21 5Z" strokeWidth="1.7" />
+        <path d="M4 21A14 14 0 0 0 23 28M8 4A14 14 0 0 1 27 11" strokeWidth=".8" opacity=".5" />
+        <path d="M25 3L26 6L29 7L26 8L25 11L24 8L21 7L24 6Z" strokeWidth=".9" />
+        <circle cx="10" cy="23" r="1.2" fill="currentColor" stroke="none" opacity=".5" />
+    </g>;
 }
 
 const iconMap: Record<string, () => JSX.Element> = {
@@ -654,19 +737,26 @@ const iconMap: Record<string, () => JSX.Element> = {
     daier: () => <DaiIcon />,
     yousun: () => <YoujunIcon />,
     xubai: () => <XubaiIcon />,
+    wangshu: () => <WangshuIcon />,
     lingxi: () => <LingxiIcon />,
     xueqi: () => <XueqiIcon />,
     yunying: () => <YunyingIcon />,
     jinghong: () => <JinghongIcon />,
     jinghua: () => <JinghuaIcon />,
     huanongying: () => <HuanongyingIcon />,
+    zhiguang: () => <ZhiguangIcon />,
+    zhiyuan: () => <ZhiyuanIcon />,
+    xihuan: () => <XihuanIcon />,
+    duosui: () => <DuosuiIcon />,
+    jiangtaigong: () => <JiangtaigongIcon />,
 };
 
 /** 已拥有专属线性图标的英雄模板 id；新增英雄必须补一个，否则测试会拦住通用兜底图标 */
 export const HERO_ICON_IDS = Object.keys(iconMap);
 
 export default function HeroIcon({ heroId, size = 32, className = '' }: HeroIconProps) {
-    const baseId = resolveHeroTemplateId(heroId) ?? heroId;
+    const baseId = resolveHeroTemplateId(heroId) ?? AVAILABLE_HERO_IDS.find(templateId =>
+        heroId.startsWith(`${templateId}-player1-`) || heroId.startsWith(`${templateId}-player2-`)) ?? heroId;
 
     const IconComponent = iconMap[baseId] || (() => <DefaultIcon />);
 

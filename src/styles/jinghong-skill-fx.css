@@ -1,0 +1,313 @@
+/* 惊鸿·止水「止水决渊」：有明确刃头、拖尾和逐段浪冠的圆形水浪斩。 */
+
+.jh-abyss-slash,
+.jh-abyss-slash * {
+    pointer-events: none;
+}
+
+.jh-abyss-slash > i,
+.jh-orbit,
+.jh-orbit > i,
+.jh-wave-crests,
+.jh-wave-crests > b,
+.jh-ring-spray,
+.jh-ring-spray > b {
+    position: absolute;
+    display: block;
+}
+
+/* 出刀前水面先向中心收紧，给“大招起势”留出半拍。 */
+.jh-stillwater {
+    inset: 29%;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle, rgba(239, 253, 255, .9) 0 3%, transparent 8%),
+        repeating-radial-gradient(circle, transparent 0 14%, rgba(75, 176, 207, .2) 15% 17%, transparent 18% 27%);
+    filter: drop-shadow(0 0 8px var(--fx-glow));
+    opacity: 0;
+    animation: jh-stillwater-gather 440ms ease-in-out forwards;
+}
+
+.jh-whirlpool {
+    left: 50%;
+    top: 50%;
+    width: 22%;
+    height: 22%;
+    margin: -11% 0 0 -11%;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    border-top-color: var(--fx-c2, #c9f6ff);
+    border-right-color: color-mix(in srgb, var(--fx-c1, #197d9f) 75%, transparent);
+    filter: drop-shadow(0 0 5px var(--fx-glow));
+    opacity: 0;
+}
+
+.jh-whirlpool-a { animation: jh-whirlpool-a 620ms cubic-bezier(.25,.7,.25,1) forwards; }
+.jh-whirlpool-b {
+    width: 14%;
+    height: 14%;
+    margin: -7% 0 0 -7%;
+    border-width: 2px;
+    animation: jh-whirlpool-b 620ms cubic-bezier(.25,.7,.25,1) 50ms forwards;
+}
+
+/* 整个旋刃组顺时针巡行；真正的视觉焦点是上方楔形水刃，不是圆弧本身。 */
+/* 巡行必须与浪冠的节奏对齐：12 朵浪冠按 52ms/朵点亮，最后一朵在 682ms，
+   所以整圈要在 impactMs(720ms) 前后收刀。原来给到 1080ms，刃还在转、浪早已点完，
+   两件事各走各的，看上去就散架了。 */
+.jh-orbit {
+    inset: 0;
+    opacity: 0;
+    transform-origin: 50% 50%;
+    animation: jh-orbit-cut 320ms linear 110ms forwards;
+}
+
+.jh-wake {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
+    transform: rotate(-90deg);
+    filter: drop-shadow(0 0 8px var(--fx-glow));
+}
+
+.jh-wake circle {
+    fill: none;
+    stroke-linecap: round;
+}
+
+/* 三层拖痕都要"接在刃头后面"：SVG 已 rotate(-90deg)，路径 0 点就在 12 点（刃头所在），
+   所以 dashoffset 必须等于各自弧长，让水尾落在 [-弧长, 0] 这段"刃身后"。
+   原先写 77/80/84 会把整条尾巴甩到右下方，刃与尾脱节，看着就是"不连贯"。 */
+.jh-wake-shadow {
+    stroke: rgba(7, 61, 83, .5);
+    stroke-width: 4.8;
+    stroke-dasharray: 25 75;
+    stroke-dashoffset: 25;
+}
+
+.jh-wake-water {
+    stroke: var(--fx-c1, #197d9f);
+    stroke-width: 3.4;
+    stroke-dasharray: 20 80;
+    stroke-dashoffset: 20;
+    opacity: .82;
+}
+
+.jh-wake-foam {
+    stroke: var(--fx-c2, #c9f6ff);
+    stroke-width: 1.55;
+    stroke-dasharray: 12 88;
+    stroke-dashoffset: 12;
+    opacity: .95;
+}
+
+.jh-waterblade {
+    left: 50%;
+    top: 7%;
+    width: 38%;
+    height: 20%;
+    transform: translate(-13%, -48%) rotate(2deg) scale(.82);
+    transform-origin: 15% 55%;
+    filter: drop-shadow(0 0 8px var(--fx-c1)) drop-shadow(0 3px 3px rgba(5, 49, 70, .46));
+}
+
+.jh-waterblade svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.jh-waterblade-shadow { fill: rgba(5, 58, 79, .62); }
+.jh-waterblade-body { fill: color-mix(in srgb, var(--fx-c1, #197d9f) 82%, #85d9ed); }
+.jh-waterblade-core {
+    fill: none;
+    stroke: var(--fx-c2, #c9f6ff);
+    stroke-width: 5;
+    stroke-linecap: round;
+    opacity: .9;
+}
+.jh-waterblade-edge {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 3.5;
+    stroke-linecap: round;
+}
+
+.jh-blade-splash {
+    right: -2%;
+    top: 30%;
+    width: 15%;
+    height: 32%;
+    border-radius: 80% 20% 72% 28%;
+    background: #f2fdff;
+    box-shadow: 0 0 7px var(--fx-c2);
+    transform: rotate(28deg);
+}
+.jh-blade-splash-b {
+    right: 5%;
+    top: 2%;
+    width: 9%;
+    height: 22%;
+    opacity: .75;
+    transform: rotate(58deg);
+}
+
+/* 刃头经过一段，外环才在对应角度立起一朵浪冠，形成“水浪斩过一圈”的节奏。 */
+.jh-wave-crests,
+.jh-ring-spray {
+    inset: 0;
+}
+
+.jh-wave-crest {
+    left: 50%;
+    top: 50%;
+    width: 9%;
+    height: 7%;
+    margin: -3.5% 0 0 -4.5%;
+    border-top: 5px solid var(--fx-c2, #c9f6ff);
+    border-left: 2px solid rgba(255,255,255,.9);
+    border-radius: 72% 28% 58% 42%;
+    filter: drop-shadow(0 0 5px var(--fx-c1));
+    opacity: 0;
+    transform: rotate(var(--jh-angle)) translateY(calc(var(--fx-ring-size) * -.42)) scale(.2);
+    animation: jh-wave-crest-rise 460ms cubic-bezier(.15,.7,.3,1) var(--jh-delay) forwards;
+}
+
+.jh-wave-crest::after {
+    content: '';
+    position: absolute;
+    right: -28%;
+    top: -52%;
+    width: 55%;
+    height: 75%;
+    border-radius: 90% 10% 78% 22%;
+    background: linear-gradient(135deg, #fff, var(--fx-c2) 55%, transparent 58%);
+    transform: rotate(36deg);
+}
+
+/* 收势不再画完整圆框：用带缺口的锥形水痕，保留“被斩开”的断裂感。 */
+.jh-broken-ring {
+    inset: 6%;
+    border-radius: 50%;
+    background: conic-gradient(
+        from -18deg,
+        transparent 0 5%,
+        rgba(218, 249, 255, .92) 6% 17%,
+        transparent 18% 27%,
+        rgba(55, 163, 196, .72) 29% 46%,
+        transparent 47% 58%,
+        rgba(226, 251, 255, .88) 60% 73%,
+        transparent 74% 83%,
+        rgba(39, 137, 170, .68) 85% 96%,
+        transparent 97% 100%
+    );
+    -webkit-mask: radial-gradient(circle, transparent 0 73%, #000 74% 80%, transparent 81%);
+    mask: radial-gradient(circle, transparent 0 73%, #000 74% 80%, transparent 81%);
+    filter: drop-shadow(0 0 8px var(--fx-glow));
+    opacity: 0;
+    animation: jh-broken-ring-burst 430ms ease-out 470ms forwards;
+}
+
+.jh-ring-spray > b {
+    left: 50%;
+    top: 50%;
+    width: 2.2%;
+    height: 5.2%;
+    margin: -2.6% 0 0 -1.1%;
+    border-radius: 85% 15% 72% 28%;
+    background: linear-gradient(to bottom, #ffffff, var(--fx-c2, #c9f6ff));
+    box-shadow: 0 0 5px var(--fx-glow);
+    opacity: 0;
+    transform: rotate(var(--jh-angle)) translateY(calc(var(--fx-ring-size) * -.39)) scale(.35);
+    animation: jh-ring-spray-out 430ms ease-out var(--jh-delay) forwards;
+}
+
+.jh-finisher-flash {
+    left: 50%;
+    top: 50%;
+    width: 16%;
+    height: 16%;
+    margin: -8% 0 0 -8%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #ffffff 0 8%, rgba(201,246,255,.86) 18%, rgba(25,125,159,.28) 48%, transparent 72%);
+    opacity: 0;
+    animation: jh-finisher-flash 380ms ease-out 440ms forwards;
+}
+
+@keyframes jh-stillwater-gather {
+    0% { opacity: 0; transform: scale(1.2); }
+    40% { opacity: .82; }
+    78% { opacity: .72; transform: scale(.66); }
+    100% { opacity: 0; transform: scale(.32); }
+}
+
+@keyframes jh-whirlpool-a {
+    0% { opacity: 0; transform: rotate(-90deg) scale(1.5); }
+    30% { opacity: .88; }
+    100% { opacity: 0; transform: rotate(210deg) scale(.25); }
+}
+@keyframes jh-whirlpool-b {
+    0% { opacity: 0; transform: rotate(120deg) scale(1.45); }
+    30% { opacity: .76; }
+    100% { opacity: 0; transform: rotate(-190deg) scale(.18); }
+}
+
+@keyframes jh-orbit-cut {
+    0% { opacity: 0; transform: rotate(-34deg) scale(.91); }
+    10% { opacity: 1; }
+    28% { opacity: 1; transform: rotate(72deg) scale(1); }
+    72% { opacity: 1; transform: rotate(292deg) scale(1.015); }
+    86% { opacity: 1; transform: rotate(360deg) scale(1.02); }
+    100% { opacity: 0; transform: rotate(388deg) scale(1.06); }
+}
+
+@keyframes jh-wave-crest-rise {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--jh-angle)) translateY(calc(var(--fx-ring-size) * -.38)) scale(.15) skewX(-16deg);
+    }
+    30% { opacity: .96; }
+    62% {
+        opacity: .88;
+        transform: rotate(var(--jh-angle)) translateY(calc(var(--fx-ring-size) * -.43)) scale(1.05) skewX(4deg);
+    }
+    100% {
+        opacity: 0;
+        transform: rotate(var(--jh-angle)) translateY(calc(var(--fx-ring-size) * -.47)) scale(.68) skewX(20deg);
+    }
+}
+
+@keyframes jh-broken-ring-burst {
+    0% { opacity: 0; transform: rotate(-14deg) scale(.86); }
+    24% { opacity: .96; }
+    100% { opacity: 0; transform: rotate(18deg) scale(1.11); }
+}
+
+@keyframes jh-ring-spray-out {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--jh-angle)) translateY(calc(var(--fx-ring-size) * -.38)) scale(.25);
+    }
+    24% { opacity: 1; }
+    100% {
+        opacity: 0;
+        transform: rotate(var(--jh-angle)) translateY(calc(var(--fx-ring-size) * -.55)) scale(.65);
+    }
+}
+
+@keyframes jh-finisher-flash {
+    0% { opacity: 0; transform: scale(.15); }
+    25% { opacity: 1; }
+    100% { opacity: 0; transform: scale(2.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skill-fx-kind-jinghong-slash-ring .jh-abyss-slash * {
+        animation-duration: 1ms !important;
+        animation-delay: 0ms !important;
+    }
+}

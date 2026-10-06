@@ -1,0 +1,539 @@
+/* 花弄影专属技能特效：花间辞 / 弄影 / 影子重演 */
+
+.hny-fan-caster,
+.hny-fan-impact,
+.hny-swap-source,
+.hny-swap-target,
+.hny-replay-source,
+.hny-replay-impact {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.hny-fan-caster > i,
+.hny-fan-impact > i,
+.hny-swap-source > i,
+.hny-swap-target > i,
+.hny-replay-source > i,
+.hny-replay-impact > i {
+    position: absolute;
+    display: block;
+    pointer-events: none;
+}
+
+/* ── 共用花瓣：一枚不规则水滴，比圆点更像花瓣 ── */
+.hny-petal {
+    --hny-petal-size: 9px;
+    left: calc(50% + var(--hny-x));
+    top: calc(50% + var(--hny-y));
+    width: var(--hny-petal-size);
+    height: calc(var(--hny-petal-size) * 0.68);
+    border-radius: 85% 15% 78% 22%;
+    background: linear-gradient(135deg, #fffafc 0 18%, var(--fx-c2, #ffe7f2) 42%, var(--fx-c1, #b64f83) 100%);
+    box-shadow: 0 0 5px var(--fx-glow, rgba(182, 79, 131, 0.55));
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--hny-rotate));
+}
+
+/* ── 花间辞：起手折扇 ── */
+.hny-fan-aura {
+    inset: 22%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 248, 252, 0.88), var(--fx-glow) 34%, transparent 72%);
+    opacity: 0;
+    animation: hny-aura-breathe 900ms ease-out forwards;
+}
+
+.hny-fan-hand {
+    left: 50%;
+    top: 48%;
+    width: min(92%, 82px);
+    aspect-ratio: 100 / 72;
+    transform-origin: 50% 88%;
+    opacity: 0;
+    animation: hny-fan-open 900ms cubic-bezier(0.18, 0.7, 0.25, 1) forwards;
+}
+
+.hny-fan-glyph {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.hny-fan-silk {
+    fill: color-mix(in srgb, var(--fx-c2, #ffe7f2) 78%, transparent);
+    stroke: var(--fx-c1, #b64f83);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 5px var(--fx-glow));
+}
+
+.hny-fan-rib {
+    fill: none;
+    stroke: #7c345a;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    opacity: 0.8;
+}
+
+.hny-fan-bloom {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 2;
+    opacity: 0.88;
+}
+
+.hny-fan-pin { fill: #fff9d9; stroke: #8c4c65; stroke-width: 2; }
+
+.hny-petal-caster {
+    animation: hny-petal-caster 760ms ease-out var(--hny-delay) forwards;
+}
+
+@keyframes hny-aura-breathe {
+    0% { opacity: 0; transform: scale(0.2); }
+    28% { opacity: 0.85; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.55); }
+}
+
+@keyframes hny-fan-open {
+    0% { opacity: 0; transform: translate(-50%, -46%) rotate(calc(var(--fx-rot, 0deg) - 72deg)) scaleX(0.12) scale(0.55); }
+    36% { opacity: 1; transform: translate(-50%, -46%) rotate(calc(var(--fx-rot, 0deg) - 8deg)) scaleX(1) scale(1.04); }
+    68% { opacity: 1; transform: translate(-50%, -46%) rotate(var(--fx-rot, 0deg)) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -46%) rotate(calc(var(--fx-rot, 0deg) + 18deg)) scale(1.08); }
+}
+
+@keyframes hny-petal-caster {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--hny-rotate)) scale(0.35); }
+    24% { opacity: 1; }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--hny-x)), calc(-50% + var(--hny-y))) rotate(calc(var(--hny-rotate) + 130deg)) scale(0.92); }
+}
+
+/* ── 花间辞：三格共用的一整面花刃 ── */
+.hny-fan-area {
+    position: absolute;
+    inset: -8%;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.hny-fan-area-wash {
+    position: absolute;
+    inset: 12% 3%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, var(--fx-glow) 0%, rgba(255, 236, 246, 0.26) 42%, transparent 74%);
+    opacity: 0;
+    animation: hny-fan-wash 880ms ease-out forwards;
+}
+
+.hny-fan-area svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    filter: drop-shadow(0 0 7px var(--fx-glow));
+}
+
+.hny-fan-area-reverse svg {
+    transform: scaleX(-1);
+}
+
+.hny-fan-area-vertical.hny-fan-area-reverse svg {
+    transform: scaleY(-1);
+}
+
+.hny-fan-sweep {
+    fill: none;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+}
+
+.hny-fan-sweep-glow {
+    stroke: var(--fx-c1, #b64f83);
+    stroke-width: 18;
+    opacity: 0;
+    animation: hny-fan-sweep 820ms cubic-bezier(0.16, 0.72, 0.22, 1) 90ms forwards;
+}
+
+.hny-fan-sweep-body {
+    stroke: var(--fx-c2, #ffe7f2);
+    stroke-width: 10;
+    opacity: 0;
+    animation: hny-fan-sweep 760ms cubic-bezier(0.16, 0.72, 0.22, 1) 125ms forwards;
+}
+
+.hny-fan-sweep-core {
+    stroke: #fffefa;
+    stroke-width: 3.5;
+    opacity: 0;
+    animation: hny-fan-sweep 680ms cubic-bezier(0.16, 0.72, 0.22, 1) 155ms forwards;
+}
+
+.hny-area-petal {
+    position: absolute;
+    left: var(--hny-area-x);
+    top: var(--hny-area-y);
+    width: 10px;
+    height: 7px;
+    border-radius: 90% 10% 80% 20%;
+    background: linear-gradient(135deg, #fff, var(--fx-c2), var(--fx-c1));
+    box-shadow: 0 0 5px var(--fx-glow);
+    opacity: 0;
+    animation: hny-area-petal-fly 720ms ease-out 160ms forwards;
+}
+
+.hny-area-petal-2,
+.hny-area-petal-4 { animation-delay: 260ms; }
+.hny-area-petal-3 { animation-delay: 190ms; }
+.hny-area-petal-5 { animation-delay: 330ms; }
+
+@keyframes hny-fan-wash {
+    0% { opacity: 0; transform: scale(0.38); }
+    35% { opacity: 0.68; }
+    100% { opacity: 0; transform: scale(1.08); }
+}
+
+@keyframes hny-fan-sweep {
+    0% { opacity: 0; stroke-dashoffset: 1; }
+    18% { opacity: 1; }
+    68% { opacity: 0.96; stroke-dashoffset: 0; }
+    100% { opacity: 0; stroke-dashoffset: -0.16; }
+}
+
+@keyframes hny-area-petal-fly {
+    0% { opacity: 0; transform: translate(-12px, 8px) rotate(-35deg) scale(0.4); }
+    26% { opacity: 1; }
+    100% { opacity: 0; transform: translate(22px, -21px) rotate(175deg) scale(1); }
+}
+
+/* 主目标凝光，留给跨三格大扇刃当视觉主角。 */
+.hny-impact-bloom {
+    inset: 26%;
+    border-radius: 50% 8% 50% 8%;
+    background: radial-gradient(circle, #fff 0 12%, var(--fx-c2) 30%, var(--fx-c1) 62%, transparent 70%);
+    opacity: 0;
+    animation: hny-impact-bloom 620ms ease-out 280ms forwards;
+}
+
+.hny-impact-edge {
+    left: 12%;
+    top: 43%;
+    width: 76%;
+    height: 38%;
+    border-top: 4px solid #fff;
+    border-radius: 50%;
+    filter: drop-shadow(0 0 6px var(--fx-c1));
+    opacity: 0;
+    transform: rotate(var(--fx-rot));
+    animation: hny-impact-edge 560ms ease-out 310ms forwards;
+}
+
+.hny-impact-ring {
+    inset: 24%;
+    border: 2px solid var(--fx-c2);
+    border-radius: 50%;
+    opacity: 0;
+    animation: hny-impact-ring 600ms ease-out 320ms forwards;
+}
+
+.hny-petal-impact { animation: hny-petal-pop 630ms ease-out calc(300ms + var(--hny-delay)) forwards; }
+
+@keyframes hny-impact-bloom {
+    0% { opacity: 0; transform: rotate(0deg) scale(0.2); }
+    35% { opacity: 0.95; }
+    100% { opacity: 0; transform: rotate(125deg) scale(1.45); }
+}
+@keyframes hny-impact-edge {
+    0% { opacity: 0; transform: rotate(var(--fx-rot)) scaleX(0.1); }
+    30% { opacity: 1; }
+    100% { opacity: 0; transform: rotate(var(--fx-rot)) scaleX(1.18); }
+}
+@keyframes hny-impact-ring {
+    0% { opacity: 0; transform: scale(0.25); }
+    28% { opacity: 0.85; }
+    100% { opacity: 0; transform: scale(1.7); }
+}
+@keyframes hny-petal-pop {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--hny-rotate)) scale(0.3); }
+    32% { opacity: 1; }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--hny-x)), calc(-50% + var(--hny-y))) rotate(calc(var(--hny-rotate) + 150deg)); }
+}
+
+/* ── 弄影：旧位收拢与跨格花瓣轨迹 ── */
+.hny-swap-moon {
+    inset: 13%;
+    border: 2px solid color-mix(in srgb, var(--fx-c2) 88%, transparent);
+    border-left-color: transparent;
+    border-bottom-color: var(--fx-c1);
+    border-radius: 50%;
+    opacity: 0;
+    animation: hny-swap-moon 820ms cubic-bezier(0.5, 0.05, 0.7, 0.25) forwards;
+}
+
+.hny-swap-silhouette,
+.hny-arrival-shadow,
+.hny-replay-figure {
+    left: 35%;
+    top: 13%;
+    width: 30%;
+    height: 68%;
+    border-radius: 46% 46% 32% 32% / 28% 28% 72% 72%;
+    background: linear-gradient(to bottom, rgba(255,255,255,.88), var(--fx-c1) 40%, rgba(47, 18, 60, .78));
+    clip-path: polygon(38% 0, 62% 0, 70% 17%, 92% 35%, 72% 50%, 88% 100%, 50% 79%, 12% 100%, 28% 50%, 8% 35%, 30% 17%);
+    filter: drop-shadow(0 0 8px var(--fx-glow));
+    opacity: 0;
+}
+
+.hny-swap-silhouette { animation: hny-source-vanish 700ms ease-in forwards; }
+
+.hny-swap-fold {
+    left: 17%;
+    top: 17%;
+    width: 66%;
+    height: 66%;
+    border: 3px solid var(--fx-c2);
+    border-radius: 50% 9% 50% 9%;
+    opacity: 0;
+}
+.hny-swap-fold-a { animation: hny-fold-in 650ms ease-in 80ms forwards; }
+.hny-swap-fold-b { transform: rotate(90deg); animation: hny-fold-in-b 650ms ease-in 130ms forwards; }
+
+.hny-swap-thread {
+    left: 50%;
+    top: 50%;
+    width: calc(max(var(--fx-dist, 1), 1) * (var(--board-cell-size, 76px) + 6px));
+    height: 3px;
+    transform-origin: left center;
+    transform: rotate(var(--fx-rot)) scaleX(0);
+    background: linear-gradient(90deg, var(--fx-c1), #fff, var(--fx-c2), transparent);
+    box-shadow: 0 0 8px var(--fx-glow);
+    opacity: 0;
+    animation: hny-thread-run var(--fx-travel-ms, 520ms) ease-in-out 150ms forwards;
+}
+
+.hny-petal-travel {
+    --hny-petal-size: 8px;
+    animation: hny-petal-travel calc(var(--fx-travel-ms, 520ms) + 180ms) cubic-bezier(0.35, 0.05, 0.65, 1) calc(90ms + var(--hny-delay)) forwards;
+}
+
+@keyframes hny-swap-moon {
+    0% { opacity: 0; transform: rotate(-80deg) scale(1.15); }
+    30% { opacity: 0.9; }
+    100% { opacity: 0; transform: rotate(170deg) scale(0.08); }
+}
+@keyframes hny-source-vanish {
+    0% { opacity: 0; transform: translateY(5%) scale(0.82); }
+    28% { opacity: 0.72; }
+    100% { opacity: 0; transform: translateY(-8%) scaleX(0.06) scaleY(1.12); filter: blur(4px); }
+}
+@keyframes hny-fold-in {
+    0% { opacity: 0; transform: rotate(-50deg) scale(1.35); }
+    30% { opacity: 0.8; }
+    100% { opacity: 0; transform: rotate(55deg) scale(0.08); }
+}
+@keyframes hny-fold-in-b {
+    0% { opacity: 0; transform: rotate(45deg) scale(1.35); }
+    30% { opacity: 0.65; }
+    100% { opacity: 0; transform: rotate(150deg) scale(0.08); }
+}
+@keyframes hny-thread-run {
+    0% { opacity: 0; transform: rotate(var(--fx-rot)) scaleX(0); }
+    25% { opacity: 0.9; }
+    72% { opacity: 0.72; transform: rotate(var(--fx-rot)) scaleX(1); }
+    100% { opacity: 0; transform: rotate(var(--fx-rot)) scaleX(1); }
+}
+@keyframes hny-petal-travel {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--hny-rotate)) scale(0.3); }
+    22% { opacity: 1; }
+    80% { opacity: 0.9; }
+    100% {
+        opacity: 0;
+        transform: translate(
+            calc(-50% + var(--fx-travel-x, 0) * (var(--board-cell-size, 76px) + 6px)),
+            calc(-50% + var(--fx-travel-y, 0) * (var(--board-cell-size, 76px) + 6px))
+        ) rotate(calc(var(--hny-rotate) + 260deg)) scale(0.85);
+    }
+}
+
+/* ── 弄影：新位绽放与周圈斩 ── */
+.hny-arrival-shadow { animation: hny-arrival-form 720ms ease-out 400ms forwards; }
+
+.hny-arrival-bloom {
+    inset: 20%;
+    border: 4px solid var(--fx-c2);
+    border-radius: 50% 8% 50% 8%;
+    opacity: 0;
+}
+.hny-arrival-bloom-a { animation: hny-arrival-bloom 760ms ease-out 360ms forwards; }
+.hny-arrival-bloom-b { transform: rotate(90deg); animation: hny-arrival-bloom-b 760ms ease-out 410ms forwards; }
+.hny-arrival-core {
+    inset: 38%;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 13px 6px var(--fx-c2), 0 0 22px 9px var(--fx-glow);
+    opacity: 0;
+    animation: hny-arrival-core 460ms ease-out 460ms forwards;
+}
+
+.hny-ring-blade {
+    inset: 6%;
+    border: 5px solid transparent;
+    border-top-color: #fff;
+    border-right-color: var(--fx-c2);
+    border-bottom-color: var(--fx-c1);
+    border-radius: 50%;
+    filter: drop-shadow(0 0 6px var(--fx-glow));
+    opacity: 0;
+    animation: hny-ring-blade 700ms cubic-bezier(.18,.72,.28,1) 560ms forwards;
+}
+.hny-ring-blade-echo {
+    inset: 15%;
+    border-width: 2px;
+    animation-delay: 640ms;
+    animation-direction: reverse;
+}
+
+.hny-cardinal-cut {
+    left: 39%;
+    top: 3%;
+    width: 22%;
+    height: 34%;
+    border-radius: 50%;
+    border-left: 3px solid var(--fx-c2);
+    transform-origin: 50% 139%;
+    opacity: 0;
+    animation: hny-cardinal-cut 480ms ease-out 640ms forwards;
+}
+.hny-cardinal-cut-e { transform: rotate(90deg); animation-delay: 700ms; }
+.hny-cardinal-cut-s { transform: rotate(180deg); animation-delay: 760ms; }
+.hny-cardinal-cut-w { transform: rotate(270deg); animation-delay: 820ms; }
+.hny-petal-arrival { animation: hny-petal-pop 700ms ease-out calc(470ms + var(--hny-delay)) forwards; }
+
+@keyframes hny-arrival-form {
+    0% { opacity: 0; transform: translateY(8%) scaleX(0.08) scaleY(1.15); filter: blur(4px); }
+    38% { opacity: 0.82; }
+    100% { opacity: 0; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes hny-arrival-bloom {
+    0% { opacity: 0; transform: rotate(-70deg) scale(0.08); }
+    36% { opacity: 0.92; }
+    100% { opacity: 0; transform: rotate(38deg) scale(1.35); }
+}
+@keyframes hny-arrival-bloom-b {
+    0% { opacity: 0; transform: rotate(20deg) scale(0.08); }
+    36% { opacity: 0.75; }
+    100% { opacity: 0; transform: rotate(132deg) scale(1.28); }
+}
+@keyframes hny-arrival-core {
+    0% { opacity: 0; transform: scale(0.2); }
+    42% { opacity: 1; }
+    100% { opacity: 0; transform: scale(1.9); }
+}
+@keyframes hny-ring-blade {
+    0% { opacity: 0; transform: rotate(-105deg) scale(0.38); }
+    22% { opacity: 1; }
+    82% { opacity: 0.9; }
+    100% { opacity: 0; transform: rotate(300deg) scale(1.16); }
+}
+@keyframes hny-cardinal-cut {
+    0% { opacity: 0; clip-path: inset(100% 0 0); }
+    35% { opacity: 0.85; }
+    100% { opacity: 0; clip-path: inset(0); }
+}
+
+/* ── 影子重演：同物象、低实体感 ── */
+.hny-replay-moon {
+    inset: 7%;
+    border: 2px solid rgba(234, 213, 242, 0.72);
+    border-left-color: transparent;
+    border-radius: 50%;
+    opacity: 0;
+    animation: hny-replay-moon 900ms ease-out forwards;
+}
+.hny-replay-figure {
+    background: linear-gradient(to bottom, rgba(255,255,255,.48), rgba(93,57,117,.68), rgba(28,14,43,.25));
+    animation: hny-replay-form 850ms ease-in-out forwards;
+}
+.hny-replay-fan {
+    left: 50%;
+    top: 45%;
+    width: 72%;
+    opacity: 0;
+    transform-origin: 50% 88%;
+    animation: hny-replay-fan 820ms ease-out 80ms forwards;
+}
+.hny-replay-source .hny-fan-silk { fill: rgba(234,213,242,.24); }
+.hny-petal-replay { --hny-petal-size: 7px; animation: hny-petal-pop 700ms ease-out calc(130ms + var(--hny-delay)) forwards; }
+
+.hny-replay-cut {
+    left: 4%;
+    top: 38%;
+    width: 92%;
+    height: 42%;
+    border-top: 5px solid var(--fx-c2);
+    border-radius: 50%;
+    filter: drop-shadow(0 0 6px var(--fx-c1));
+    opacity: 0;
+    transform: rotate(var(--fx-rot));
+    animation: hny-replay-cut 620ms ease-out 180ms forwards;
+}
+.hny-replay-ring {
+    inset: 18%;
+    border: 2px dashed rgba(234, 213, 242, .78);
+    border-radius: 50%;
+    opacity: 0;
+    animation: hny-replay-ring 760ms ease-out 140ms forwards;
+}
+.hny-replay-seal {
+    inset: 29%;
+    color: rgba(255,255,255,.9);
+    font: 700 18px/1 serif;
+    text-align: center;
+    text-shadow: 0 0 7px var(--fx-c1);
+    opacity: 0;
+    animation: hny-replay-seal 680ms ease-out 240ms forwards;
+}
+
+@keyframes hny-replay-moon {
+    0% { opacity: 0; transform: rotate(-90deg) scale(.5); }
+    30% { opacity: .72; }
+    100% { opacity: 0; transform: rotate(120deg) scale(1.15); }
+}
+@keyframes hny-replay-form {
+    0% { opacity: 0; transform: translateY(8%) scale(.86); }
+    32% { opacity: .52; }
+    78% { opacity: .44; }
+    100% { opacity: 0; transform: translateY(-5%) scale(1.03); }
+}
+@keyframes hny-replay-fan {
+    0% { opacity: 0; transform: translate(-50%,-50%) rotate(calc(var(--fx-rot) - 62deg)) scaleX(.15); }
+    38% { opacity: .58; transform: translate(-50%,-50%) rotate(var(--fx-rot)) scaleX(1); }
+    100% { opacity: 0; transform: translate(-50%,-50%) rotate(calc(var(--fx-rot) + 38deg)) scale(1.1); }
+}
+@keyframes hny-replay-cut {
+    0% { opacity: 0; transform: rotate(var(--fx-rot)) scaleX(.06); }
+    30% { opacity: .75; }
+    100% { opacity: 0; transform: rotate(var(--fx-rot)) scaleX(1.18); }
+}
+@keyframes hny-replay-ring {
+    0% { opacity: 0; transform: rotate(0) scale(.25); }
+    35% { opacity: .65; }
+    100% { opacity: 0; transform: rotate(150deg) scale(1.6); }
+}
+@keyframes hny-replay-seal {
+    0% { opacity: 0; transform: translateY(8px) scale(.7); }
+    38% { opacity: .86; }
+    100% { opacity: 0; transform: translateY(-7px) scale(1.15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skill-fx-kind-huanongying-fan *,
+    .skill-fx-kind-huanongying-swap *,
+    .skill-fx-kind-huanongying-replay *,
+    .skill-area-fx-petalfan * {
+        animation-duration: 1ms !important;
+        animation-delay: 0ms !important;
+    }
+}

@@ -11,7 +11,7 @@ export type Player = 'player1' | 'player2';
 export type AiDifficulty = 'easy' | 'normal' | 'master';
 
 /** 英雄职业 */
-export type HeroClass = '武曲' | '天师' | '霸魁' | '素问' | '猎户' | '化识' | '通灵';
+export type HeroClass = '武曲' | '天师' | '霸魁' | '素问' | '化识' | '通灵';
 
 /** 英雄状态 */
 export enum HeroState {
@@ -60,6 +60,11 @@ export interface Hero {
     skill2Id: string;
     passiveId: string;
     tianweiId?: string;
+    /**
+     * 经典模式下这位英雄携带的专属武器 id（一器一主，等于其模板 id；null = 未武装）。
+     * 只是派生缓存：权威数据在 playerNWeaponIds，撤下重选/补员/临时拉上场都要重新派生。
+     */
+    weaponId?: string | null;
 
     // 战斗状态
     effects: Effect[];
@@ -109,11 +114,18 @@ export interface Skill {
     // 范围
     rangeType: SkillRangeType;
     range: number;             // 最大距离
+    /**
+     * 按施法者动态取射程（致知会拉长某些技能的范围）。
+     * 返回 undefined 时回落到 `range`，所以不实现该字段的技能行为不变。
+     */
+    rangeFor?: (caster: Hero) => number | undefined;
     areaSize?: number;         // 区域大小（如3表示3x3）
 
     // 目标
     targetType: SkillTargetType;
     targetCount: number | 'all' | 'random'; // 目标数量
+    /** 按施法者动态取目标数（英雄X 的致知1 把"随机一人"改成"选定一人"）；返回 undefined 时回落到 targetCount */
+    targetCountFor?: (caster: Hero) => number | 'all' | 'random' | undefined;
 
     // 伤害/治疗
     baseDamage?: number;
@@ -198,8 +210,11 @@ export interface BattleStatistics {
     lastDeathRound?: number;
 }
 
+/** 对战模式：standard = 现行平衡口径（无武器）；classic = 选将后可为每人武装专属武器 */
+export type BattleMode = 'standard' | 'classic';
+
 /** 游戏阶段 */
-export type GamePhase = 'menu' | 'online-menu' | 'hero-codex' | 'weapon-codex' | 'career-statistics' | 'hero-select' | 'deploy' | 'battle' | 'ended';
+export type GamePhase = 'menu' | 'online-menu' | 'hero-codex' | 'weapon-codex' | 'career-statistics' | 'hero-select' | 'weapon-select' | 'deploy' | 'battle' | 'ended';
 
 
 /** 战斗日志条目 */
@@ -224,11 +239,13 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook';
     position: Position;
     owner: Player;
     sourceHeroId: string;
     duration: number;
+    /** 姜太公天威「太公逐泽」把水泽向外扩一圈：3×3(radius 1) → 5×5(radius 2)。缺省 1 */
+    radius?: number;
     /** 同一条风道（或后续同类线性效果）的 6 格共用一个 linkId */
     linkId?: string;
     /** 风道朝向：敌方在回合末会被顺该方向推移 1 格 */
@@ -290,6 +307,14 @@ export interface GameState {
     player1ReadyDeploy: boolean;
     player2ReadyDeploy: boolean;
 
+    /** 经典模式才有"武装"步骤；缺省按标准模式处理，旧存档与脚本无需改动 */
+    gameMode?: BattleMode;
+    /** 模板 id → 武器 id（一器一主，值等于模板 id 即启用；null 或键缺失即未武装） */
+    player1WeaponIds?: Record<string, string | null>;
+    player2WeaponIds?: Record<string, string | null>;
+    player1ReadyWeaponSelect?: boolean;
+    player2ReadyWeaponSelect?: boolean;
+
     // 替补制：六人选将、四人上阵，阵亡后从替补席立即补员
     player1BenchHeroIds?: string[];  // 玩家1替补席（已选将但尚未上场的英雄模板id）
     player2BenchHeroIds?: string[];  // 玩家2替补席
@@ -310,6 +335,10 @@ export interface GameState {
     onlineRoomId?: string;        // 联机房间ID
     localPlayerNumber?: number;   // 本地玩家编号（1或2）
     localPlayerName?: string;     // 本地玩家名称
+    /** 本端连接中断、正在自动重连（席位仍被服务端保留，不拆局） */
+    onlineSelfReconnecting?: boolean;
+    /** 对手掉线的重连宽限截止时间戳；undefined 表示对手在线 */
+    onlineOpponentOfflineUntil?: number;
 
     // 人机模式
     isAiMode?: boolean;           // 是否由本地电脑控制一方
@@ -344,13 +373,20 @@ export interface GameState {
         splashPositions?: Position[];
         chainLinks?: Position[];
         fxVariant?: string;
+        targetPos?: Position;
+        fromPos?: Position;
+        empowered?: boolean;
     };
 
     // 时空旅者·戴尔：每回合开始时记录的全体存活单位快照（生命与效果），供「时空回溯」恢复
     heroSnapshots?: Record<string, HeroRoundSnapshot>;
     pendingBoardAction?: {
-        type: 'schrodinger-tianwei' | 'xueqi-tianwei' | 'yunying-liehuo' | 'yunying-tianwei';
+        type: 'schrodinger-tianwei' | 'xueqi-tianwei' | 'yunying-liehuo' | 'yunying-tianwei' | 'zhiguang-tianwei' | 'jiangtaigong-hook';
         heroId: string;
+        /** 姜太公「鱼钩」上钩后等待玩家点选抛掷落点：被钩住的那名敌人 */
+        hookTargetId?: string;
+        /** 鱼钩所在格（水泽以它为圆心），落点提示与特效锚点都要用 */
+        hookPosition?: Position;
     };
     // 李太白被动链：瞬移到历史位置继续攻击，全部用完自动归位
     libaiChainState?: {

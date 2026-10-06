@@ -1,0 +1,210 @@
+/* ============================================================
+   人物形象建模预览页（character-model-preview.html 专用，不进游戏包）
+   ============================================================ */
+
+.cm-tabs {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin: 18px 0;
+}
+
+.cm-tab {
+    padding: 8px 18px;
+    border: 1px solid rgba(26, 26, 26, 0.16);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.55);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.cm-tab:hover { background: rgba(255, 255, 255, 0.9); }
+
+.cm-tab.is-active {
+    background: #1a2744;
+    color: #f5f0e8;
+    border-color: #1a2744;
+}
+
+.cm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: 18px;
+    align-items: stretch;
+}
+
+.cm-grid[data-mode="a"],
+.cm-grid[data-mode="b"],
+.cm-grid[data-mode="c"] {
+    grid-template-columns: 1fr;
+}
+
+.cm-grid[data-mode]:not([data-mode="all"]) .cm-stage { max-width: 720px; margin: 0 auto; }
+
+/* —— 舞台 —— */
+.cm-stage {
+    position: relative;
+    min-height: 560px;
+    border-radius: 16px;
+    border: 1px solid rgba(26, 26, 26, 0.08);
+    background:
+        radial-gradient(circle at 50% 32%, rgba(255, 255, 255, 0.85), transparent 62%),
+        linear-gradient(165deg, #efe9dd 0%, #e9e2d2 100%);
+    box-shadow: 0 8px 26px rgba(26, 26, 26, 0.07);
+    overflow: hidden;
+}
+
+.cm-caption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 12px 18px 14px;
+    background: linear-gradient(180deg, transparent, rgba(24, 24, 30, 0.55));
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    pointer-events: none;
+}
+
+.cm-caption b { font-size: 15px; letter-spacing: 1px; }
+.cm-caption span { font-size: 12px; opacity: 0.85; }
+
+.cm-footnote {
+    text-align: center;
+    color: #6a6456;
+    font-size: 13px;
+    margin: 16px 0 30px;
+}
+
+.cm-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6a6456;
+    font-size: 14px;
+}
+
+/* ============================================================
+   路线 A：CSS 动态立绘（呼吸 + 视差）
+   ============================================================ */
+
+.cm-stage-css {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cm-stage-css .cm-parallax {
+    transform:
+        perspective(900px)
+        rotateX(calc(var(--py, 0) * -4deg))
+        rotateY(calc(var(--px, 0) * 6deg))
+        translateX(calc(var(--px, 0) * 14px))
+        translateY(calc(var(--py, 0) * 10px));
+    transition: transform 0.18s ease-out;
+    will-change: transform;
+}
+
+.cm-image {
+    height: 500px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 18px 26px rgba(26, 26, 26, 0.18));
+}
+
+.cm-breathe {
+    animation: cm-breathe 4.2s ease-in-out infinite;
+    transform-origin: 50% 92%;
+}
+
+@keyframes cm-breathe {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-7px) scale(1.012); }
+}
+
+/* ============================================================
+   路线 B：弹簧物理摆动（三层错拍）
+   ============================================================ */
+
+.cm-stage-physics {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cm-stage-physics .cm-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    will-change: transform;
+}
+
+.cm-stage-physics .cm-layer-img {
+    height: 500px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
+}
+
+/* 衣摆（最底层）：反向慢摆 + 轻微放大形成景深 */
+.cm-layer-robe {
+    transform:
+        translate(calc(var(--sway, 0) * -0.6px), calc(var(--sway, 0) * 0.35px))
+        rotate(calc(var(--rot, 0deg) * -0.7));
+    filter: blur(1.5px) brightness(0.96);
+    opacity: 0.55;
+    transform-origin: 50% 96%;
+    animation: cm-robe-wave 5.4s ease-in-out infinite;
+}
+
+@keyframes cm-robe-wave {
+    0%, 100% { margin-top: 0; }
+    50% { margin-top: 5px; }
+}
+
+/* 主体：跟随弹簧变量 */
+.cm-layer-body {
+    transform:
+        translateY(calc(var(--sway, 0) * 0.8px))
+        rotate(var(--rot, 0deg));
+    transform-origin: 50% 90%;
+    filter: drop-shadow(0 16px 24px rgba(26, 26, 26, 0.16));
+}
+
+/* 发丝（最顶层）：更快更飘的摆动，只露出错位边缘制造"发丝飘动"的错觉 */
+.cm-layer-hair {
+    transform:
+        translate(calc(var(--rot, 0deg) * 1.6px), calc(var(--sway, 0) * -0.9px))
+        rotate(calc(var(--rot, 0deg) * 1.5));
+    transform-origin: 38% 16%;
+    mix-blend-mode: normal;
+    opacity: 0.35;
+    animation: cm-hair-float 3.1s ease-in-out infinite;
+}
+
+@keyframes cm-hair-float {
+    0%, 100% { margin-left: 0; filter: blur(2px); }
+    50% { margin-left: 4px; filter: blur(3px); }
+}
+
+/* ============================================================
+   路线 C：Three.js
+   ============================================================ */
+
+.cm-three-mount {
+    width: 100%;
+    height: 560px;
+    cursor: grab;
+}
+
+.cm-three-mount:active { cursor: grabbing; }
+
+.cm-stage-three { min-height: 560px; }

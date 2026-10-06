@@ -1,4 +1,5 @@
 import { nextBattleLogId } from './battle-log-id';
+import { zhizhiValue } from './hero-zhizhi';
 import { GameState, Hero, HeroState } from '../types/game';
 import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
@@ -59,9 +60,14 @@ export function pickHuifengMarkTargets(
     return pool.slice(0, Math.min(count, pool.length));
 }
 
-/** 破锋提供的增伤系数：1 + 层数×10%，层数封顶5 */
+/** 破锋提供的增伤系数：1 + 层数×10%（致知2 抬到 15%），层数封顶5 */
 export function huifengPoFengAmp(caster: Hero): number {
-    return 1 + Math.min(HUIFENG_POFENG_MAX, EffectManager.getCounter(caster, '破锋')) * 0.1;
+    return 1 + Math.min(HUIFENG_POFENG_MAX, EffectManager.getCounter(caster, '破锋')) * zhizhiValue(caster, 2, 0.1, 0.15);
+}
+
+/** 连刃斩段数：3 段（带专属器「千锋尽」多一段，手动与锋鸣自动出鞘同享） */
+export function huifengComboHits(caster: Hero): number {
+    return HUIFENG_COMBO_HITS + (caster.weaponId === 'huifeng' ? 1 : 0);
 }
 
 /** 回锋施加在某个敌人身上的标记层数 */
@@ -201,7 +207,7 @@ export function executeHuifengCombo(
     context: HuifengStrikeContext,
     randomTargets: boolean
 ): void {
-    for (let hit = 1; hit <= HUIFENG_COMBO_HITS; hit++) {
+    for (let hit = 1; hit <= huifengComboHits(caster); hit++) {
         let victim = target;
         if (randomTargets) {
             const enemies = livingEnemies(caster, gameState);
@@ -226,7 +232,7 @@ export function huifengMarkStrike(
     gameState: GameState,
     context: HuifengStrikeContext
 ): void {
-    huifengStrike(caster, target, HUIFENG_MARK_BASE, gameState, context, {
+    huifengStrike(caster, target, zhizhiValue(caster, 3, HUIFENG_MARK_BASE, 7), gameState, context, {
         label: '风过留痕斩中',
         gainPoFeng: false,
     });

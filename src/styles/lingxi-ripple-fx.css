@@ -1,0 +1,76 @@
+/* 泠汐：薄透水墨潮纹。单一波心，无立体月牙、霓虹光圈或逐格复制的大浪。 */
+.lx-ripple-source {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    --lx-size: calc((var(--board-cell-size, 76px) + 6px) * var(--lx-span));
+}
+
+.lx-water-defs { position: absolute; width: 0; height: 0; }
+
+.lx-water-wave {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--lx-size);
+    height: var(--lx-size);
+    margin: calc(var(--lx-size) / -2);
+    opacity: 0;
+    transform-origin: 50% 50%;
+    animation: lx-water-expand 900ms linear both;
+    animation-delay: calc(var(--lx-wave-index) * 145ms);
+}
+
+.lx-water-wave svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lx-water-wave path { stroke-linecap: round; stroke-linejoin: round; }
+.lx-water-wake, .lx-water-crest, .lx-water-thread,
+.lx-water-foam, .lx-water-flecks { fill: none; }
+.lx-water-wake { stroke-width: 1.25; opacity: .55; }
+.lx-water-crest { stroke-width: .5; stroke-dasharray: 25 1.2 18 2.8 35 1.5; }
+.lx-water-thread { stroke-width: .2; opacity: .4; }
+.lx-water-foam {
+    stroke-width: .32;
+    stroke-dasharray: 1.8 1.1 .35 2.4 4.2 3.1 .7 1.5 2.7 5.2;
+    stroke-dashoffset: calc(var(--lx-wave-index) * 9);
+}
+.lx-water-flecks {
+    stroke-width: .22;
+    stroke-dasharray: .12 2.8 .3 4.2 .15 1.2;
+    stroke-dashoffset: calc(var(--lx-wave-index) * -7);
+    opacity: .75;
+}
+
+/* The hollow wash avoids tinting the face. Only transform/opacity change per frame. */
+@keyframes lx-water-expand {
+    0% { transform: scale(.1); opacity: 0; }
+    10% { opacity: .9; }
+    40% { opacity: .82; }
+    70% { opacity: .48; }
+    100% { transform: scale(1); opacity: 0; }
+}
+
+.skill-fx-kind-lingxi-wave.skill-fx-impact { transform: none; opacity: 1; }
+.lx-water-touch {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    animation: lx-water-touch 380ms ease-out both;
+    animation-delay: var(--lx-touch-delay, 0ms);
+}
+.lx-water-touch svg { width: 100%; height: 100%; fill: none; }
+.lx-water-touch path { stroke: #589ba5; stroke-width: 1.1; stroke-linecap: round; opacity: .55; }
+@keyframes lx-water-touch {
+    0% { opacity: 0; transform: translateY(2px); }
+    25% { opacity: .75; }
+    100% { opacity: 0; transform: translateY(-1px); }
+}
+
+.fx-lite .lx-water-flecks { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .lx-water-wave { animation: lx-water-still 500ms ease-out both; }
+    .lx-water-touch { animation: none; }
+    @keyframes lx-water-still {
+        0% { transform: scale(.7); opacity: .3; }
+        100% { transform: scale(.7); opacity: 0; }
+    }
+}

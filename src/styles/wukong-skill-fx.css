@@ -1,0 +1,95 @@
+/* 保留毫毛飞行/烟中化身/伸棒砸击；只细化悟空材质、空间与内部节奏。 */
+.wk-hair-source .fx-hair-body { width: calc(var(--board-cell-size) * .19); left: calc(var(--board-cell-size) * -.095); filter: drop-shadow(0 0 2px #fff3c8) drop-shadow(0 0 5px #cd9a3a); }
+.wk-hair-thread { position: absolute; right: 0; top: -1px; width: calc(var(--board-cell-size) * .85); height: 5px; border-top: 1px solid #fff2bf; border-radius: 50%; transform-origin: right center; opacity: 0; animation: wk-hair-thread 520ms ease-out both; }
+@keyframes wk-hair-thread { 0% { opacity: 0; scale: .1 1; } 25% { opacity: .9; scale: 1 1; rotate: -8deg; } 70% { opacity: .6; rotate: 5deg; } 100% { opacity: 0; scale: .25 1; } }
+
+.wk-clone { --wk-hit: 500ms; }
+.wk-clone .fx-clone-ring { top: 76%; width: 108%; height: 70%; margin: -35% 0 0 -54%; border-width: 1px; box-shadow: 0 0 5px #d4a64b66, inset 0 0 8px #ffe2a326; }
+.wk-clone .fx-clone-ring-2 { border-color: #c3913b; }
+.wk-clone .fx-clone-core { inset: 31%; animation-duration: 220ms; box-shadow: 0 0 12px #ffe2a370; }
+.wk-clone .fx-clone-flash { left: 41%; right: 41%; top: -4%; bottom: 13%; box-shadow: 0 0 8px #e8b33c88; opacity: 0; animation: wk-clone-rise 510ms ease-out 500ms both; }
+.wk-clone .fx-clone-flash::after { opacity: .3; }
+.wk-clone .fx-smoke { width: 43%; height: 43%; margin: -21.5%; filter: blur(1px); box-shadow: none; animation-name: wk-clone-smoke; }
+@keyframes wk-clone-smoke { 0% { opacity: 0; transform: scale(.25); } 22% { opacity: .7; } 100% { opacity: 0; transform: translate(var(--sx),var(--sy)) scale(var(--ss)) rotate(var(--sr)); } }
+@keyframes wk-clone-rise { 0% { opacity: 0; transform: scale(.25,0); } 22% { opacity: .85; transform: scale(1,1.08); } 60% { opacity: .3; } 100% { opacity: 0; transform: scale(1.4,1.15); } }
+.wk-cloud { position: absolute; width: 155%; height: 140%; left: -27.5%; top: -17%; overflow: visible; opacity: 0; transform-origin: 50% 75%; animation: wk-cloud-unfurl 710ms cubic-bezier(.16,.84,.44,1) 540ms both; }
+.wk-cloud-back { z-index: 0; }
+.wk-cloud-front { width: 132%; height: 86%; left: -16%; top: 26%; z-index: 3; animation-delay: 620ms; animation-duration: 630ms; }
+@keyframes wk-cloud-unfurl { 0% { opacity: 0; transform: scale(.32,.5) translateY(9%); } 25% { opacity: .85; } 65% { opacity: .5; } 100% { opacity: 0; transform: scale(1.06,1.1) translateY(-8%); } }
+.wk-clone .fx-clone-figure { left: 19%; right: 19%; top: -9%; bottom: 5%; z-index: 2; border-radius: 0; background: none; filter: drop-shadow(0 0 3px #ffd67788); animation: wk-clone-form 580ms ease-out 620ms both; }
+.wk-clone .fx-clone-figure::before, .wk-clone .fx-clone-figure::after { display: none; }
+.wk-clone .fx-clone-figure svg { width: 100%; height: 100%; overflow: visible; }
+@keyframes wk-clone-form { 0% { opacity: 0; transform: translateY(10%) scale(.75, .65); } 28% { opacity: .9; transform: translateY(0) scale(1); } 60% { opacity: .75; } 100% { opacity: 0; transform: translateY(-5%) scale(1.02); } }
+.wk-clone .fx-clone-mote { width: 3px; height: 7px; border-radius: 50% 50% 20% 20%; box-shadow: 0 0 3px #ffdf95; animation-duration: 620ms; }
+.wk-clone-sweep { position: absolute; inset: 16% 0 8%; border-radius: 50%; border: 1px solid transparent; border-bottom-color: #ffedbc; border-right-color: #b78434; opacity: 0; animation: wk-clone-sweep 520ms ease-out 700ms both; }
+@keyframes wk-clone-sweep { 0% { opacity: 0; transform: scale(.4) rotate(-35deg) scaleY(.4); } 22% { opacity: .8; } 100% { opacity: 0; transform: scale(1.15) rotate(35deg) scaleY(.4); } }
+
+.wk-staff-source .wk-staff-gather { position: absolute; inset: 18%; border-radius: 50%; background: radial-gradient(ellipse,transparent 40%,#ffe5a947 57%,transparent 70%); opacity: 0; animation: wk-staff-gather 280ms ease-out both; }
+@keyframes wk-staff-gather { 0% { opacity: 0; transform: scale(1.1,.55); } 40% { opacity: .8; } 100% { opacity: 0; transform: scale(.25,.4); } }
+.wk-staff { --wk-hit: 250ms; --wk-cell: var(--fx-cell-delay, 0ms); }
+/* 棒末端始终以命中点为旋转锚点，不因攻击方向翻转而滑到邻格。 */
+.skill-fx .wk-staff.fx-anchor .fx-staff { top: auto; bottom: 50%; margin: 0 0 0 -5px; transform-origin: 50% 100%; z-index: 4; animation: wk-staff-smash 620ms cubic-bezier(.42,0,.3,1) var(--wk-cell) both; }
+@keyframes wk-staff-smash {
+    0% { opacity: 0; transform: rotate(calc(var(--fx-staff-rot) - 18deg)) translateY(-180%) scaleY(.55); }
+    10% { opacity: .75; }
+    27% { opacity: 1; transform: rotate(calc(var(--fx-staff-rot) - 9deg)) translateY(-65%) scaleY(.85); }
+    40% { opacity: 1; transform: rotate(var(--fx-staff-rot)) translateY(0) scaleY(1.3); }
+    50% { opacity: 1; transform: rotate(calc(var(--fx-staff-rot) + 2deg)) translateY(-5%) scaleY(1.12); }
+    62% { opacity: 1; transform: rotate(var(--fx-staff-rot)) translateY(-2%) scaleY(1.18); }
+    80% { opacity: .75; transform: rotate(var(--fx-staff-rot)) translateY(-10%) scaleY(.95); }
+    100% { opacity: 0; transform: rotate(var(--fx-staff-rot)) translateY(-14%) scaleY(.88); }
+}
+.wk-staff .fx-staff-shaft { background: linear-gradient(90deg,#361b12 0%,#74371d 17%,#bd7640 35%,#f9cf86 46%,#fff3c2 51%,#b96630 64%,#63301d 84%,#32190f 100%); box-shadow: inset 1px 0 1px #ffda9266,0 0 4px #c9963655; }
+.wk-staff .fx-staff-cap { left: -3px; right: -3px; background: linear-gradient(90deg,#604117,#b88c38 20%,#fff2b8 40%,#f0cc70 54%,#946325 81%,#493019); border-top: 1px solid #ffefb7; border-bottom: 1px solid #79551e; box-shadow: 0 0 3px #ffd47777; }
+.wk-staff .fx-staff-cap::after { content: ''; position: absolute; inset: 18% 1px; border-top: 1px solid #fff3c277; border-bottom: 1px solid #68431688; }
+.wk-staff-etch { position: absolute; inset: 20% -1px; border-radius: 2px; background: repeating-linear-gradient(155deg,transparent 0 12px,#ffda7b99 13px,#7a4d2080 14px,transparent 15px 25px); opacity: .65; }
+.wk-staff-sheen { position: absolute; inset: 2% 2px; background: linear-gradient(170deg,transparent 28%,#fffce7dd 48%,transparent 65%); opacity: 0; animation: wk-staff-sheen 400ms ease-out calc(90ms + var(--wk-cell)) both; }
+@keyframes wk-staff-sheen { 0% { opacity: 0; clip-path: inset(0 0 75%); } 45% { opacity: .95; } 100% { opacity: 0; clip-path: inset(75% 0 0); } }
+.skill-fx .wk-staff.fx-anchor .fx-staff-blur { height: 210%; width: 10%; margin: -105% 0 0 -5%; filter: blur(2px); animation: wk-staff-blur 280ms ease-out var(--wk-cell) both; }
+@keyframes wk-staff-blur { 0% { opacity: 0; transform: rotate(var(--fx-staff-rot)) translateY(-60%) scaleY(.4); } 60% { opacity: .45; } 100% { opacity: 0; transform: rotate(var(--fx-staff-rot)) scaleY(1.2); } }
+.wk-staff-wake { position: absolute; width: 128%; height: 235%; left: -14%; bottom: 33%; transform-origin: 50% 92%; opacity: 0; }
+.skill-fx .wk-staff.fx-anchor .wk-staff-wake { animation: wk-staff-wake 370ms ease-out var(--wk-cell) both; }
+.wk-staff-wake svg { width: 100%; height: 100%; overflow: visible; }
+@keyframes wk-staff-wake { 0% { opacity: 0; transform: rotate(calc(var(--fx-staff-rot) - 18deg)) scale(.65); } 45% { opacity: .8; } 100% { opacity: 0; transform: rotate(calc(var(--fx-staff-rot) + 3deg)) scale(1.05); } }
+.skill-fx .wk-staff.fx-anchor .fx-staff-core { inset: 30%; z-index: 5; animation-duration: 260ms; animation-delay: calc(var(--wk-hit) + var(--wk-cell)); }
+.skill-fx .wk-staff.fx-anchor .fx-impact { inset: 15% 0; border-width: 2px; border-top-color: #fff7d5; border-bottom-color: #c29545; background: radial-gradient(ellipse,#f8d78018,transparent 70%); box-shadow: 0 0 5px #e8b33c55; animation-duration: 490ms; animation-delay: calc(var(--wk-hit) + var(--wk-cell)); }
+.wk-impact-rim { position: absolute; inset: 9% -7%; border-radius: 50%; border: 1px solid #a9782c88; box-shadow: 0 0 2px #ffe6a580; opacity: 0; }
+.skill-fx .wk-staff.fx-anchor .wk-impact-rim { animation: fx-impact-expand 540ms ease-out calc(var(--wk-hit) + 65ms + var(--wk-cell)) both; }
+.wk-ground { position: absolute; width: 162%; height: 85%; left: -31%; top: 8%; opacity: 0; overflow: visible; transform-origin: 50% 50%; }
+.skill-fx .wk-staff.fx-anchor .wk-ground { animation: wk-ground-open 600ms ease-out calc(var(--wk-hit) + var(--wk-cell)) both; }
+@keyframes wk-ground-open { 0% { opacity: 0; scale: .15; } 18% { opacity: .85; scale: .9; } 45% { opacity: .6; scale: 1; } 100% { opacity: 0; scale: 1.02; } }
+.wk-ground-edges { stroke-dasharray: 100; stroke-dashoffset: 100; animation: wk-crack-trace 220ms ease-out calc(var(--wk-hit) + var(--wk-cell)) both; }
+@keyframes wk-crack-trace { to { stroke-dashoffset: 0; } }
+/* 位移按棋格尺寸计算，避免 6px 金星只移动 3px；含抛物线上升与坠落。 */
+.skill-fx .wk-staff.fx-anchor .fx-staff-spark { width: 3px; height: 7px; margin: -3.5px 0 0 -1.5px; border-radius: 50%; box-shadow: 0 0 3px #ffdb86; animation: wk-staff-spark 610ms ease-out calc(var(--wk-hit) + var(--wk-cell) + var(--wk-step,0ms)) both; }
+.wk-staff .fx-staff-spark-1 { --kx: -.58; --ky: -.46; }
+.wk-staff .fx-staff-spark-2 { --kx: .52; --ky: -.54; --wk-step: 15ms; }
+.wk-staff .fx-staff-spark-3 { --kx: -.66; --ky: .18; --wk-step: 30ms; }
+.wk-staff .fx-staff-spark-4 { --kx: .62; --ky: .22; --wk-step: 45ms; }
+.wk-staff .fx-staff-spark-5 { --kx: -.30; --ky: .58; --wk-step: 60ms; }
+.wk-staff .fx-staff-spark-6 { --kx: .34; --ky: .62; --wk-step: 75ms; }
+@keyframes wk-staff-spark {
+    0% { opacity: 0; transform: scale(.3); }
+    16% { opacity: 1; }
+    55% { opacity: .85; transform: translate(calc(var(--board-cell-size) * var(--kx) * .75),calc(var(--board-cell-size) * (var(--ky) * .75 - .18))) rotate(50deg) scale(.9); }
+    100% { opacity: 0; transform: translate(calc(var(--board-cell-size) * var(--kx)),calc(var(--board-cell-size) * (var(--ky) + .08))) rotate(100deg) scale(.3); }
+}
+.skill-fx .wk-staff.fx-anchor .fx-dust { animation: wk-dust-spray 620ms ease-out calc(var(--wk-hit) + var(--wk-cell) + var(--wk-step,0ms)) both; background: radial-gradient(ellipse at 35% 25%,#faf0d3bb,#a18d6555 50%,transparent 74%); }
+.wk-staff .fx-dust-1 { --dx: -.46; --dy: -.20; }
+.wk-staff .fx-dust-2 { --dx: .44; --dy: -.24; --wk-step: 15ms; }
+.wk-staff .fx-dust-3 { --dx: -.34; --dy: .26; --wk-step: 30ms; }
+.wk-staff .fx-dust-4 { --dx: .38; --dy: .30; --wk-step: 45ms; }
+.wk-staff .fx-dust-5 { --dx: 0; --dy: .42; --wk-step: 60ms; }
+@keyframes wk-dust-spray { 0% { opacity: 0; transform: scale(.3); } 20% { opacity: .7; } 100% { opacity: 0; transform: translate(calc(var(--board-cell-size) * var(--dx)),calc(var(--board-cell-size) * var(--dy))) scale(1.8,.75); } }
+.wk-debris { position: absolute; left: 50%; top: 56%; width: 4%; height: 3%; background: linear-gradient(130deg,#dcc499,#79664b 60%,#554333); clip-path: polygon(5% 30%,60% 0,100% 70%,20% 100%); opacity: 0; }
+.skill-fx .wk-staff.fx-anchor .wk-debris { animation: wk-debris 610ms ease-out calc(var(--wk-hit) + var(--wk-cell) + var(--wk-step)) both; }
+@keyframes wk-debris { 0% { opacity: 0; transform: scale(.3); } 15% { opacity: .85; } 45% { opacity: .8; transform: translate(calc(var(--board-cell-size) * var(--wk-x) * .7),calc(var(--board-cell-size) * (var(--wk-y) - .23))) rotate(var(--wk-spin)); } 100% { opacity: 0; transform: translate(calc(var(--board-cell-size) * var(--wk-x)),calc(var(--board-cell-size) * (var(--wk-y) + .18))) rotate(calc(var(--wk-spin) * 1.4)) scale(.65); } }
+.skill-fx-target.skill-fx-kind-wukong-staff, .skill-fx-impact.skill-fx-kind-wukong-staff { animation-delay: calc(250ms + var(--fx-cell-delay,0ms)); }
+
+@media (prefers-reduced-motion: reduce) {
+    .skill-fx-kind-wukong-clone, .skill-fx-kind-wukong-staff,
+    .skill-fx-kind-wukong-clone *, .skill-fx-kind-wukong-staff *,
+    .skill-fx-kind-wukong-clone *::before, .skill-fx-kind-wukong-clone *::after,
+    .skill-fx-kind-wukong-staff *::before, .skill-fx-kind-wukong-staff *::after { animation: none !important; }
+    .wk-clone, .wk-staff, .wk-hair-source, .wk-staff-source { opacity: 0; }
+}

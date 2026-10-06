@@ -53,13 +53,25 @@ if defined BUSY (
     if errorlevel 2 exit /b 0
 )
 
-REM ================= 4. 启动前后端 =================
+REM ================= 4. 前端模式 =================
+REM 默认游戏模式：改代码不会自动刷新你正在玩的一局，要看最新改动按 F5。
+REM 想要热更新（改代码即时生效，但玩的时候可能被刷新）：start.bat dev
+set "GAME_MODE=1"
+set "MODE_LABEL=游戏模式（不自动刷新，按 F5 看最新改动）"
+if /i "%~1"=="dev" (
+    set "GAME_MODE=0"
+    set "MODE_LABEL=开发模式（HMR 热更新，改代码会刷新页面）"
+)
+
+REM ================= 5. 启动前后端 =================
 echo [3/3] 启动服务（两个新窗口请保持开启）...
 start "六子战棋-后端(8787)" cmd /k "cd /d %~dp0server && node server.js"
-start "六子战棋-前端(3000)" cmd /k "cd /d %~dp0 && npm run dev"
+REM 注意：`set X=1 && ...` 会把值设成 "1 "（带尾空格），所以 && 前不能留空格
+start "六子战棋-前端(3000)" cmd /k "cd /d %~dp0 && set GAME_MODE=%GAME_MODE%&& npm run dev"
 
 echo.
 echo 启动完成！
+echo   前端模式: %MODE_LABEL%
 echo   游戏页面: http://localhost:3000  （浏览器会自动打开）
 echo   后端地址: http://localhost:8787
 echo   停止服务: 直接关闭对应的服务窗口即可

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
+import { GameEngine } from '../../src/core/game-engine';
 import { useGameStore } from '../../src/store/game-store';
 import type { Hero } from '../../src/types/game';
 
@@ -87,6 +88,13 @@ describe('AI 方李太白被动链死锁回归', () => {
 
         // AI 回合：手动让李太白放技能1（攻击相邻绯雪），触发醉步留痕链
         const libai = [...useGameStore.getState().player2Heroes].find(h => h.id.startsWith('libai-player2-'))!;
+        // 历史落点只由"他自己移动结束"产生（强制位移与回合初都不记账），
+        // 所以这里先补两次真实停留，链才有可瞬移的历史位置。
+        libai.position = [1, 3];
+        GameEngine.recordLibaiStay(libai);
+        libai.position = [1, 4];
+        GameEngine.recordLibaiStay(libai);
+        libai.position = [2, 3];
         useGameStore.getState().selectHeroForAction(libai);
         useGameStore.getState().selectSkill('libai_skill1');
         useGameStore.getState().executeSkill([2, 2]);

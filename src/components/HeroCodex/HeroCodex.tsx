@@ -3,12 +3,18 @@ import { useGameStore } from '../../store/game-store';
 import { HERO_CLASSES, HERO_CODEX, HeroCodexEntry, SKILL_TYPE_LABELS } from '../../data/hero-codex';
 import { HERO_ABILITY_KEYS, getAbilityHighlights, getHeroAbilityRatings, HeroAbilityKey } from '../../data/hero-ratings';
 import { getHeroFullBodyUrl } from '../../data/hero-assets';
+import { getZhizhi, zhizhiTierLabel } from '../../data/hero-zhizhi';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroIcon from '../ui/HeroIcon';
 import HeroRadarChart from './HeroRadarChart';
 import SkillFxPreview from './SkillFxPreview';
 import { classTheme } from './class-theme';
 import './hero-codex.css';
+
+/** 被动卡的特效预览：被动触发的专属特效档案（有定制的英雄才在被动名旁出预览按钮） */
+const PASSIVE_FX_BY_HERO: Record<string, string> = {
+    jiangtaigong: 'jiangtaigong_whalefall',
+};
 
 function Stat({ label, value }: { label: string; value: string | number }) {
     return (
@@ -243,6 +249,13 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
                     subtitle="被动能力"
                     description={hero.passive.description}
                     accent="#2d6a4f"
+                    trailing={PASSIVE_FX_BY_HERO[hero.id] && (
+                        <SkillFxPreview
+                            skillId={PASSIVE_FX_BY_HERO[hero.id]}
+                            skillName={hero.passive.name}
+                            accent="#2d6a4f"
+                        />
+                    )}
                 />
                 {hero.tianwei ? (
                     <AbilityCard
@@ -283,12 +296,14 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
                     )}
                 </div>
                 <div className="rounded-xl border border-ink/[0.07] bg-white/35 p-4">
-                    <h3 className="font-title text-xl text-ink">对局要诀</h3>
+                    <h3 className="font-title text-xl text-ink">致知</h3>
                     <ol className="mt-2 space-y-2">
-                        {hero.tips.map((tip, index) => (
-                            <li key={tip} className="flex gap-3 text-sm leading-6 text-ink-light">
-                                <span className="font-title text-lg" style={{ color: theme.color }}>{index + 1}</span>
-                                <span>{tip}</span>
+                        {getZhizhi(hero.id).map(entry => (
+                            <li key={entry.tier} className="flex gap-3 text-sm leading-6 text-ink-light">
+                                <span className="shrink-0 font-title text-base" style={{ color: theme.color }}>
+                                    {zhizhiTierLabel(entry.tier)}
+                                </span>
+                                <span>{entry.text ?? '设计稿留白，待补'}</span>
                             </li>
                         ))}
                     </ol>
@@ -299,6 +314,7 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
 }
 
 export default function HeroCodex() {
+    const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [selectedClass, setSelectedClass] = useState('全部');
     const [selectedHeroId, setSelectedHeroId] = useState(HERO_CODEX[0].id);
@@ -324,7 +340,7 @@ export default function HeroCodex() {
     };
 
     return (
-        <main className="relative flex h-full w-full flex-col overflow-hidden bg-rice">
+        <main className={`codex-page${mobileDetailOpen ? ' mobile-detail-open' : ''} relative flex h-full w-full flex-col overflow-hidden bg-rice`}>
             <span className="pointer-events-none absolute right-[7%] top-[8%] select-none font-title text-[18rem] text-ink/[0.018]">鉴</span>
             <header className="relative z-10 shrink-0 border-b border-ink/[0.07] bg-rice-light/75 px-4 py-3 backdrop-blur-md sm:px-7">
                 <div className="mx-auto flex max-w-[1480px] items-center gap-4">
@@ -343,14 +359,17 @@ export default function HeroCodex() {
                             <span className="hidden text-xs tracking-[.18em] text-ink-faint sm:inline">群英入卷 · 见招知势</span>
                         </div>
                     </div>
-                    <div className="rounded-full border border-vermillion/20 bg-vermillion/[0.05] px-3 py-1.5 text-xs text-vermillion">
+                    <button className="mobile-only codex-view-toggle" onClick={() => setMobileDetailOpen(value => !value)}>
+                        {mobileDetailOpen ? '英雄列表' : '查看详情'}
+                    </button>
+                    <div className="codex-count rounded-full border border-vermillion/20 bg-vermillion/[0.05] px-3 py-1.5 text-xs text-vermillion">
                         已收录 {HERO_CODEX.length} 位
                     </div>
                 </div>
             </header>
 
-            <div className="relative z-10 mx-auto grid min-h-0 w-full max-w-[1480px] flex-1 gap-4 p-4 sm:p-6 lg:grid-cols-[390px_minmax(0,1fr)]">
-                <aside className="flex min-h-[280px] flex-col overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/35 shadow-[0_8px_32px_rgba(26,26,26,.05)]">
+            <div className="codex-workspace relative z-10 mx-auto grid min-h-0 w-full max-w-[1480px] flex-1 gap-4 p-4 sm:p-6 lg:grid-cols-[390px_minmax(0,1fr)]">
+                <aside className="codex-list flex min-h-[280px] flex-col overflow-hidden rounded-2xl border border-ink/[0.07] bg-white/35 shadow-[0_8px_32px_rgba(26,26,26,.05)]">
                     <div className="shrink-0 border-b border-ink/[0.06] p-4">
                         <label className="relative block">
                             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint">⌕</span>
@@ -393,7 +412,7 @@ export default function HeroCodex() {
                                             key={hero.id}
                                             type="button"
                                             data-sfx="tab"
-                                            onClick={() => setSelectedHeroId(hero.id)}
+                                            onClick={() => { setSelectedHeroId(hero.id); setMobileDetailOpen(true); }}
                                             className={`group flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${
                                                 selected
                                                     ? 'border-gold/40 bg-gold/[0.07] shadow-[inset_3px_0_0_#d4a843]'
@@ -440,11 +459,8 @@ export default function HeroCodex() {
                     </div>
                 </aside>
 
-                <section className="light-scrollbar min-h-0 overflow-y-auto rounded-2xl border border-ink/[0.07] bg-rice-light/50 p-4 shadow-[0_8px_32px_rgba(26,26,26,.05)] sm:p-6">
+                <section className="codex-detail light-scrollbar min-h-0 overflow-y-auto rounded-2xl border border-ink/[0.07] bg-rice-light/50 p-4 shadow-[0_8px_32px_rgba(26,26,26,.05)] sm:p-6">
                     <HeroDetail hero={selectedHero} />
-                    <p className="mt-7 text-center text-[10px] tracking-[.15em] text-ink-faint">
-                        图鉴数值与当前战斗实现同步 · 机制说明以本版本为准
-                    </p>
                 </section>
             </div>
         </main>

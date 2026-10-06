@@ -1,24 +1,66 @@
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { useGameStore, getPendingActionCells } from '../../store/game-store';
 import { Position, type Hero } from '../../types/game';
 import { GameEngine } from '../../core/game-engine';
 import type { SkillFxEvent } from '../../core/skill-fx';
-import { computeFxAngleDeg, computeFxCellDelayMs, computeFxDirection, isImpactFxKind, resolveSkillFx } from '../../core/skill-fx';
+import { computeFxAngleDeg, computeFxLogImpactDelayMs, computeFxDirection, resolveSkillFx } from '../../core/skill-fx';
+import { collectMirrorBladeFx } from '../../core/mirror-blade-fx';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroStatusPopover from './HeroStatusPopover';
 import { SkillAreaFx, SkillFxLifecycle, SkillFxVisual } from './SkillFxLayer';
 import { HeroStatusFx } from './HeroStatusFx';
 import { WindBladeGlyph } from './WindBladeGlyph';
 import { resolveHeroLinks } from '../../core/hero-link-view';
+import { isLowQuality } from '../../core/render-quality';
+import { marshCovers } from '../../core/water-marsh';
+import { resolveHitFeedback, type HitFeedback } from '../../core/hit-feedback';
+import { HitContactFx, HitResponsivePiece } from './HitFeedbackFx';
+
+/**
+ * 流畅档下一张范围技能最多铺开几格"逐格特效"（impact/area）。
+ * 主目标格的那一份始终保留，其余按离主目标的远近取前几格：
+ * 一次范围技能按格复制出的动画数是手机上掉帧的主因（实测同屏可到 90+）。
+ */
+const LOW_QUALITY_FX_CELL_LIMIT = 4;
+
+/** 束缚格的四条边：true = 这一侧贴着圈外，要画一道锁栏 */
+type BindingEdgeMask = { north: boolean; east: boolean; south: boolean; west: boolean };
+
+function bindingEdgeMask(cells: Set<string> | undefined, row: number, col: number): BindingEdgeMask {
+    const outside = (r: number, c: number) => !cells?.has(`${r},${c}`);
+    return {
+        north: outside(row - 1, col),
+        east: outside(row, col + 1),
+        south: outside(row + 1, col),
+        west: outside(row, col - 1),
+    };
+}
+
+/**
+ * 锁栏向格缝两侧各探出 4px，相邻格的同侧栏才能在 6px 缝隙里搭接成不断线；
+ * 但转角处两侧都有栏时，探出去的那截会戳到笼子外面变成毛刺，所以要收口。
+ */
+function bindingBarClass(side: keyof BindingEdgeMask, edges: BindingEdgeMask): string {
+    const vertical = side === 'north' || side === 'south';
+    const shortBar = side === 'east' || side === 'west';
+    const barKey = { north: 'n', east: 'e', south: 's', west: 'w' }[side];
+    const before = vertical ? edges.west : edges.north;
+    const after = vertical ? edges.east : edges.south;
+    const beforeCls = shortBar ? 'bf-cap-t' : 'bf-cap-l';
+    const afterCls = shortBar ? 'bf-cap-b' : 'bf-cap-r';
+    return `bf-binding-bar bf-binding-bar-${barKey}${before ? ` ${beforeCls}` : ''}${after ? ` ${afterCls}` : ''}`;
+}
 
 type FloatingDamage = {
     id: number;
     row: number;
     col: number;
     amount: number;
-    kind: 'damage' | 'crit' | 'heal' | 'burn' | 'bleed' | 'chain';
+    kind: 'damage' | 'crit' | 'heal' | 'burn' | 'bleed' | 'chain' | 'shield';
     /** 同格错位序号：多段伤害/追击同时落格时错开显示，避免叠成一团 */
     offsetIndex: number;
+    delayMs: number;
+    shieldBroken?: boolean;
 };
 
 /** 灼烧跳伤/流血移动掉血的格子小特效（一次性爆点，由 damage 日志 fxTag 驱动） */
@@ -34,6 +76,7 @@ type DeathFx = {
     id: number;
     row: number;
     col: number;
+    delayMs: number;
 };
 
 /** 同格飘字偏移表（px）：第 0 条居中，后续左右交错向上错开 */
@@ -58,7 +101,9 @@ const PENDING_CHOICE_HINTS: Record<string, { title: string; detail: string }> = 
     'yunying-liehuo': { title: '烈火燎原', detail: '点选云缨相邻的方向格，决定这道火线烧向哪条线' },
     'yunying-tianwei': { title: '云缨·天威', detail: '点选一处与她同行、同列或同对角线的空格，枪光斩向那里' },
     'xueqi-tianwei': { title: '血契·天威', detail: '点选一处空格跃落' },
+    'zhiguang-tianwei': { title: '折光·天威', detail: '点选一处空格降落，以落点为中心展开 5×5 万华镜光界' },
     'schrodinger-tianwei': { title: '薛定谔·天威', detail: '点选一格确定观测落点' },
+    'jiangtaigong-hook': { title: '姜太公·鱼钩', detail: '有人上钩了：点选场上任意空格，把这个人抛到那里（吃10点伤害）' },
 };
 
 export default function Board() {
@@ -119,10 +164,17 @@ export default function Board() {
     const [floatingDamages, setFloatingDamages] = useState<FloatingDamage[]>([]);
     const [minorFx, setMinorFx] = useState<MinorFx[]>([]);
     const [deathFx, setDeathFx] = useState<DeathFx[]>([]);
+    const [hitFeedbacks, setHitFeedbacks] = useState<HitFeedback[]>([]);
+    const hitCleanupTimers = useRef(new Set<number>());
     const [shakeKey, setShakeKey] = useState(0);
     const shellRef = useRef<HTMLDivElement>(null);
     const seenLogIdsRef = useRef<Set<string> | null>(null);
     const floatingIdRef = useRef(0);
+
+    useEffect(() => {
+        const timers = hitCleanupTimers.current;
+        return () => { for (const timer of timers) window.clearTimeout(timer); timers.clear(); };
+    }, []);
 
     useEffect(() => {
         const log = battleLog ?? [];
@@ -131,27 +183,40 @@ export default function Board() {
         const seenIds = seenLogIdsRef.current;
         const fresh = seenIds ? log.filter(entry => !seenIds.has(entry.id)) : [];
         seenLogIdsRef.current = new Set(log.map(entry => entry.id));
+        if (log.length === 0) {
+            setHitFeedbacks([]);
+            for (const timer of hitCleanupTimers.current) window.clearTimeout(timer);
+            hitCleanupTimers.current.clear();
+        }
         if (fresh.length === 0) return;
+        // 先派发整批镜刃，再读伤害/击杀，让飘字与实际抵达时刻对齐。
+        for (const event of collectMirrorBladeFx(fresh)) useGameStore.getState().pushSkillFx(event);
 
         const next: FloatingDamage[] = [];
         const nextMinor: MinorFx[] = [];
         const nextDeath: DeathFx[] = [];
+        const nextHits: HitFeedback[] = [];
+        const hitCounts = new Map<string, number>();
         let killShakes = 0;
         for (const entry of fresh) {
             if (!entry.details) continue;
-            const { amount, isCrit, position, fxTag, victimPosition, fxSkillId, fxFrom, fxTarget } = entry.details as {
+            const { amount, isCrit, kind, position, fxTag, victimPosition, fxSkillId, fxFrom, fxTarget, hpDamage, shieldDamage, shieldBroken } = entry.details as {
                 amount?: number;
                 isCrit?: boolean;
+                kind?: string;
                 position?: number[];
                 fxTag?: string;
                 victimPosition?: number[];
                 fxSkillId?: string;
                 fxFrom?: number[];
                 fxTarget?: number[];
+                hpDamage?: number;
+                shieldDamage?: number;
+                shieldBroken?: boolean;
             };
             // 引擎内部触发的攻击（如镜的"破镜之刃"）通过日志标记请求特效：
             // fxSkillId 指向特效档案，fxFrom→fxTarget 为飞刃动线（无起点则原格起爆）
-            if (typeof fxSkillId === 'string' && fxTarget && fxTarget.length === 2) {
+            if (typeof fxSkillId === 'string' && fxSkillId !== 'mirror_blade' && fxTarget && fxTarget.length === 2) {
                 const targetCell: Position = [fxTarget[0], fxTarget[1]];
                 const fromCell: Position =
                     fxFrom && fxFrom.length === 2 ? [fxFrom[0], fxFrom[1]] : targetCell;
@@ -167,22 +232,38 @@ export default function Board() {
             }
             // 阵亡特效：kill 日志携带阵亡格坐标，驱动水墨消散动画并触发全局震屏
             if (entry.type === 'kill' && victimPosition && victimPosition.length === 2) {
+                const event = [...useGameStore.getState().skillFx].reverse().find(fx => fx.logIds?.includes(entry.id));
+                const delayMs = event ? Math.max(0, computeFxLogImpactDelayMs(event, [victimPosition[0], victimPosition[1]], entry.id) - (Date.now() - event.bornAt)) : 0;
                 nextDeath.push({
                     id: floatingIdRef.current++,
                     row: victimPosition[0],
                     col: victimPosition[1],
+                    delayMs,
                 });
-                killShakes += 1;
+                // 只有真英雄阵亡才配一次全局震屏：召唤物/分身被打散是"清掉一个场"，不是"击杀"
+                if (kind === 'hero-kill') {
+                    if (delayMs > 0) window.setTimeout(() => setShakeKey(key => key + 1), delayMs);
+                    else killShakes += 1;
+                }
                 continue;
             }
             if (typeof amount !== 'number' || amount <= 0) continue;
             if (!position || position.length !== 2) continue;
+            const fxEvent = [...useGameStore.getState().skillFx].reverse().find(event => event.logIds?.includes(entry.id));
+            const delayMs = fxEvent ? Math.max(0, computeFxLogImpactDelayMs(fxEvent, [position[0], position[1]], entry.id) - (Date.now() - fxEvent.bornAt)) : 0;
+            const hitKey = `${fxEvent?.id ?? entry.id}-${position.join(',')}-${entry.type}`;
+            const hitIndex = hitCounts.get(hitKey) ?? 0;
+            hitCounts.set(hitKey, hitIndex + 1);
             if (entry.type === 'damage') {
+                const contactDelay = delayMs + (fxEvent?.mirrorBlades ? 0 : hitIndex * 130);
+                const contact = resolveHitFeedback(entry, Date.now() + contactDelay, fxEvent?.fromPos);
+                if (contact) nextHits.push(contact);
                 // 来源标签：灼烧/流血/链电伤害的飘字换用专属配色
                 const taggedKind: FloatingDamage['kind'] =
                     fxTag === 'burn' ? 'burn' :
                     fxTag === 'bleed' ? 'bleed' :
                     fxTag === 'chain' ? 'chain' :
+                    (shieldDamage ?? 0) > 0 && hpDamage === 0 ? 'shield' :
                     isCrit ? 'crit' : 'damage';
                 next.push({
                     id: floatingIdRef.current++,
@@ -191,6 +272,9 @@ export default function Board() {
                     amount,
                     kind: taggedKind,
                     offsetIndex: 0,
+                    // 镜刃已有逐刃发射时钟，不再叠加通用多段伤害的错峰延迟。
+                    delayMs: contactDelay,
+                    shieldBroken,
                 });
                 // 灼烧跳伤/流血掉血：格子上一记小火爆点/血溅
                 if (fxTag === 'burn' || fxTag === 'bleed') {
@@ -209,8 +293,18 @@ export default function Board() {
                     amount,
                     kind: 'heal',
                     offsetIndex: 0,
+                    delayMs,
                 });
             }
+        }
+        if (nextHits.length > 0) {
+            const ids = new Set(nextHits.map(hit => hit.id));
+            setHitFeedbacks(previous => [...previous, ...nextHits].slice(-72));
+            const timer = window.setTimeout(() => {
+                setHitFeedbacks(previous => previous.filter(hit => !ids.has(hit.id)));
+                hitCleanupTimers.current.delete(timer);
+            }, Math.max(...nextHits.map(hit => hit.at - Date.now())) + 750);
+            hitCleanupTimers.current.add(timer);
         }
         if (next.length > 0) {
             const ids = next.map(item => item.id);
@@ -230,7 +324,7 @@ export default function Board() {
             });
             window.setTimeout(() => {
                 setFloatingDamages(prev => prev.filter(item => !ids.includes(item.id)));
-            }, 1000);
+            }, 1000 + Math.max(...next.map(item => item.delayMs)));
         }
         if (nextMinor.length > 0) {
             const ids = nextMinor.map(item => item.id);
@@ -244,7 +338,7 @@ export default function Board() {
             setDeathFx(prev => [...prev, ...nextDeath]);
             window.setTimeout(() => {
                 setDeathFx(prev => prev.filter(item => !ids.includes(item.id)));
-            }, 1000);
+            }, 1000 + Math.max(...nextDeath.map(item => item.delayMs)));
         }
         if (killShakes > 0) {
             setShakeKey(key => key + killShakes);
@@ -345,40 +439,83 @@ export default function Board() {
         return skillRange.length > 0 && isHighlighted(row, col);
     };
 
+    // 束缚区的持续显示：同一次施法布下的格子共用一个 linkId，先按组归拢，
+    // 每格再算出自己哪几条边贴着"圈外"——这样 3×3 的锁栏能连成一体，
+    // 而不是九个各自独立的虚线框（血契的环形禁足也走同一套判据）
+    const bindingGroups = useMemo(() => {
+        const groups = new Map<string, Set<string>>();
+        for (const effect of boardEffects ?? []) {
+            if (effect.type !== 'binding-zone') continue;
+            const key = effect.linkId ?? `single-${effect.id}`;
+            const cells = groups.get(key) ?? new Set<string>();
+            cells.add(`${effect.position[0]},${effect.position[1]}`);
+            groups.set(key, cells);
+        }
+        return groups;
+    }, [boardEffects]);
+
     // 命中本格的技能特效事件：起手格渲染光环，目标格渲染主效，溅射格与链电链路格
     // 渲染各自的多格变体；AOE 真正打到的每一格各渲染一份 impact，
     // 落在作用区域但未被更强变体占用的格子渲染 area 贴地底光
     type SkillFxVariant = 'caster' | 'target' | 'impact' | 'area' | 'splash' | 'chain';
+    const lowQualityFxCellBudget = isLowQuality() ? LOW_QUALITY_FX_CELL_LIMIT : 0;
+
+    /**
+     * 逐格特效按格建索引，一次算好供 36 格查表。
+     * 原来每格都把整条特效队列重扫一遍（36 格 × 队列 × 5 个坐标数组的 some），
+     * 施法时队列每变一次就要重做一轮，等于把特效数量平方付在主线程上。
+     * 低画质还顺手限制一张 AOE 能铺开的逐格份数：区域底光/印记是按格复制的，
+     * 一次范围技能就能把同屏动画数顶到近百个。
+     */
+    const fxHitCells = useMemo(() => {
+        const index = new Map<string, Array<{ event: SkillFxEvent; variant: SkillFxVariant }>>();
+        const push = (row: number, col: number, event: SkillFxEvent, variant: SkillFxVariant) => {
+            const key = `${row},${col}`;
+            const list = index.get(key);
+            if (!list) {
+                index.set(key, [{ event, variant }]);
+                return;
+            }
+            if (!list.some(hit => hit.event.id === event.id && hit.variant === variant)) {
+                list.push({ event, variant });
+            }
+        };
+        const byDistanceToTarget = (event: SkillFxEvent) => (a: Position, b: Position): number => {
+            const span = (cell: Position) =>
+                (cell[0] - event.targetPos[0]) ** 2 + (cell[1] - event.targetPos[1]) ** 2;
+            return span(a) - span(b);
+        };
+        const budget = (event: SkillFxEvent, cells: Position[]): Position[] => {
+            if (!lowQualityFxCellBudget || cells.length <= lowQualityFxCellBudget) return cells;
+            return [...cells].sort(byDistanceToTarget(event)).slice(0, lowQualityFxCellBudget);
+        };
+
+        for (const event of skillFx) {
+            push(event.fromPos[0], event.fromPos[1], event, 'caster');
+            push(event.targetPos[0], event.targetPos[1], event, 'target');
+            for (const [row, col] of event.splashPositions ?? []) push(row, col, event, 'splash');
+            for (const [row, col] of event.chainLinks ?? []) push(row, col, event, 'chain');
+
+            // 主目标格已承载完整主效，同格不再重复出 impact；其余命中格各来一份
+            const impactCells = (event.impactPositions ?? []).filter(
+                ([row, col]) => row !== event.targetPos[0] || col !== event.targetPos[1]
+            );
+            // 燎原火墙的首格已由 target 那份高火焰承载，别再叠一份同尺寸火舌
+            const areaCells = (event.coveredPositions ?? []).filter(cell =>
+                !impactCells.some(other => other[0] === cell[0] && other[1] === cell[1]) &&
+                !(event.profile.kind === 'liehuo-blaze' &&
+                    cell[0] === event.targetPos[0] && cell[1] === event.targetPos[1])
+            );
+            for (const [row, col] of budget(event, impactCells)) push(row, col, event, 'impact');
+            for (const [row, col] of budget(event, areaCells)) push(row, col, event, 'area');
+        }
+        return index;
+    }, [skillFx, lowQualityFxCellBudget]);
 
     const skillFxAtCell = (row: number, col: number): Array<{
         event: SkillFxEvent;
         variant: SkillFxVariant;
-    }> => {
-        const hits: Array<{ event: SkillFxEvent; variant: SkillFxVariant }> = [];
-        const pushHit = (event: SkillFxEvent, variant: SkillFxVariant) => {
-            if (!hits.some(hit => hit.event.id === event.id && hit.variant === variant)) {
-                hits.push({ event, variant });
-            }
-        };
-        const onCell = (cells: Position[] | undefined): boolean =>
-            (cells ?? []).some(([r, c]) => r === row && c === col);
-
-        for (const event of skillFx) {
-            if (onCell([event.fromPos])) pushHit(event, 'caster');
-            if (onCell([event.targetPos])) pushHit(event, 'target');
-            if (onCell(event.splashPositions)) pushHit(event, 'splash');
-            if (onCell(event.chainLinks)) pushHit(event, 'chain');
-            // 主目标格已承载完整主效，同格不再重复出 impact；其余命中格各来一份
-            if (!onCell([event.targetPos]) && onCell(event.impactPositions)) {
-                pushHit(event, 'impact');
-            } else if (onCell(event.coveredPositions) &&
-                // 燎原火墙的首格已由 target 那份高火焰承载，别再叠一份同尺寸火舌
-                !(event.profile.kind === 'liehuo-blaze' && onCell([event.targetPos]))) {
-                pushHit(event, 'area');
-            }
-        }
-        return hits;
-    };
+    }> => fxHitCells.get(`${row},${col}`) ?? [];
 
     // 时空停滞残影：被戴尔凝固时间的阵亡单位，其死亡格上留下的可点残影
     const stasisGhostAt = (row: number, col: number): Hero | null => {
@@ -437,12 +574,17 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
-                            const bindingZone = boardEffects?.some(
+                            const bindingZone = (boardEffects ?? []).find(
                                 effect =>
                                     effect.type === 'binding-zone' &&
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            const bindingEdges = bindingZone
+                                ? bindingEdgeMask(
+                                    bindingGroups.get(bindingZone.linkId ?? `single-${bindingZone.id}`),
+                                    rowIndex, colIndex)
+                                : null;
                             // 一格最多同时被横、纵两道风道覆盖，因此取列表而非单个
                             const windLanes = (boardEffects ?? []).filter(
                                 effect =>
@@ -476,6 +618,24 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 折光布下的光棱：她技能二的光束扫到这一格就会换轴折射一次并追加伤害
+                            const lightPrism = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'light-prism' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            // 姜太公的水泽：覆盖窗口由 water-marsh 统一算（贴边整体平移，不裁切）
+                            const marshesHere = (boardEffects ?? []).filter(effect =>
+                                effect.type === 'water-marsh' && marshCovers(effect, rowIndex, colIndex));
+                            const waterMarsh = marshesHere[0];
+                            // 鱼钩：沉在某一格里，敌人经过即上钩
+                            const fishHook = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'fish-hook' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
                             // 时空停滞残影：本格空着、但躺着一个被戴尔凝固时间的阵亡单位
                             const stasisGhost = stasisGhostAt(rowIndex, colIndex);
                             const stasisAnchored = stasisGhost !== null && daiReviveHeroId === stasisGhost.id;
@@ -487,7 +647,12 @@ export default function Board() {
                             // 烈火燎原这类"只有几格可选"的挂起选择：给一套专属焰色脉冲标记，
                             // 不能和普通攻击高亮混为一谈，否则玩家不知道被动已经触发
                             const pendingChoice = (pendingBoardAction?.type === 'yunying-liehuo' ||
-                                pendingBoardAction?.type === 'yunying-tianwei') &&
+                                pendingBoardAction?.type === 'yunying-tianwei' ||
+                                pendingBoardAction?.type === 'zhiguang-tianwei') &&
+                                isPendingChoice(rowIndex, colIndex);
+                            // 鱼钩抛掷的可选落点是"全盘任意空格"：套用烈焰脉冲会把整盘涂成一片噪声，
+                            // 换成一层很轻的水纹描边，玩家读的是"能落"而不是"在闪"
+                            const hookLandingChoice = pendingBoardAction?.type === 'jiangtaigong-hook' &&
                                 isPendingChoice(rowIndex, colIndex);
                             // 箭头朝向即这条火线烧过去的方向（云缨 → 本格）
                             const pendingChoiceRot = pendingChoice && pendingChoiceHero?.position
@@ -495,24 +660,14 @@ export default function Board() {
                                 : 0;
                             if (isSelected) cellClass += ' cell-selected';
                             else if (pendingChoice) cellClass += ' cell-pending-choice';
+                            else if (hookLandingChoice) cellClass += ' cell-hook-landing';
                             else if (moveTarget) cellClass += ' cell-move';
                             else if (reviveLanding) cellClass += ' cell-move';
                             else if (skillTarget) cellClass += ' cell-attack';
                             else if (isReinforceTarget(rowIndex, colIndex)) cellClass += ' cell-move';
 
-                            // 本格技能特效：命中型给格子整体震屏反馈（key 含事件 id，重复施放可重触发）；
-                            // AOE 的每个命中格各震一次，延迟与特效层共用同一份波浪算法，
-                            // 避免多格同帧一起晃（柔光受益格不在命中型集合内，天然不抖）
-                            const cellFx = skillFxAtCell(rowIndex, colIndex);
-                            const impactHit = cellFx.find(
-                                ({ event, variant }) =>
-                                    (variant === 'target' || variant === 'impact') &&
-                                    isImpactFxKind(event.profile.kind)
-                            );
-                            const impactEvent = impactHit?.event;
-                            const impactDelayMs = impactHit
-                                ? computeFxCellDelayMs(impactHit.event.targetPos, [rowIndex, colIndex])
-                                : 0;
+                            // 受击只由真实伤害日志派发；不再把点选格或闪避当作命中。
+                            const cellContacts = hitFeedbacks.filter(hit => hit.row === rowIndex && hit.col === colIndex);
                             // 多目标技能的已选格（如凋零播撒的第一角）：金色角标标记
                             const pickedCorner = (pendingSkillTargetPositions ?? []).some(
                                 ([r, c]) => r === rowIndex && c === colIndex
@@ -527,19 +682,7 @@ export default function Board() {
                                     style={{ userSelect: 'none' }}
                                     className={`${cellClass} battle-board-cell flex flex-col items-center justify-center`}
                                 >
-                                    {impactEvent && (
-                                        <span
-                                            key={`fx-impact-${impactEvent.id}`}
-                                            className="cell-fx-impact"
-                                            aria-hidden="true"
-                                            style={{
-                                                '--fx-glow': impactEvent.profile.c1
-                                                    ? `${impactEvent.profile.c1}66`
-                                                    : undefined,
-                                                '--fx-cell-delay': `${impactDelayMs}ms`,
-                                            } as CSSProperties}
-                                        />
-                                    )}
+                                    {cellContacts.map(hit => <HitContactFx key={hit.id} hit={hit} />)}
                                     {pickedCorner && (
                                         <span className="cell-picked-corner" aria-hidden="true">
                                             <i /><i /><i /><i />
@@ -604,6 +747,34 @@ export default function Board() {
                                         </div>
                                     )}
 
+                                    {waterMarsh && (
+                                        <div
+                                            className={`bf-water-marsh bf-water-marsh-${waterMarsh.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title={marshesHere.length > 1
+                                                ? `水泽：${marshesHere.length}片重叠，我方角色在其中的闪避率按片累加`
+                                                : '水泽：我方角色在其中提升闪避'}
+                                        >
+                                            <span className="bf-water-marsh-ripple" />
+                                            <span className="bf-water-marsh-ripple bf-water-marsh-ripple-2" />
+                                            {marshesHere.length > 1 && (
+                                                <span className="bf-water-marsh-layer">{marshesHere.length}</span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {fishHook && (
+                                        <div
+                                            className={`bf-fish-hook bf-fish-hook-${fishHook.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title={`鱼钩：敌人经过这一格即刻上钩（剩${fishHook.duration}回合）`}
+                                        >
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M12 2v7" />
+                                                <path d="M12 9c0 4-2.5 6-4.5 6S4 13 5.5 11.5" />
+                                                <circle cx="12" cy="2.6" r="1.1" />
+                                            </svg>
+                                        </div>
+                                    )}
+
                                     {windLanes.map(lane => (
                                         <div
                                             key={lane.id}
@@ -653,12 +824,16 @@ export default function Board() {
                                         </div>
                                     )}
 
-                                    {bindingZone && (
+                                    {bindingZone && bindingEdges && (
                                         <div
-                                            className="bf-binding-zone absolute inset-1 border border-dashed border-gold/60 rounded-sm pointer-events-none animate-pulse"
-                                            title="束缚格：圈内敌人无法靠移动脱身"
+                                            className={`bf-binding-zone bf-binding-${bindingZone.owner === 'player1' ? 'p1' : 'p2'} absolute inset-0 pointer-events-none`}
+                                            title="束缚格：圈内敌人无法靠移动脱身（技能造成的位移仍可离开）"
                                         >
-                                            <div className="absolute inset-1 border border-indigo-300/40 rounded-sm" />
+                                            {bindingEdges.north && <i className={bindingBarClass('north', bindingEdges)} aria-hidden="true" />}
+                                            {bindingEdges.east && <i className={bindingBarClass('east', bindingEdges)} aria-hidden="true" />}
+                                            {bindingEdges.south && <i className={bindingBarClass('south', bindingEdges)} aria-hidden="true" />}
+                                            {bindingEdges.west && <i className={bindingBarClass('west', bindingEdges)} aria-hidden="true" />}
+                                            <i className="bf-binding-seal" aria-hidden="true" />
                                         </div>
                                     )}
 
@@ -694,6 +869,20 @@ export default function Board() {
                                             </svg>
                                             <i className="bf-shadow-petal bf-shadow-petal-a" aria-hidden="true" />
                                             <i className="bf-shadow-petal bf-shadow-petal-b" aria-hidden="true" />
+                                        </div>
+                                    )}
+
+                                    {lightPrism && (
+                                        <div
+                                            className={`bf-prism absolute inset-1 pointer-events-none bf-prism-${lightPrism.owner === 'player1' ? 'p1' : 'p2'}`}
+                                            title="光棱：折光布下的折射点，她的光束扫过这一格会换轴折射一次并追加2点伤害"
+                                        >
+                                            <i className="bf-prism-halo" aria-hidden="true" />
+                                            <svg className="bf-prism-glyph" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path className="bf-prism-face" d="M12 3.2 L20.2 18 L3.8 18 Z" />
+                                                <path className="bf-prism-edge" d="M12 3.2 L20.2 18 M12 3.2 L3.8 18 M3.8 18 L20.2 18 M12 3.2 L12 18" />
+                                                <path className="bf-prism-ray" d="M0.6 12.4 L8.4 12.4 M15.6 12.4 L23.4 9.2" />
+                                            </svg>
                                         </div>
                                     )}
 
@@ -793,8 +982,9 @@ export default function Board() {
                                             hero={cell}
                                             delayMs={650}
                                             placement="auto-vertical"
-                                            className="flex flex-col items-center gap-0.5 outline-none"
+                                            className="board-hero-content flex flex-col items-center gap-0.5 outline-none"
                                         >
+                                            <HitResponsivePiece key={cell.id} hits={cellContacts.filter(hit => !hit.targetHeroId || hit.targetHeroId === cell.id)}>
                                             <div className="piece-shell">
                                                 <div className={`
                                                     piece battle-board-piece
@@ -812,7 +1002,14 @@ export default function Board() {
                                                     />
                                                 </div>
                                                 <HeroStatusFx hero={cell} />
+                                                {/* 泠汐的水波与折扇贴角色本身，不受下方名字与血条影响。 */}
+                                                {skillFxAtCell(rowIndex, colIndex)
+                                                    .filter(({ event, variant }) => variant === 'caster' && ['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind))
+                                                    .map(({ event, variant }) => (
+                                                        <SkillFxVisual key={`${event.id}-${variant}`} event={event} variant={variant} atPos={[rowIndex, colIndex]} />
+                                                    ))}
                                             </div>
+                                            </HitResponsivePiece>
                                             <span className="battle-board-piece-name text-ink-faint font-body leading-none">
                                                 {cell.name.length > 3 ? cell.name.slice(0, 3) : cell.name}
                                             </span>
@@ -848,12 +1045,14 @@ export default function Board() {
                                                 damage.kind === 'burn' ? ' is-burn' :
                                                 damage.kind === 'bleed' ? ' is-bleed' :
                                                 damage.kind === 'chain' ? ' is-chain' : '';
+                                            const shieldClass = damage.kind === 'shield' ? ' is-shield' : '';
                                             return (
                                                 <div
                                                     key={damage.id}
-                                                    className={`floating-damage${kindClass}`}
-                                                    style={{ '--dx': `${dx}px`, '--dy': `${dy}px` } as CSSProperties}
+                                                    className={`floating-damage${kindClass}${shieldClass}`}
+                                                    style={{ '--dx': `${dx}px`, '--dy': `${dy}px`, animationDelay: `${damage.delayMs}ms`, animationFillMode: 'both' } as CSSProperties}
                                                 >
+                                                    {(damage.kind === 'crit' || damage.kind === 'shield') && !damage.shieldBroken && <span className="damage-caption">{damage.kind === 'crit' ? '暴击' : '护盾'}</span>}
                                                     {damage.kind === 'heal' ? `+${damage.amount}` : damage.amount}
                                                 </div>
                                             );
@@ -880,7 +1079,7 @@ export default function Board() {
                                     {deathFx
                                         .filter(fx => fx.row === rowIndex && fx.col === colIndex)
                                         .map(fx => (
-                                            <span key={fx.id} className="death-fx" aria-hidden="true">
+                                            <span key={fx.id} className="death-fx" style={{ '--death-delay': `${fx.delayMs}ms` } as CSSProperties} aria-hidden="true">
                                                 <i className="death-fx-core" />
                                                 <i className="death-fx-ghost" />
                                                 <i className="death-fx-ring" />
@@ -896,7 +1095,9 @@ export default function Board() {
                                         ))}
 
                                     {/* 英雄技能特效：起手格光环 + 目标格主效 + 溅射/链电多格变体 */}
-                                    {skillFxAtCell(rowIndex, colIndex).map(({ event, variant }) => (
+                                    {skillFxAtCell(rowIndex, colIndex)
+                                        .filter(({ event, variant }) => !cell || variant !== 'caster' || !['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind))
+                                        .map(({ event, variant }) => (
                                         <SkillFxVisual
                                             key={`${event.id}-${variant}`}
                                             event={event}

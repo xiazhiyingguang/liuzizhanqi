@@ -132,12 +132,14 @@ export function isFreeWindLaneStep(
     );
 }
 
-/** 南风被动：所处风道数量换算成的闪避率（每道 +25%，上限 50%） */
+/** 南风被动：所处风道数量换算成的闪避率（每道 +25%，上限 50%；致知3 把每道抬到 30%） */
 export function getWindLaneDodgeRate(gameState: GameState, hero: Hero): number {
     if (hero.passiveId !== 'nanfeng_passive') return 0;
     const lanes = lanesAtHero(gameState, hero);
     const distinct = new Set(lanes.map(effect => effect.linkId ?? effect.id));
-    return Math.min(WIND_LANE_MAX_DODGE, distinct.size * WIND_LANE_DODGE_PER_LANE);
+    // 直接读计数：wind-lane 被 movement-system 早期引入，绕开 hero-zhizhi 的循环
+    const perLane = hero.counters['talent_3'] ? 0.3 : WIND_LANE_DODGE_PER_LANE;
+    return Math.min(WIND_LANE_MAX_DODGE, distinct.size * perLane);
 }
 
 /**

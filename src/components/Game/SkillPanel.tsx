@@ -2,6 +2,7 @@ import { useGameStore } from '../../store/game-store';
 import { GameEngine } from '../../core/game-engine';
 import { getSkill } from '../../data/skills';
 import { getHeroInfo } from '../../data/heroes';
+import { heroXRedirectCost } from '../../core/hero-zhizhi';
 import HeroAvatar from '../ui/HeroAvatar';
 
 export default function SkillPanel() {
@@ -385,7 +386,7 @@ export default function SkillPanel() {
                 })()}
 
                 {selectedHero.passiveId === 'hero_x_passive' &&
-                    (selectedHero.counters['增势'] ?? 0) >= 3 &&
+                    (selectedHero.counters['增势'] ?? 0) >= heroXRedirectCost(selectedHero) &&
                     livingAllies.length > 0 && (
                     <div className="ink-surface p-2 space-y-1.5">
                         <p className="text-[11px] text-ink-light font-body">选择下次增势援护的承伤队友</p>

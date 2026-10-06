@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { AVAILABLE_HERO_IDS, createHero, getHeroInfo } from '../../src/data/heroes';
 import { chooseComputerDeployment } from '../../src/core/computer-ai';
-import { runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
+import { battleActorFor, runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
 import { takeAiDecisions } from '../../src/services/battle-replay';
 import { useGameStore } from '../../src/store/game-store';
 import type { BattleStatistics, Hero, Player, Position } from '../../src/types/game';
@@ -396,7 +396,7 @@ function runMatch(
         const selectedHeroId = before.selectedHero?.id;
         const selectedSkillId = before.selectedSkill?.id;
         // 补员挂起时控制权在 reinforcingPlayer 手上，只喂 currentPlayer 会被直接 return 掉
-        runComputerBattleStep(before.reinforcingPlayer ?? before.currentPlayer, repeated);
+        runComputerBattleStep(battleActorFor(before), repeated);
         const after = useGameStore.getState();
 
         if (selectedHeroId && selectedSkillId) {

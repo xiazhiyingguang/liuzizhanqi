@@ -41,6 +41,44 @@ export function tokenizeBattleLogMessage(
  * 同时识别英雄名与战斗术语。每个位置总是优先匹配更长的完整词，
  * 因此“白泽之力”不会被拆成英雄“白泽”，而“凋零之主”也不会被拆成术语“凋零”。
  */
+/**
+ * 术语表按首字建一次索引：原来每个字符位置都要拿全部术语 + 场上英雄名逐个
+ * startsWith（200 条日志 × 约 30 字 × 100 多个词 ≈ 每次渲染 6×10⁵ 次），手机上
+ * 每次状态提交都要重跑，是"施法那一帧上千毫秒"的主要来源之一。
+ */
+const GLOSSARY_BY_FIRST_CHAR: Map<string, BattleLogContentToken[]> = (() => {
+    const index = new Map<string, BattleLogContentToken[]>();
+    const sorted = [...BATTLE_GLOSSARY].sort((left, right) => right.term.length - left.term.length);
+    for (const glossary of sorted) {
+        const key = glossary.term[0];
+        const bucket = index.get(key);
+        if (bucket) bucket.push({ text: glossary.term, glossary });
+        else index.set(key, [{ text: glossary.term, glossary }]);
+    }
+    return index;
+})();
+
+/** 只在"首字相同"的候选里挑最长匹配；同长度时英雄名优先于术语（保持原有优先级） */
+function longestCandidateAt(
+    message: string,
+    cursor: number,
+    heroBucket: BattleLogContentToken[] | undefined,
+    glossaryBucket: BattleLogContentToken[] | undefined
+): BattleLogContentToken | null {
+    let best: BattleLogContentToken | null = null;
+    for (const bucket of [heroBucket, glossaryBucket]) {
+        if (!bucket) continue;
+        for (const candidate of bucket) {
+            if (candidate.text.length <= (best?.text.length ?? 0)) continue;
+            if (message.startsWith(candidate.text, cursor)) {
+                best = candidate;
+                break;
+            }
+        }
+    }
+    return best;
+}
+
 export function tokenizeBattleLogContent(
     message: string,
     heroes: HeroNameReference[]
@@ -51,16 +89,16 @@ export function tokenizeBattleLogContent(
         if (name && !ownerByName.has(name)) ownerByName.set(name, hero.owner);
     }
 
-    const heroCandidates: BattleLogContentToken[] = [...ownerByName.entries()]
-        .map(([text, owner]) => ({ text, owner }));
-    const glossaryCandidates: BattleLogContentToken[] = BATTLE_GLOSSARY
-        .map(glossary => ({ text: glossary.term, glossary }));
-    const candidates: BattleLogContentToken[] = [...heroCandidates, ...glossaryCandidates]
-        .sort((left, right) => {
-            const lengthDifference = right.text.length - left.text.length;
-            if (lengthDifference !== 0) return lengthDifference;
-            return left.owner ? -1 : right.owner ? 1 : 0;
-        });
+    const heroByFirstChar = new Map<string, BattleLogContentToken[]>();
+    for (const [text, owner] of ownerByName) {
+        const key = text[0];
+        const bucket = heroByFirstChar.get(key);
+        if (bucket) bucket.push({ text, owner });
+        else heroByFirstChar.set(key, [{ text, owner }]);
+    }
+    for (const bucket of heroByFirstChar.values()) {
+        bucket.sort((left, right) => right.text.length - left.text.length);
+    }
 
     const tokens: BattleLogContentToken[] = [];
     let cursor = 0;
@@ -73,7 +111,8 @@ export function tokenizeBattleLogContent(
     };
 
     while (cursor < message.length) {
-        const match = candidates.find(candidate => message.startsWith(candidate.text, cursor));
+        const match = longestCandidateAt(message, cursor,
+            heroByFirstChar.get(message[cursor]), GLOSSARY_BY_FIRST_CHAR.get(message[cursor]));
         if (!match) {
             plainText += message[cursor];
             cursor++;

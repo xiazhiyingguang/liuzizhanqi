@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EffectManager } from '../../src/core/effect-manager';
-import { GameEngine } from '../../src/core/game-engine';
+import { GameEngine, MAX_BATTLE_ROUNDS } from '../../src/core/game-engine';
 import { HeroState } from '../../src/types/game';
 import { addHero, makeGameState, tempKillOffBoard } from '../helpers/game-state';
 
@@ -317,5 +317,68 @@ describe('GameEngine victory and revival', () => {
         expect(dead.state).toBe(HeroState.DEAD);
         expect(dead.currentHp).toBe(0);
         expect(state.deathCounters.player1Resurrections).toBe(0);
+    });
+});
+
+describe('回合上限结算', () => {
+    it('未到上限时不结算', () => {
+        const state = makeGameState();
+        state.roundNumber = MAX_BATTLE_ROUNDS - 1;
+        addHero(state, 'moran', 'player1', [0, 0]);
+        addHero(state, 'baize', 'player2', [0, 5]);
+
+        GameEngine.checkWinCondition(state);
+
+        expect(state.phase).toBe('battle');
+        expect(state.winner ?? null).toBeNull();
+    });
+
+    it('打满上限按场上存活人数判定胜负', () => {
+        const state = makeGameState();
+        state.roundNumber = MAX_BATTLE_ROUNDS;
+        addHero(state, 'moran', 'player1', [0, 0]);
+        addHero(state, 'baize', 'player1', [1, 0]);
+        const lone = addHero(state, 'nightowl', 'player2', [0, 5]);
+        lone.currentHp = 999; // 单人满血也输：第一判据是人数，不是战力
+
+        GameEngine.checkWinCondition(state);
+
+        expect(state.phase).toBe('ended');
+        expect(state.winner).toBe('player1');
+        expect(state.battleLog.some(entry =>
+            entry.message.includes(`回合上限（${MAX_BATTLE_ROUNDS}回合）`)
+            && entry.message.includes('存活人数2比1'))).toBe(true);
+    });
+
+    it('人数相同时改比剩余生命与护盾', () => {
+        const state = makeGameState();
+        state.roundNumber = MAX_BATTLE_ROUNDS;
+        const weak = addHero(state, 'moran', 'player1', [0, 0]);
+        weak.currentHp = 5;
+        const strong = addHero(state, 'liuli', 'player2', [0, 5]);
+        strong.currentHp = strong.maxHp;
+        strong.shield = 10;
+
+        GameEngine.checkWinCondition(state);
+
+        expect(state.phase).toBe('ended');
+        expect(state.winner).toBe('player2');
+        expect(state.battleLog.some(entry => entry.message.includes('剩余战力5比'))).toBe(true);
+    });
+
+    it('分身与召唤物不参与人数结算', () => {
+        const state = makeGameState();
+        state.roundNumber = MAX_BATTLE_ROUNDS;
+        const solo = addHero(state, 'moran', 'player1', [0, 0]);
+        const enemy = addHero(state, 'liuli', 'player2', [0, 5]);
+        const clone = addHero(state, 'moran', 'player1', [1, 0]);
+        clone.id = 'mirror-clone|some-owner|1|0.5';
+        clone.counters = { __isClone: 1 };
+
+        GameEngine.checkWinCondition(state);
+
+        expect(state.phase).toBe('ended');
+        // 双方各算1人 → 落到剩余战力：solo 满血47 vs 琉璃满血+10护盾
+        expect(state.winner).toBe(solo.maxHp > enemy.maxHp + 10 ? 'player1' : 'player2');
     });
 });

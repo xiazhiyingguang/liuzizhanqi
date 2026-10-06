@@ -20,6 +20,12 @@ export interface RoomJoinResponse {
     gameState?: unknown;
     revision?: number;
     opponent?: LobbyPlayer;
+    /** 这条 join 是坐回自己那个"掉线保留中"的席位，而不是占空位 */
+    resumed?: boolean;
+    /** 重连回席时用于重建局面的权威数据（战斗快照或选将/布阵记录） */
+    resume?: any;
+    /** 房间是标准局还是经典局；客机以此为准，避免两侧阶段链错位 */
+    gameMode?: 'standard' | 'classic';
 }
 
 export interface LobbyPlayer {
@@ -64,8 +70,11 @@ export function connectToServer(url?: string): Socket {
     socket = io(serverUrl, {
         transports: ['websocket', 'polling'], // 优先使用 WebSocket
         reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 5
+        reconnectionDelay: 800,
+        // 局域网对局里"卡十几秒"通常是合盖、切后台或 Wi-Fi 抖动，不是真退线：
+        // 原来只试 5 次（约 5 秒）就放弃，客户端先于服务端的宽限期认输。
+        reconnectionDelayMax: 4_000,
+        reconnectionAttempts: 60
     });
     connectedSocketUrl = serverUrl;
 
@@ -115,7 +124,7 @@ export function disconnectFromServer() {
 /**
  * 创建房间
  */
-export function createRoom(): Promise<RoomJoinResponse> {
+export function createRoom(gameMode: 'standard' | 'classic' = 'standard'): Promise<RoomJoinResponse> {
     return new Promise((resolve) => {
         const s = getSocket();
         if (!s || !s.connected) {
@@ -123,7 +132,7 @@ export function createRoom(): Promise<RoomJoinResponse> {
             return;
         }
 
-        s.timeout(6000).emit('create-room', (error: Error | null, response: RoomJoinResponse) => {
+        s.timeout(6000).emit('create-room', { gameMode }, (error: Error | null, response: RoomJoinResponse) => {
             resolve(error ? { success: false, error: '服务器响应超时' } : response);
         });
     });
@@ -150,9 +159,15 @@ export function joinRoom(
 }
 
 /**
- * 用四位数字进入房间。房间不存在时自动创建，存在时自动作为玩家二加入。
+ * 重连后认领自己原来的席位。
+ * 断线后的是一条全新连接（既没有 register-player 也没有 socket.data.roomId），
+ * 所以必须把身份带回去，服务端才会把"掉线保留中"的那个位子还给他。
  */
-export function enterRoomCode(code: string, player: PlayerIdentity): Promise<RoomJoinResponse> {
+export function resumeRoom(
+    roomId: string,
+    player: PlayerIdentity,
+    playerNumber: number
+): Promise<RoomJoinResponse & { resumed?: boolean }> {
     return new Promise((resolve) => {
         const s = getSocket();
         if (!s || !s.connected) {
@@ -160,7 +175,33 @@ export function enterRoomCode(code: string, player: PlayerIdentity): Promise<Roo
             return;
         }
 
-        s.timeout(6000).emit('enter-code-room', { code, player }, (error: Error | null, response: RoomJoinResponse) => {
+        s.timeout(6000).emit('join-room', { roomId, playerName: player.label, playerId: player.id }, (
+            error: Error | null,
+            response: RoomJoinResponse & { resumed?: boolean }
+        ) => {
+            resolve(error
+                ? { success: false, error: '服务器响应超时', playerNumber, resumed: false }
+                : { ...response, playerNumber: response?.playerNumber ?? playerNumber });
+        });
+    });
+}
+
+/**
+ * 用四位数字进入房间。房间不存在时自动创建，存在时自动作为玩家二加入。
+ */
+export function enterRoomCode(
+    code: string,
+    player: PlayerIdentity,
+    gameMode: 'standard' | 'classic' = 'standard'
+): Promise<RoomJoinResponse> {
+    return new Promise((resolve) => {
+        const s = getSocket();
+        if (!s || !s.connected) {
+            resolve({ success: false, error: '未连接到服务器' });
+            return;
+        }
+
+        s.timeout(6000).emit('enter-code-room', { code, player, gameMode }, (error: Error | null, response: RoomJoinResponse) => {
             resolve(error ? { success: false, error: '服务器响应超时' } : response);
         });
     });
@@ -172,14 +213,18 @@ export function registerLobbyPlayer(player: PlayerIdentity) {
     s.emit('register-player', player);
 }
 
-export function inviteLobbyPlayer(targetPlayerId: string): Promise<{ success: boolean; error?: string }> {
+export function inviteLobbyPlayer(
+    targetPlayerId: string,
+    gameMode: 'standard' | 'classic' = 'standard'
+): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
         const s = getSocket();
         if (!s || !s.connected) {
             resolve({ success: false, error: '未连接到服务器' });
             return;
         }
-        s.timeout(5000).emit('invite-player', { targetPlayerId }, (error: Error | null, response: any) => {
+        // 邀请人是房主：把他要的模式一起带过去，服务端建房时才会开同一种局
+        s.timeout(5000).emit('invite-player', { targetPlayerId, gameMode }, (error: Error | null, response: any) => {
             resolve(error ? { success: false, error: '邀请响应超时' } : response);
         });
     });

@@ -5,6 +5,7 @@ import { huanongyingSkill1 } from '../../src/data/extended-skills';
 import { HeroState } from '../../src/types/game';
 import {
     chooseComputerDeployment,
+    chooseComputerHero,
     chooseComputerMove,
     chooseComputerSkillPlan,
     chooseComputerTeam,
@@ -237,5 +238,153 @@ describe('两段式新角色的 AI 适配', () => {
 
         // 月座在正常寻路够不到的角落，只有交换落点候选能把 AI 引过去
         expect(chooseComputerMove(state, ally)).toEqual([0, 0]);
+    });
+});
+
+/**
+ * 代价型技能（亡灵体系）的 AI 适配。
+ *
+ * 病灶：heroBoardValue 把"暂时阵亡"记成 16 分而存活单位约 180 分，
+ * 于是缚魂灯两个技能在单步模拟里稳定 -125 / -262，被出手闸门（score > 0）永远拦死，
+ * 100 局里一次都没放出暗夜法阵——AI 把它当纯步兵用。
+ * 口径：暂死的代价是"缺席一回合"，不是"少一个人"，但也不能无脑送人下场。
+ */
+describe('亡灵体系代价型技能的 AI 适配', () => {
+    beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
+    afterEach(() => vi.restoreAllMocks());
+
+    it('缚魂灯孤身一人时不展开法阵：没人兑现共鸣、也没人把她唤回', () => {
+        const state = makeGameState();
+        const lamp = addHero(state, 'soul_lamp', 'player2', [2, 2]);
+        addHero(state, 'nightowl', 'player1', [4, 4]);
+
+        const plan = chooseComputerSkillPlan(state, lamp, 'soul_lamp_skill1');
+        expect(plan === null || plan.score <= 0).toBe(true);
+    });
+
+    it('队里有共鸣手与唤回手段时，暗夜法阵转为正解', () => {
+        const state = makeGameState();
+        const lamp = addHero(state, 'soul_lamp', 'player2', [2, 2]);
+        addHero(state, 'skeletonking', 'player2', [2, 1]);
+        addHero(state, 'jetzmi', 'player2', [1, 2]);
+        addHero(state, 'nightowl', 'player1', [3, 3]);
+
+        const plan = chooseComputerSkillPlan(state, lamp, 'soul_lamp_skill1');
+        expect(plan).not.toBeNull();
+        expect(plan!.score).toBeGreaterThan(0);
+    });
+
+    it('法阵里站着的队友越多，同一张阵越值钱', () => {
+        const spread = (withAlly: boolean) => {
+            const state = makeGameState();
+            const lamp = addHero(state, 'soul_lamp', 'player2', [2, 2]);
+            addHero(state, 'skeletonking', 'player2', [2, 1]);
+            if (withAlly) addHero(state, 'jetzmi', 'player2', [1, 2]);
+            addHero(state, 'nightowl', 'player1', [5, 5]);
+            return chooseComputerSkillPlan(state, lamp, 'soul_lamp_skill1')?.score ?? 0;
+        };
+        expect(spread(true)).toBeGreaterThan(spread(false));
+    });
+
+    it('缚魂轮转不该拿满血队友换命：无排程、无满血收益时为负', () => {
+        const state = makeGameState();
+        const lamp = addHero(state, 'soul_lamp', 'player2', [2, 2]);
+        const healthy = addHero(state, 'skeletonking', 'player2', [2, 1]);
+        addHero(state, 'nightowl', 'player1', [4, 4]);
+        expect(healthy.currentHp).toBe(healthy.maxHp);
+
+        const plan = chooseComputerSkillPlan(state, lamp, 'soul_lamp_skill2');
+        expect(plan === null || plan.score <= 0).toBe(true);
+    });
+
+    it('姿态型技能随战局走：越会被围攻，"开姿态"那一手相对越值', () => {
+        // 墨阑 S1(10伤+为道：减伤30%、挨满两次再动一次) vs S2(15伤)——只看当回合数字的话永远选 S2
+        const scoresOf = (heroId: string, at: [number, number], foeAt: [number, number][]) => {
+            const state = makeGameState();
+            const hero = addHero(state, heroId, 'player2', at);
+            foeAt.forEach(([row, col], index) =>
+                addHero(state, index === 0 ? 'nightowl' : 'feixue', 'player1', [row, col]));
+            return {
+                first: chooseComputerSkillPlan(state, hero, `${heroId}_skill1`)?.score ?? 0,
+                second: chooseComputerSkillPlan(state, hero, `${heroId}_skill2`)?.score ?? 0,
+            };
+        };
+
+        const duel = scoresOf('moran', [2, 2], [[2, 3]]);
+        const surrounded = scoresOf('moran', [2, 2], [[2, 3], [3, 2]]);
+        // 多一个能构到她的敌人，姿态那手相对高伤那手的优势必须拉开
+        expect(surrounded.first - surrounded.second).toBeGreaterThan(duel.first - duel.second);
+
+        // 震霄金银错：有人贴进束缚圈且确实会挨打时，开姿态的分要高于空场
+        const alone = scoresOf('zhenxiao', [2, 2], [[2, 3]]);
+        const crowded = scoresOf('zhenxiao', [2, 2], [[2, 3], [3, 2]]);
+        expect(crowded.second).toBeGreaterThan(alone.second);
+    });
+
+    it('布场型技能按场里能咬到几个人定价：风铃沙丘在有人贴身时必须有正分', () => {
+        const duneScore = (foeCells: [number, number][]) => {
+            const state = makeGameState();
+            const hunter = addHero(state, 'fengling', 'player2', [2, 2]);
+            addHero(state, 'baize', 'player2', [0, 0]);
+            foeCells.forEach((pos, index) =>
+                addHero(state, index === 0 ? 'yunying' : 'guying', 'player1', pos));
+            return chooseComputerSkillPlan(state, hunter, 'fengling_skill2')?.score ?? 0;
+        };
+        // 沙丘是"她自己在场里才吃得到增幅"的布场：场上有人可打时它必须是正分，
+        // 否则会被 score>0 的出手闸门永远压死（60 局体检里它采纳 1.30 次/局、施法 0.00）。
+        expect(duneScore([[2, 3], [3, 2], [1, 2]])).toBeGreaterThan(0);
+        expect(duneScore([[2, 3], [3, 2], [1, 2]]))
+            .toBeGreaterThan(duneScore([[2, 3]]));
+    });
+
+    it('绯雪连枝要先手：铺路那手排在还没动手的队友之前，否则增益压一回合', () => {
+        const state = makeGameState();
+        const feixue = addHero(state, 'feixue', 'player2', [2, 1]);
+        addHero(state, 'yunying', 'player2', [2, 2]);
+        addHero(state, 'moran', 'player1', [2, 3]);
+
+        // 这块板上绯雪的方案分其实略低于队友（43 vs 44，实测），
+        // 只有把"队友本回合还没动手、能吃到这条连枝"算进排序，电脑才会先动她。
+        // 队友能收人头时不受影响：斩杀的 KILL_SCORE_BONUS(205) 远大于先手加权上限(54)。
+        expect(chooseComputerHero(state, 'player2')?.id).toBe(feixue.id);
+    });
+
+    it('印月替身要能被电脑规划出来：模拟里也得替它选好登场候补', () => {
+        const planFor = (stacks: number, hpRatio: number, bench: string[]) => {
+            const state = makeGameState();
+            const jinghua = addHero(state, 'jinghua', 'player1', [2, 2]);
+            addHero(state, 'baize', 'player1', [2, 1]);
+            addHero(state, 'nightowl', 'player2', [5, 5]);
+            state.player1BenchHeroIds = bench;
+            jinghua.counters['镜影'] = stacks;
+            jinghua.currentHp = Math.round(jinghua.maxHp * hpRatio);
+            return chooseComputerSkillPlan(state, jinghua, 'jinghua_skill2');
+        };
+
+        // 旧实现：AI 的模拟里没有"技能栏选候补"这一步，execute 当场以
+        // "请先在技能栏选择一名候补友方"失败 → 这个技能连分数都拿不到，电脑从不用它
+        expect(planFor(3, 1, ['liuli', 'moran'])).not.toBeNull();
+        expect(planFor(0, 0.4, ['liuli'])).not.toBeNull();   // 残血：该把人换进来
+        expect(planFor(0, 1, ['liuli'])).toBeNull();         // 满血又没镜影：不该退场
+        expect(planFor(3, 1, [])).toBeNull();               // 候补席没人：换无可换
+    });
+
+    it('游隼疾掠只在真能穿到人时才算方案：空线与1格短冲一律不生成', () => {
+        // 直线上没有敌人：冲刺距离再远也不给方案（旧实现按距离发分，AI 专门挑空线空冲）
+        const empty = makeGameState();
+        const lone = addHero(empty, 'youjun', 'player2', [2, 0]);
+        addHero(empty, 'moran', 'player1', [5, 5]);      // 不在她任何一条直线上
+        const emptyPlan = chooseComputerSkillPlan(empty, lone, 'youjun_skill1');
+        expect(emptyPlan === null || emptyPlan.score <= 0).toBe(true);
+
+        // 直线上站着敌人：必须给出穿过她的落点（落点在敌人身后的空格）
+        const lined = makeGameState();
+        const falcon = addHero(lined, 'youjun', 'player2', [2, 0]);
+        addHero(lined, 'moran', 'player1', [2, 2]);
+        const linedPlan = chooseComputerSkillPlan(lined, falcon, 'youjun_skill1');
+        expect(linedPlan).not.toBeNull();
+        expect(linedPlan!.score).toBeGreaterThan(0);
+        // 方案落点与她之间必须真的隔着那个敌人
+        expect(linedPlan!.targetPositions[0]).toEqual([2, 3]);
     });
 });

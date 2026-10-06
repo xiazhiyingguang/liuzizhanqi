@@ -105,7 +105,7 @@ function TeamStatistics({
 
             <div className="divide-y divide-ink/10">
                 {rows.map(({ hero, statistics }) => (
-                    <article key={hero.id} className="grid grid-cols-[minmax(140px,1.1fr)_repeat(3,minmax(66px,1fr))] items-center gap-3 px-4 py-3">
+                    <article key={hero.id} className="battle-statistics-row grid grid-cols-[minmax(140px,1.1fr)_repeat(3,minmax(66px,1fr))] items-center gap-3 px-4 py-3">
                         <div className="flex min-w-0 items-center gap-2.5">
                             <div className={`h-10 w-10 flex-shrink-0 overflow-hidden rounded-xl border ${isPlayerOne ? 'border-indigo-ink/20' : 'border-vermillion/20'}`}>
                                 <HeroAvatar
@@ -171,7 +171,7 @@ export function BattleStatisticsPanel({ gameState, onClose }: BattleStatisticsPa
         : (isAiMode ? '宗师电脑' : '玩家二');
 
     return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="battle-statistics-title">
+        <div className="battle-statistics-modal fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="battle-statistics-title">
             <button
                 type="button"
                 data-sfx="cancel"

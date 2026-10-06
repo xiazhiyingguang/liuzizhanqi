@@ -441,12 +441,15 @@
 }
 
 .skill-fx-stage-grid {
+    position: relative;
+    width: max-content;
+    margin: 16px auto;
     display: grid;
-    grid-template-columns: repeat(3, var(--board-cell-size));
-    grid-template-rows: repeat(2, var(--board-cell-size));
+    grid-template-columns: repeat(var(--fx-preview-cols, 3), var(--board-cell-size));
+    grid-template-rows: repeat(var(--fx-preview-rows, 2), var(--board-cell-size));
     gap: 6px;
     justify-content: center;
-    padding: calc(var(--board-cell-size) * 0.4) 6px;
+    padding: 0;
 }
 
 .skill-fx-stage-cell {

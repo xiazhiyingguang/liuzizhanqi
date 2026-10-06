@@ -1,4 +1,6 @@
 @import './styles/ink-wash.css';
+/* 降级层必须在基础样式之后，靠属性选择器压过同名规则 */
+@import './styles/quality-low.css';
 
 @tailwind base;
 @tailwind components;
@@ -31,12 +33,15 @@ body {
     display: flex;
     min-width: 320px;
     min-height: 100vh;
+    /* 手机地址栏收放时 100vh 会整页重排，dvh 跟随可视高度；老浏览器回退上一行 */
+    min-height: 100dvh;
     overflow: hidden;
 }
 
 #root {
     width: 100%;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     display: flex;
     flex-direction: column;

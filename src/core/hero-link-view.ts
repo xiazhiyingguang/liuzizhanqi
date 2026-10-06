@@ -10,7 +10,7 @@ import { RAGE_EFFECT } from './taunt';
  */
 
 /** 连线种类：阳线金（友方增益）/ 阴线玄紫（敌方削弱）/ 血契赤红（强制锁敌） */
-export type HeroLinkKind = 'yang' | 'yin' | 'rage';
+export type HeroLinkKind = 'yang' | 'yin' | 'rage' | 'frost';
 
 export interface HeroLinkView {
     key: string;
@@ -95,6 +95,11 @@ export function resolveHeroLinks(board: (Hero | null)[][]): HeroLinkView[] {
     const links: HeroLinkView[] = [];
     resolveYinyangLinks(board, links);
     resolveRageLinks(board, links);
+    forEachOnBoardPair(board, (caster, casterCell, target, targetCell) => {
+        if (target.effects.some(effect => effect.name === '连枝' && effect.sourceHeroId === caster.id)) {
+            links.push(buildLink(casterCell, targetCell, caster.id, target.id, 'frost'));
+        }
+    });
     const seen = new Set<string>();
     return links.filter(link => {
         if (seen.has(link.key)) return false;

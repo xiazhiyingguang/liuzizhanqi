@@ -1,0 +1,27 @@
+{
+  "mode": "built-in image_gen",
+  "edits": [
+    {
+      "id": "jetzmi",
+      "prompt": "Use case: precise-object-edit. Image 1 is the edit target: the 双生之镰 matched scythe pair. Preserve both scythes' exact design, white/teal and black/violet blades, antique gold skeleton metalwork, dark handles, charms, textures and painted style. Change only composition and cutout quality: reduce the complete pair's scale so its full combined silhouette occupies at most 78 percent of the square canvas, center it with clear empty transparent space on every edge. Reconstruct any tiny clipped outer extremities, show both blades and both handle tips completely. No piece, tassel or glow may touch the frame. Remove stray cutout debris and saturated red/yellow/green edge fringe; use clean naturally antialiased transparency. Preserve genuine alpha transparency, no background, no shadow rectangle, no text. Do not add new weapons or details.",
+      "input": "jetzmi.png",
+      "output": "jetzmi-v2.png"
+    },
+    {
+      "id": "yunying",
+      "prompt": "Use case: precise-object-edit. Image 1 is the edit target: 云缨's single 赤霄 fire spear. Preserve the exact single spear design, silver fire spearhead, antique gold phoenix collar, dark shaft, red wrapping, ruby pommel, crimson tassel and fine painted material texture. Remove the unrelated detached white/pink shape at the far right edge completely. Change composition only as needed: reduce the complete spear to at most 78 percent of the square canvas and center the entire object with generous empty transparent margins around every extremity, including the tassel. Show both tips fully. Keep any warm flame glow tight to the spearhead. Clean stray cutout debris and colored edge fringe. Genuine transparent alpha background with clean antialiased edges; no background, no floor, no rectangle, no new object, no text.",
+      "input": "yunying.png",
+      "output": "yunying-v2.png"
+    },
+    {
+      "id": "xueqi",
+      "heroName": "血契",
+      "name": "赤枷",
+      "mode": "built-in image_gen",
+      "input": "xueqi.png",
+      "reference": "../hero-images/full-body/血契.png",
+      "output": "xueqi-v2.png",
+      "prompt": "Use case: precise-object-edit\nAsset type: a standalone transparent inventory illustration for 六子战棋.\nInput images: Image 1 is the weapon image to replace and the reference for the series' painted materials and rendering quality. Image 2 is a reference ONLY for 血契's crimson-and-ink-black palette and character mood; never depict the character.\nPrimary request: Correct 血契's weapon 赤枷 into ONE RED SCYTHE. Completely replace the shackle-and-chain subject in Image 1 with one long-handled reaper scythe. The dominant large curved crescent blade MUST be vivid deep crimson red, forged ruby-red metal with a thin bright red cutting edge; red must cover most of the blade, not merely small gemstone accents on a black or silver blade. Give it a strong dark crimson and ink-black shaft, subtle blackened metal fittings and restrained antique-gold engraving consistent with this collection. A long sweeping single pointed blade curves away from the upper end of the shaft, mounted with a coherent strong physical tang and collar; recognizable scythe silhouette. Fine hand-painted metal textures, refined Chinese fantasy concept art, ornate but readable at thumbnail size.\nComposition: square canvas, one complete scythe centered diagonally, balanced three-quarter view, every part fully visible with generous 10 percent transparent margins, no clipping. The blade is the focal point. Soft studio lighting.\nBackdrop: genuine alpha transparency; clean naturally antialiased cutout edges. Empty space remains transparent.\nConstraints: exactly ONE scythe with ONE crescent blade and ONE long shaft; no chain, no shackle, no cuff, no flail, no detached parts, no second weapon, no person, no hands, no blood splashes, no scene, no paper background, no floor or pedestal, no text, no label, no watermark. Preserve the illustration collection's material quality and transparency."
+    }
+  ]
+}

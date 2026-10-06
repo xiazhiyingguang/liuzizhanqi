@@ -31,7 +31,7 @@ export default function HeroSelect() {
     const playerLabel = isAiMode ? '你' : (viewPlayer === 'player1' ? '玩家一' : '玩家二');
 
     return (
-        <div className="w-full h-full flex flex-col items-center justify-start px-6 py-8 relative overflow-y-auto">
+        <div className="hero-select-page w-full h-full flex flex-col items-center justify-start px-6 py-8 relative overflow-y-auto">
             <SetupExitButton stage="点将" />
             {/* 背景水印 */}
             <span className="absolute font-title text-[16rem] text-ink/[0.02] select-none pointer-events-none"
@@ -62,7 +62,7 @@ export default function HeroSelect() {
                 </div>
 
                 {/* 英雄卡片网格 */}
-                <div className="grid grid-cols-3 gap-4 mb-6 sm:grid-cols-3 lg:grid-cols-3">
+                <div className="hero-select-grid grid grid-cols-3 gap-4 mb-6 sm:grid-cols-3 lg:grid-cols-3">
                     {AVAILABLE_HERO_IDS.map((heroId, index) => {
                         const isSelected = selectedIds.includes(heroId);
                         const info = getHeroInfo(heroId);
@@ -119,7 +119,6 @@ export default function HeroSelect() {
                                     <span className={`
                                         inline-block text-xs px-2 py-0.5 rounded-sm font-body mb-1.5
                                         ${info.class === '武曲' ? 'bg-vermillion/10 text-vermillion' :
-                                            info.class === '猎户' ? 'bg-jade/10 text-jade' :
                                             info.class === '霸魁' ? 'bg-indigo-ink/10 text-indigo-ink' :
                                             info.class === '素问' ? 'bg-jade/10 text-jade' :
                                             'bg-ink/5 text-ink-light'}
@@ -138,7 +137,10 @@ export default function HeroSelect() {
                 </div>
 
                 {/* 确认按钮 */}
-                <div className="text-center animate-fade-up" style={{ animationDelay: '500ms' }}>
+                <div className="setup-confirm text-center animate-fade-up" style={{ animationDelay: '500ms' }}>
+                    <span className="mobile-only setup-selected-summary">
+                        已选 {selectedIds.length}/6 · {selectedIds.map(id => getHeroInfo(id).name).join('、') || '请选择英雄'}
+                    </span>
                     <InkButton
                         data-testid="confirm-hero-selection"
                         variant="primary"

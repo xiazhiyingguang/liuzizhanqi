@@ -1,6 +1,7 @@
 import { nextBattleLogId } from '../core/battle-log-id';
 import { EffectManager } from '../core/effect-manager';
 import { MovementSystem } from '../core/movement-system';
+import { DamageCalculator } from '../core/damage-calculator';
 import {
     BoardEffect,
     GameState,
@@ -56,9 +57,20 @@ export const EXTENDED_HERO_IDS = [
     'jinghong',
     'jinghua',
     'huanongying',
+    'zhiguang',
+    'wangshu',
+    'zhiyuan',
+    'xihuan',
+    'duosui',
+    'jiangtaigong',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
+    wangshu: {
+        name: '望舒', class: '素问', maxHp: 50, moveRange: 2, baseAttack: 0,
+        skill1Id: 'wangshu_skill1', skill2Id: 'wangshu_skill2',
+        passiveId: 'wangshu_passive', tianweiId: 'wangshu_tianwei',
+    },
     skeletonking: {
         name: '骸骨君王·厄瑞波斯',
         class: '武曲',
@@ -201,7 +213,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
     },
     lilith: {
         name: '恐惧编织者·莉莉丝',
-        class: '猎户',
+        class: '化识',
         maxHp: 38,
         moveRange: 3,
         baseAttack: 0,
@@ -245,7 +257,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
     },
     fengling: {
         name: '风铃',
-        class: '猎户',
+        class: '武曲',
         maxHp: 45,
         moveRange: 2,
         baseAttack: 8,
@@ -289,7 +301,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
     },
     youjun: {
         name: '游隼',
-        class: '猎户',
+        class: '武曲',
         maxHp: 44,
         moveRange: 3,
         baseAttack: 0,
@@ -373,7 +385,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'jinghong_skill1',
         skill2Id: 'jinghong_skill2',
         passiveId: 'jinghong_passive',
-        // 天威暂未设计，留空
+        tianweiId: 'jinghong_tianwei',
     },
     jinghua: {
         name: '镜花·水月',
@@ -397,9 +409,64 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'huanongying_passive',
         tianweiId: 'huanongying_tianwei',
     },
+    zhiguang: {
+        name: '折光',
+        class: '化识',
+        maxHp: 42,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'zhiguang_skill1',
+        skill2Id: 'zhiguang_skill2',
+        passiveId: 'zhiguang_passive',
+        tianweiId: 'zhiguang_tianwei',
+    },
+    zhiyuan: {
+        name: '纸鸢',
+        class: '武曲',
+        maxHp: 45,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'zhiyuan_skill1',
+        skill2Id: 'zhiyuan_skill2',
+        passiveId: 'zhiyuan_passive',
+        tianweiId: 'zhiyuan_tianwei',
+    },
+    xihuan: {
+        name: '羲和',
+        class: '素问',
+        maxHp: 56,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'xihuan_skill1',
+        skill2Id: 'xihuan_skill2',
+        passiveId: 'xihuan_passive',
+    },
+    duosui: {
+        name: '夺岁',
+        class: '武曲',
+        maxHp: 45,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'duosui_skill1',
+        skill2Id: 'duosui_skill2',
+        passiveId: 'duosui_passive',
+        tianweiId: 'duosui_tianwei',
+    },
+    jiangtaigong: {
+        name: '姜太公',
+        class: '天师',
+        maxHp: 52,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'jiangtaigong_skill1',
+        skill2Id: 'jiangtaigong_skill2',
+        passiveId: 'jiangtaigong_passive',
+        tianweiId: 'jiangtaigong_tianwei',
+    },
 };
 
 export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; description: string }> = {
+    wangshu: { name: '望舒', class: '素问', description: '月相盈亏，朔望转化伤害与恢复。生命50，移动力2' },
     skeletonking: { name: '骸骨君王·厄瑞波斯', class: '武曲', description: '死亡计数、护盾与复活。生命48，移动力2' },
     jetzmi: { name: '亡灵城主·杰茨米', class: '武曲', description: '暂时死亡切换形态。生命45，移动力2' },
     pipa: { name: '五弦琵琶', class: '天师', description: '音符追击与和弦爆发。生命45，移动力3' },
@@ -413,28 +480,38 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     feynman: { name: '粒子加速者·费曼', class: '化识', description: '粒子标记与范围爆发。生命40，移动力2' },
     wangcai: { name: '旺财', class: '通灵', description: '财气积累并通灵财神。生命42，移动力2' },
     schrodinger: { name: '量子观测者·薛定谔', class: '化识', description: '概率坍缩与量子纠缠。生命43，移动力2' },
-    lilith: { name: '恐惧编织者·莉莉丝', class: '猎户', description: '恐惧控制与情绪能量。生命38，移动力3' },
+    lilith: { name: '恐惧编织者·莉莉丝', class: '化识', description: '恐惧控制与情绪能量。生命38，移动力3' },
     libai: { name: '李太白', class: '武曲', description: '醉意累积与脚印瞬移连击。生命40，移动力2' },
-    zuizhendao: { name: '醉枕刀', class: '武曲', description: '醉掷寒锋穿敌、醉影换位与醉意闪避反击。生命46，移动力2' },
-    feixue: { name: '绯雪', class: '武曲', description: '破冰爆发、寒天收割与击杀追猎。生命45，移动力2' },
-    fengling: { name: '风铃', class: '猎户', description: '强制锁敌、沙丘伏击与单体猎杀。生命45，移动力2' },
-    dilan: { name: '帝兰', class: '天师', description: '操纵顺逆风、击退与羽化移动伤害。生命48，移动力3' },
-    nanfeng: { name: '南风', class: '化识', description: '旋风吹散敌人、铺设风道让友方免费滑行并强化自身闪避。生命48，移动力3' },
-    shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、多段笔走龙蛇与墨意闪避。生命42，移动力3' },
-    youjun: { name: '游隼', class: '猎户', description: '路径冲刺、爆发伤害的猎手。借风道延展冲刺并沿直线穿透敌阵，在周身四格布下风刃陷阱，收回风刃可刷新疾掠再冲锋。生命44，移动力3' },
-    chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽控场与援护承伤。生命60，移动力2' },
-    dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯复活与状态还原、时空置换换位换血。生命45，移动力3' },
-    xubai: { name: '叙白', class: '素问', description: '单体净化治疗，黑白球在队友残血时自动回血，首次登场抚育周围友军。生命55，移动力2' },
-    lingxi: { name: '泠汐', class: '天师', description: '多段潮汐攻击：本回合命中留下延迟段，下一回合自动补击并叠加潮汐，攻防兼备。生命46，移动力2' },
-    xueqi: { name: '血契', class: '霸魁', description: '周身血誓横扫、以血还血，强锁敌人钉在身边替全队挨打。生命58，移动力2' },
-    yunying: { name: '云缨', class: '武曲', description: '攻击为敌人叠祥瑞，满3层引燃烈火燎原；范围星火按敌人已有祥瑞增伤，长驱一记为下一次攻击附加吸血；击杀触发天威·燎原百斩，沿同行/同列/同对角线斩到一处空格并在落点炸开火圈。生命45，移动力2' },
-    jinghong: { name: '惊鸿·止水', class: '武曲', description: '掠水一击后落到敌人身后并攒惊鸿；消耗全部惊鸿蓄力止水，下一回合放弃移动换来决渊外环爆发。满血时更锋利，残血时更硬。生命48，移动力2' },
-    jinghua: { name: '镜花·水月', class: '通灵', description: '与友方换位并在水月格留影，被换上的队友落地即得5点护盾，此后友方可反复踏月换影；每次交换为镜花叠一层镜影（攻防提升，上限5层）。必要时把镜影印给候补替身登场、自己退坐月座，有人踏月即归场、替身退回候补席。登场刹那天威照向最近的敌人。生命48，移动力3' },
-    huanongying: { name: '花弄影', class: '武曲', description: '身前扇形挥斩并把影子甩到命中处；身体可与影子互换，落地再斩一圈。她每次出手后，影子都会在行动末重演一遍这一击；击杀还会立刻追加一次重演。生命44，移动力2' },
+    zuizhendao: { name: '醉枕刀', class: '武曲', description: '醉掷寒锋、闪避反击。生命46，移动力2' },
+    feixue: { name: '绯雪', class: '武曲', description: '破冰爆发、寒天收割。生命45，移动力2' },
+    fengling: { name: '风铃', class: '武曲', description: '强制锁敌、沙丘伏击。生命45，移动力2' },
+    dilan: { name: '帝兰', class: '天师', description: '操纵风向、羽化击退。生命48，移动力3' },
+    nanfeng: { name: '南风', class: '化识', description: '铺风道、吹散敌人。生命48，移动力3' },
+    shangguan: { name: '上官婉儿', class: '化识', description: '毛笔落子、笔走龙蛇。生命42，移动力3' },
+    youjun: { name: '游隼', class: '武曲', description: '疾掠穿阵、风刃陷阱。生命44，移动力3' },
+    chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽承伤。生命60，移动力2' },
+    dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯、换位换血。生命45，移动力3' },
+    xubai: { name: '叙白', class: '素问', description: '净化回血、抚育友军。生命55，移动力2' },
+    lingxi: { name: '泠汐', class: '天师', description: '延迟潮汐、攻守兼备。生命46，移动力2' },
+    xueqi: { name: '血契', class: '霸魁', description: '血誓横扫、替队挨打。生命58，移动力2' },
+    yunying: { name: '云缨', class: '武曲', description: '叠祥瑞、引烈火燎原。生命45，移动力2' },
+    jinghong: { name: '惊鸿·止水', class: '武曲', description: '攒惊鸿、决渊爆发。生命48，移动力2' },
+    jinghua: { name: '镜花·水月', class: '通灵', description: '换位留影、踏月归场。生命48，移动力3' },
+    huanongying: { name: '花弄影', class: '武曲', description: '扇形挥斩、影子重演。生命44，移动力2' },
+    zhiguang: { name: '折光', class: '化识', description: '布光棱、八向折射。生命42，移动力3' },
+    zhiyuan: { name: '纸鸢', class: '武曲', description: '牵线轴、乘队友攻击追击、攒线换连击。生命45，移动力3' },
+    xihuan: { name: '羲和', class: '素问', description: '拉平一片友方的血量、把抽走的部分存成盈光再照回去。生命56，移动力3' },
+    duosui: { name: '夺岁', class: '武曲', description: '砍走当前生命、留下血偿；禁血封治疗。生命45，移动力2' },
+    jiangtaigong: { name: '姜太公', class: '天师', description: '下钩等人自己踩、把上钩的人丢到任意空格，一片5×5水泽养满家闪避。生命52，移动力2' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {
     switch (hero.passiveId) {
+        case 'wangshu_passive':
+            hero.counters['wangshu_moon_phase'] = 0;
+            hero.counters['朔'] = 0;
+            hero.counters['望'] = 0;
+            break;
         case 'jetzmi_passive':
             hero.counters['jetzmi_form'] = 0;
             hero.counters['jetzmi_vampire_rate'] = 0.5;
@@ -518,6 +595,16 @@ export function initializeExtendedHero(hero: Hero): void {
             hero.counters['__hny_last_attack'] = 0;  // 本动作最后一次攻击：1=花间辞 2=弄影（行动末重演后清零）
             hero.counters['__hny_last_dir'] = -1;    // 花间辞的挥斩方向（0上1下2左3右），重演沿用
             hero.counters['__hny_in_replay'] = 0;    // 1=重演结算中：重演击杀不再触发天威追加
+            break;
+        case 'zhiguang_passive':
+            hero.counters['zhiguang_prism_round'] = -1;  // 被动「拾光」最近一次撒棱的轮次
+            break;
+        case 'zhiyuan_passive':
+            hero.counters['__zhiyuan_attacks'] = 0;   // 出手次数：每满 3 次的下一击附带击飞
+            hero.counters['__zhiyuan_lead'] = 0;      // 1=天威引线已交出，等下一个出手的队友消费
+            break;
+        case 'xihuan_passive':
+            hero.counters['盈光'] = 0;   // 均光抽走的生命总量，只保留最大值（玩家可见资源）
             break;
     }
 }
@@ -667,7 +754,10 @@ export function clearBenchHeroHp(gameState: GameState, owner: Player, templateId
  * 羽化是目标身上的共享资源：帝兰与南风叠加同一份层数（上限3层），
  * 不按施加者分家——否则帝兰看不见南风种的层数，也就无法引爆。
  * 逐格固定伤害按当初种下羽化的英雄结算（sourceHeroId 只用于伤害归属）。
+ * 持续三回合，被帝兰或南风再次施加时刷新回三回合（层数照常叠加，不因刷新而清零）。
  */
+export const DILAN_FEATHER_DURATION = 3;
+
 export function getDilanFeatherStacks(target: Hero): number {
     return Math.min(3, target.effects.find(effect =>
         effect.name === '羽化'
@@ -678,16 +768,16 @@ export function addDilanFeather(target: Hero, source: Hero, amount = 1): number 
     const existing = target.effects.find(effect => effect.name === '羽化');
     if (existing) {
         existing.stackCount = Math.min(3, (existing.stackCount ?? 1) + amount);
-        existing.duration = -1;
+        existing.duration = DILAN_FEATHER_DURATION;
         return existing.stackCount;
     }
     EffectManager.addEffect(target, {
         type: 'debuff',
         name: '羽化',
-        duration: -1,
+        duration: DILAN_FEATHER_DURATION,
         stackCount: Math.min(3, amount),
         sourceHeroId: source.id,
-        description: `每次位移1格受到${source.counters['talent_3'] ? 2 : 1}点不可规避、无视护盾的固定伤害；3层时帝兰技能或击杀风暴会引爆`,
+        description: `持续3回合（被帝兰或南风再次施加会刷新）：每次位移1格受到${source.counters['talent_3'] ? 2 : 1}点不可规避、无视护盾的固定伤害；3层时帝兰技能或击杀风暴会引爆`,
     });
     return Math.min(3, amount);
 }
@@ -1034,7 +1124,9 @@ export function recenterXueqiBindingZones(gameState: GameState): boolean {
 export function syncPositionAnchoredEffects(gameState: GameState): boolean {
     const rebound = recenterXueqiBindingZones(gameState);
     const broken = checkAllYinyangLinks(gameState);
-    return rebound || broken;
+    // 镜的破镜之刃：敌人挪进镜域（走位、击退、传送都算）时补放留存的层数
+    const slashed = DamageCalculator.settleIdleMirrorBlades(gameState);
+    return rebound || broken || slashed;
 }
 
 export function currentTotalDead(gameState: GameState): number {
@@ -1051,10 +1143,12 @@ export function createTPaintingSummon(
     kind: 'jinwu' | 'xuangui',
     owner: Player,
     sourceHeroId: string,
-    position: Position
+    position: Position,
+    /** 致知2：召唤物生命 +4，由施法者那边传进来 */
+    bonusHp = 0
 ): Hero {
     const isJinwu = kind === 'jinwu';
-    const maxHp = isJinwu ? 12 : 18;
+    const maxHp = (isJinwu ? 12 : 18) + bonusHp;
     return {
         id: `t-summon|${kind}|${sourceHeroId}|${Date.now()}|${Math.random()}`,
         name: isJinwu ? '金乌' : '玄龟',
