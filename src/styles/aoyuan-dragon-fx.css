@@ -1,0 +1,713 @@
+/* ============================================================
+   敖渊·游龙专属特效（蓝白游龙，三个技能 + 常驻状态共用分段龙皮）
+   透明龙皮沿动态脊线弯曲，头部、长尾与须鬃使用错开的运动相位。
+   动画一律落在 transform / opacity / clip-path / stroke-dashoffset 上，
+   不逐帧改 filter、box-shadow（手机端这两类会逼主线程重绘）。
+   几何参数由 core/dragon-sweep-fx 算好后以 --ao-* 注入，这里只负责"照着我们画的格子动"。
+   ============================================================ */
+
+.skill-fx-kind-aoyuan-dragon-call,
+.skill-fx-kind-aoyuan-dragon-sweep,
+.skill-fx-kind-aoyuan-dragon-dash {
+    /* 一格在网格里的间距 = 格宽 + 6px 间隙；外圈巡行的半径正好是这一个数 */
+    --ao-pitch: calc(var(--board-cell-size, 76px) + 6px);
+    --ao-body: var(--fx-c1, #6483a3);
+    --ao-light: var(--fx-c2, #eaf2f4);
+    --ao-deep: #375774;
+    --ao-ink: rgba(43, 66, 94, 0.3);
+    --ao-glint: #fffdf2;
+    /* 龙皮约 1.6 格长，画框留足弯身、摆尾的空间。 */
+    --ao-dragon-w: calc(var(--ao-pitch) * 1.62);
+    --ao-dragon-h: calc(var(--ao-pitch) * 1.35);
+    /* 龙头在画框的 82%/28% 处：始终钉在战斗轨迹上。 */
+    --ao-head-x: -82%;
+    --ao-head-y: -28%;
+}
+
+/* 蓝白龙皮由 Canvas 分段变形；轨迹容器只移动龙首，不整体扭动贴图。 */
+.ao-dragon-art {
+    position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+    pointer-events: none; filter: drop-shadow(0 1px 1px #38557440);
+}
+.ao-swim { position: relative; display: block; width: 100%; height: 100%; }
+
+/* 盘云：龙过留雾。角度与延后量由 --ao-puff-* 决定，落位与配色由所在父层决定 */
+.ao-mist-puff {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 34%;
+    height: 22%;
+    margin: -11% 0 0 -17%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 253, 242, 0.75) 0 6%, var(--ao-light) 22%, transparent 74%);
+    opacity: 0;
+    transform: rotate(var(--ao-puff-angle, 0deg)) translateX(-72%) scale(0.4);
+    animation: ao-mist-drift 620ms ease-out var(--ao-puff-delay, 0ms) forwards;
+}
+
+@keyframes ao-mist-drift {
+    0%   { opacity: 0; transform: rotate(var(--ao-puff-angle, 0deg)) translateX(-72%) scale(0.4); }
+    26%  { opacity: 0.7; }
+    100% {
+        opacity: 0;
+        transform: rotate(calc(var(--ao-puff-angle, 0deg) - 18deg)) translateX(-150%) scale(1.35);
+    }
+}
+
+/* ============================================================
+   一、游龙扫击：龙首沿本体外的八格圈顺时针爬半圈
+   ============================================================ */
+.ao-sweep { position: absolute; inset: 0; }
+
+.ao-ring {
+    /* 盒子罩住 3×3：横向两个格距再加一格宽，越界部分由 clip-path 按盘边裁掉 */
+    --ao-ring-size: calc(var(--ao-pitch) * 2 + var(--board-cell-size, 76px));
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--ao-ring-size);
+    height: var(--ao-ring-size);
+    margin: calc(var(--ao-ring-size) / -2) 0 0 calc(var(--ao-ring-size) / -2);
+    clip-path: inset(
+        calc(var(--ao-pitch) * var(--ao-clip-t, 0))
+        calc(var(--ao-pitch) * var(--ao-clip-r, 0))
+        calc(var(--ao-pitch) * var(--ao-clip-b, 0))
+        calc(var(--ao-pitch) * var(--ao-clip-l, 0))
+    );
+    pointer-events: none;
+}
+
+/* 拖痕：直径 = 两个半径，圆心压在本体格心上，所以 r=50 的圆正好穿过外圈八格的格心 */
+.ao-trace,
+.ao-orbit {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(var(--ao-pitch) * 2);
+    height: calc(var(--ao-pitch) * 2);
+    margin: calc(var(--ao-pitch) * -1) 0 0 calc(var(--ao-pitch) * -1);
+}
+
+.ao-trace {
+    overflow: visible;
+    opacity: .42;
+    animation: ao-trace-fade 420ms ease-out calc(var(--ao-lead-ms,120ms) + var(--ao-spin-ms,650ms)) forwards;
+    /* SVG 的 0 点在 3 点方向，先转 -90° 抬到 12 点，再按这一拍的起点方位摆正 */
+    transform: rotate(calc(-90deg + var(--ao-start, 0deg)));
+}
+
+.ao-trace circle {
+    fill: none;
+    stroke-linecap: round;
+    /* 亮弧从起点格开始一节节"长"出来：动的是 dash 本身的长度。
+       若改成动 dashoffset，中途那段弧会以起点为中心向两侧对称展开，
+       看着就像龙还没出发、整条路先亮了一半。 */
+    stroke-dasharray: 0 100;
+    animation: ao-trace-grow var(--ao-spin-ms, 650ms) linear var(--ao-lead-ms, 120ms) forwards;
+}
+
+.ao-trace-deep  { stroke: var(--ao-ink); stroke-width: 1.4; }
+.ao-trace-water { stroke: var(--ao-body); stroke-width: .7; opacity: 0.8; }
+.ao-trace-foam  { stroke: var(--ao-light); stroke-width: .35; opacity: 0.95; }
+
+@keyframes ao-trace-grow {
+    from { stroke-dasharray: 0 100; }
+    to   { stroke-dasharray: var(--ao-arc-dash, 50) var(--ao-arc-gap, 50); }
+}
+
+@keyframes ao-trace-fade { to { opacity: 0; } }
+
+/* 巡行组：从起点方位转到起点+这一拍的角度 */
+.ao-orbit {
+    transform-origin: 50% 50%;
+    transform: rotate(var(--ao-start, 0deg));
+    animation:
+        ao-orbit-crawl var(--ao-spin-ms, 650ms) linear var(--ao-lead-ms, 120ms) forwards,
+        ao-dragon-vanish 300ms ease-in calc(var(--ao-spin-ms, 650ms) + var(--ao-lead-ms, 120ms)) forwards;
+}
+
+@keyframes ao-orbit-crawl {
+    from { transform: rotate(var(--ao-start, 0deg)); }
+    to   { transform: rotate(calc(var(--ao-start, 0deg) + var(--ao-sweep, 180deg))); }
+}
+
+.ao-dragon {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: var(--ao-dragon-w);
+    height: var(--ao-dragon-h);
+    transform-origin: 82% 28%;
+    opacity: 0;
+    /* 龙头钉在格心上：龙身因此顺着外圈往身后拖，而不是整块图案横压过去 */
+    transform: translate(var(--ao-head-x, -82%), var(--ao-head-y, -28%));
+    animation: ao-dragon-arrive 260ms ease-out var(--ao-lead-ms, 120ms) forwards;
+}
+
+.ao-dragon-sweep {
+    --ao-dragon-w: calc(var(--ao-pitch) * 1.3);
+    --ao-dragon-h: calc(var(--ao-pitch) * 1.083333);
+    animation: ao-sweep-emerge var(--ao-lead-ms,140ms) ease-out both;
+}
+
+@keyframes ao-sweep-emerge {
+    from { opacity: 0; transform: translate(var(--ao-head-x,-82%), calc(var(--ao-head-y,-28%) + var(--ao-pitch))) scale(.9); }
+    to { opacity: 1; transform: translate(var(--ao-head-x,-82%), var(--ao-head-y,-28%)); }
+}
+
+.ao-dragon-performing .sfx-dragon { visibility: hidden; }
+.ao-dash-arrival-hidden { visibility: hidden; }
+
+@keyframes ao-dragon-arrive {
+    0%   { opacity: 0; transform: translate(var(--ao-head-x, -82%), var(--ao-head-y, -28%)) scale(0.82); }
+    40%  { opacity: 1; }
+    100% { opacity: 1; transform: translate(var(--ao-head-x, -82%), var(--ao-head-y, -28%)) scale(1); }
+}
+
+@keyframes ao-dragon-vanish {
+    to { opacity: 0; }
+}
+
+/* 收势：扫完之后一圈水光从外圈荡开，标出"这一圈都过了" */
+.ao-ring-bloom {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(var(--ao-pitch) * 2);
+    height: calc(var(--ao-pitch) * 2);
+    margin: calc(var(--ao-pitch) * -1) 0 0 calc(var(--ao-pitch) * -1);
+    border-radius: 50%;
+    border: 2px solid var(--ao-light);
+    opacity: 0;
+    transform: scale(0.92);
+    animation: ao-ring-bloom 420ms ease-out calc(var(--ao-spin-ms, 650ms) + var(--ao-lead-ms, 120ms) - 60ms) forwards;
+}
+
+@keyframes ao-ring-bloom {
+    0%   { opacity: 0; transform: scale(0.9); }
+    28%  { opacity: 0.55; }
+    100% { opacity: 0; transform: scale(1.24); }
+}
+
+/* —— 被扫到的一格：三道爪痕 + 水气迸开，全部等龙首爬到才起 —— */
+.ao-swept { position: absolute; inset: 0; }
+
+.ao-swept-mark {
+    position: absolute;
+    left: 4%;
+    top: 50%;
+    width: 92%;
+    height: 5px;
+    margin-top: -2.5px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(255, 253, 242, 0) 0%, var(--ao-light) 22%, var(--ao-glint) 58%, rgba(255, 253, 242, 0) 96%);
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    animation: ao-swept-slash 320ms cubic-bezier(0.16, 0.86, 0.32, 1) var(--fx-hit-ms, 0ms) forwards;
+}
+.ao-swept-mark-1 { transform: rotate(-28deg) translateY(-30%); }
+.ao-swept-mark-2 { transform: rotate(-5deg); animation-delay: calc(var(--fx-hit-ms, 0ms) + 45ms); }
+.ao-swept-mark-3 { transform: rotate(19deg) translateY(28%); animation-delay: calc(var(--fx-hit-ms, 0ms) + 90ms); }
+
+@keyframes ao-swept-slash {
+    0%   { opacity: 0; clip-path: inset(0 100% 0 0); }
+    22%  { opacity: 1; }
+    64%  { opacity: 0.9; clip-path: inset(0 0 0 0); }
+    100% { opacity: 0; clip-path: inset(0 0 0 42%); }
+}
+
+.ao-swept-spray {
+    position: absolute;
+    inset: 24%;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--ao-glint) 0 8%, var(--ao-light) 26%, transparent 72%);
+    opacity: 0;
+    transform: scale(0.36);
+    animation: ao-spray-out 520ms ease-out var(--fx-hit-ms, 0ms) forwards;
+}
+
+@keyframes ao-spray-out {
+    0%   { opacity: 0; transform: scale(0.36); }
+    24%  { opacity: 0.85; }
+    100% { opacity: 0; transform: scale(1.5); }
+}
+
+/* 通用零件在本格也要跟着龙首的节奏，否则"人还没到就先炸" */
+.ao-swept .fxp-hitflash,
+.ao-dash-cell .fxp-hitflash,
+.ao-dash-land .fxp-hitflash {
+    animation-delay: var(--fx-hit-ms, 0ms);
+}
+.ao-swept .fxp-hitflash::before,
+.ao-swept .fxp-hitflash::after,
+.ao-dash-cell .fxp-hitflash::before,
+.ao-dash-cell .fxp-hitflash::after {
+    animation-delay: calc(var(--fx-hit-ms, 0ms) + 60ms);
+}
+.ao-swept .fxp-spark,
+.ao-dash-cell .fxp-spark,
+.ao-dash-land .fxp-spark {
+    animation-delay: calc(var(--fx-hit-ms, 0ms) + 70ms);
+}
+.ao-dash-land .fxp-shard {
+    animation-delay: calc(var(--fx-hit-ms, 0ms) + 40ms);
+}
+
+/* ============================================================
+   二、唤龙·盘云：龙自盘中探起，翻身把十字气浪一拍扫开
+   ============================================================ */
+.ao-call-from { position: absolute; inset: 0; }
+
+/* 起手：云气在敖渊脚下向中心收拢 */
+.ao-call-gather {
+    position: absolute;
+    inset: 18%;
+    border-radius: 50%;
+    border: 2px dashed rgba(198, 221, 239, 0.75);
+    opacity: 0;
+    transform: scale(1.5) rotate(-40deg);
+    animation: ao-call-gather 620ms cubic-bezier(0.3, 0.7, 0.2, 1) forwards;
+}
+.ao-call-gather-b {
+    inset: 30%;
+    border-style: solid;
+    border-color: rgba(255, 253, 242, 0.55);
+    animation-duration: 520ms;
+    animation-delay: 90ms;
+}
+
+@keyframes ao-call-gather {
+    0%   { opacity: 0; transform: scale(1.6) rotate(-60deg); }
+    30%  { opacity: 0.85; }
+    100% { opacity: 0; transform: scale(0.5) rotate(30deg); }
+}
+
+/* 一缕龙气顺着"他→召唤格"飘过去，让两次施法读得出是同一条龙挪了位置 */
+.ao-call-stream {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(max(var(--fx-dist, 1), 1) * (var(--board-cell-size, 76px) + 6px));
+    height: 5px;
+    margin-top: -2.5px;
+    transform: rotate(var(--fx-rot, 0deg));
+    transform-origin: 0 50%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--ao-light) 0%, var(--ao-glint) 46%, rgba(255, 253, 242, 0) 96%);
+    filter: blur(0.5px);
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    animation: ao-call-stream 420ms cubic-bezier(0.2, 0.7, 0.3, 1) 60ms forwards;
+}
+
+@keyframes ao-call-stream {
+    0%   { opacity: 0; clip-path: inset(0 100% 0 0); }
+    26%  { opacity: 0.9; }
+    70%  { opacity: 0.75; clip-path: inset(0 0 0 24%); }
+    100% { opacity: 0; clip-path: inset(0 0 0 92%); }
+}
+
+.ao-call { position: absolute; inset: 0; }
+
+/* 十字气浪：四条手臂沿盘边裁切，一圈转着扫开 */
+.ao-call-cross {
+    position: absolute;
+    inset: 0;
+    clip-path: inset(
+        calc(var(--ao-pitch) * var(--ao-clip-t, 0))
+        calc(var(--ao-pitch) * var(--ao-clip-r, 0))
+        calc(var(--ao-pitch) * var(--ao-clip-b, 0))
+        calc(var(--ao-pitch) * var(--ao-clip-l, 0))
+    );
+}
+
+.ao-call-arm {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--ao-pitch);
+    height: 8px;
+    margin-top: -4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--ao-glint) 0%, var(--ao-light) 34%, rgba(31, 127, 109, 0) 96%);
+    opacity: 0;
+    transform: rotate(calc(var(--ao-arm, 0deg) - 90deg)) scaleX(0.2);
+    transform-origin: 0 50%;
+    /* 起播时刻由派发层按"龙首爬到环上第几格"算好递进来（上0/右2/下4/左6），
+       写死 nth-child 会和 TS 那边的节拍岔开，手臂就会跑在龙前面 */
+    animation: ao-call-arm 520ms cubic-bezier(0.16, 0.86, 0.32, 1) var(--ao-arm-delay, 320ms) forwards;
+}
+
+@keyframes ao-call-arm {
+    0%   { opacity: 0; transform: rotate(calc(var(--ao-arm, 0deg) - 90deg)) scaleX(0.2); }
+    26%  { opacity: 0.9; }
+    66%  { opacity: 0.7; transform: rotate(calc(var(--ao-arm, 0deg) - 90deg)) scaleX(1); }
+    100% { opacity: 0; transform: rotate(calc(var(--ao-arm, 0deg) - 90deg)) scaleX(1.08); }
+}
+
+/* 云盘：龙立起来的那一下，脚下先炸开一圈水雾 */
+.ao-call-cloud {
+    position: absolute;
+    inset: 12%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 253, 242, 0.8) 0 10%, var(--ao-light) 30%, transparent 74%);
+    opacity: 0;
+    transform: scale(0.4);
+    animation: ao-call-cloud 760ms ease-out 40ms forwards;
+}
+.ao-call-cloud-b {
+    inset: 26%;
+    background: radial-gradient(circle, var(--ao-glint) 0 12%, var(--ao-body) 40%, transparent 76%);
+    animation-duration: 620ms;
+    animation-delay: 140ms;
+}
+
+@keyframes ao-call-cloud {
+    0%   { opacity: 0; transform: scale(0.4) translateY(10%); }
+    30%  { opacity: 0.8; }
+    100% { opacity: 0; transform: scale(1.5) translateY(-6%); }
+}
+
+.ao-call-bloom {
+    position: absolute;
+    inset: 4%;
+    border-radius: 50%;
+    border: 2px solid var(--ao-light);
+    opacity: 0;
+    transform: scale(0.7);
+    animation: ao-call-bloom 560ms ease-out 220ms forwards;
+}
+
+@keyframes ao-call-bloom {
+    0%   { opacity: 0; transform: scale(0.7); }
+    26%  { opacity: 0.6; }
+    100% { opacity: 0; transform: scale(1.22); }
+}
+
+.ao-call > .ao-mist-puff {
+    /* 盘在召唤格四周的雾，比龙身上的更大更慢 */
+    width: 52%;
+    height: 34%;
+    margin: -17% 0 0 -26%;
+    animation-duration: 780ms;
+}
+
+/* ============================================================
+   三、乘龙·破浪：龙身沿冲刺轴拉直，一路顶到落点
+   ============================================================ */
+.ao-dash { position: absolute; inset: 0; }
+
+/* 冲刺轴：整组按攻击角转一次，长度就是"离落点几格"，轨与龙都只沿 x 走 */
+.ao-dash-track {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(max(var(--fx-dist, 1), 1) * (var(--board-cell-size, 76px) + 6px));
+    height: 0;
+    transform: rotate(var(--fx-rot, 0deg));
+    transform-origin: 0 50%;
+}
+
+.ao-dash-rail {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 5px;
+    margin-top: -2.5px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        var(--ao-body) 0%,
+        var(--ao-light) 38%,
+        var(--ao-glint) 62%,
+        rgba(255, 253, 242, 0) 96%);
+    filter: blur(0.5px);
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    animation: ao-dash-rail 620ms cubic-bezier(0.16, 0.86, 0.32, 1) 40ms forwards;
+}
+
+/* 副轨更细更亮、慢一拍补描：光迹因此多滞留一瞬 */
+.ao-dash-rail-b {
+    height: 3px;
+    margin-top: -1.5px;
+    background: linear-gradient(90deg, var(--ao-light) 0%, var(--ao-glint) 52%, rgba(255, 253, 242, 0) 96%);
+    animation-duration: 740ms;
+    animation-delay: 150ms;
+}
+
+@keyframes ao-dash-rail {
+    0%   { opacity: 0; clip-path: inset(0 100% 0 0); }
+    22%  { opacity: 1; clip-path: inset(0 22% 0 0); }
+    58%  { opacity: 0.92; clip-path: inset(0 0 0 0); }
+    100% { opacity: 0; clip-path: inset(0 0 0 58%); }
+}
+
+/* 龙沿轴跑：位移按"格数 × 格距"算，与落点爆点共用 dragonDashHitMs 那一拍 */
+.ao-dash-ride {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: var(--ao-dragon-w);
+    height: var(--ao-dragon-h);
+    transform-origin: 82% 28%;
+    /* 负 margin 用绝对长度：百分比 margin 会按"轨道宽度"算，龙头就不在轴上了 */
+    margin-top: calc(var(--ao-dragon-h) * -0.28);
+    margin-left: calc(var(--ao-dragon-w) * -0.82);
+    opacity: 0;
+    animation: ao-dash-ride var(--ao-dash-ms, 600ms) linear var(--ao-dash-launch,100ms) both;
+}
+
+.ao-dash-companion {
+    position: absolute; left: 0; top: 0;
+    transform: translate(-50%, -50%) rotate(calc(0deg - var(--fx-rot,0deg)));
+    font-style: normal;
+    animation: ao-dash-companion var(--ao-dash-ms,600ms) linear var(--ao-dash-launch,100ms) both;
+    z-index: 2;
+}
+@keyframes ao-dash-companion {
+    0% { transform: translate(-50%, -50%) rotate(calc(0deg - var(--fx-rot,0deg))); opacity: 1; }
+    99.9% { opacity: 1; }
+    100% {
+        transform: translate(calc(var(--fx-dist,1) * (var(--board-cell-size,76px) + 6px) - 50%), -50%) rotate(calc(0deg - var(--fx-rot,0deg)));
+        opacity: 0;
+    }
+}
+
+@keyframes ao-dash-ride {
+    0%   { opacity: 0; transform: translateX(0) scaleX(0.86); }
+    18%  { opacity: 1; }
+    84%  { opacity: 1; }
+    100% {
+        opacity: 0;
+        transform: translateX(calc(var(--fx-dist, 1) * (var(--board-cell-size, 76px) + 6px))) scaleX(1.1);
+    }
+}
+
+.ao-dash .ao-mist-puff {
+    width: 46%;
+    height: 30%;
+    margin: -15% 0 0 -23%;
+}
+
+/* —— 落点：龙尾一甩带起水柱与双环 —— */
+.ao-dash-land { position: absolute; inset: 0; }
+
+.ao-dash-column {
+    position: absolute;
+    left: 50%;
+    bottom: 18%;
+    width: 16%;
+    height: 74%;
+    margin-left: -8%;
+    border-radius: 46% 46% 22% 22%;
+    background: linear-gradient(180deg, rgba(255, 253, 242, 0.92) 0%, var(--ao-light) 42%, rgba(31, 127, 109, 0) 100%);
+    opacity: 0;
+    transform: scaleY(0.2);
+    transform-origin: 50% 100%;
+    animation: ao-dash-column 620ms ease-out var(--fx-hit-ms, 0ms) forwards;
+}
+
+@keyframes ao-dash-column {
+    0%   { opacity: 0; transform: scaleY(0.2) scaleX(0.8); }
+    26%  { opacity: 0.9; transform: scaleY(1) scaleX(1); }
+    100% { opacity: 0; transform: scaleY(1.24) scaleX(0.62); }
+}
+
+.ao-dash-land .fxp-ring {
+    animation-delay: calc(var(--fx-hit-ms, 0ms) + 40ms);
+}
+/* 第二圈慢一拍、压成档案色：两圈错开才读得出是"水柱起来后又荡了一下" */
+.ao-dash-land .fxp-ring.ao-dash-ring-b {
+    animation-delay: calc(var(--fx-hit-ms, 0ms) + 160ms);
+    animation-duration: 640ms;
+    border-color: var(--ao-light);
+}
+
+/* —— 穿过的一格：顺攻击轴的一道贯斩 + 两侧飞沫 —— */
+.ao-dash-cell { position: absolute; inset: 0; }
+
+.ao-dash-slash {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 108%;
+    height: 5px;
+    margin: -2.5px 0 0 -54%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(255, 253, 242, 0) 0%, var(--ao-glint) 40%, var(--ao-light) 62%, rgba(255, 253, 242, 0) 96%);
+    opacity: 0;
+    transform: rotate(var(--fx-rot, 0deg)) scaleX(0.2);
+    animation: ao-dash-slash 360ms cubic-bezier(0.16, 0.86, 0.32, 1) var(--fx-hit-ms, 0ms) forwards;
+}
+
+@keyframes ao-dash-slash {
+    0%   { opacity: 0; transform: rotate(var(--fx-rot, 0deg)) scaleX(0.2); }
+    26%  { opacity: 1; }
+    70%  { opacity: 0.85; transform: rotate(var(--fx-rot, 0deg)) scaleX(1); }
+    100% { opacity: 0; transform: rotate(var(--fx-rot, 0deg)) scaleX(1.04); }
+}
+
+.ao-dash-splash {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 26%;
+    height: 44%;
+    margin: -22% 0 0 -13%;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--ao-glint) 0 14%, var(--ao-light) 40%, transparent 76%);
+    opacity: 0;
+}
+.ao-dash-splash-a { animation: ao-dash-splash 520ms ease-out calc(var(--fx-hit-ms, 0ms) + 40ms) forwards; }
+.ao-dash-splash-b { animation: ao-dash-splash 520ms ease-out calc(var(--fx-hit-ms, 0ms) + 120ms) forwards; }
+
+@keyframes ao-dash-splash {
+    0%   { opacity: 0; transform: translateX(-34%) scale(0.4); }
+    30%  { opacity: 0.7; }
+    100% { opacity: 0; transform: translateX(34%) scale(1.2); }
+}
+
+/* ============================================================
+   四、扫过却没站到人的空格：只留一撮水雾
+   ============================================================ */
+.ao-mist-tile { position: absolute; inset: 0; }
+
+.ao-mist-tile-puff {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 58%;
+    height: 40%;
+    margin: -20% 0 0 -29%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 253, 242, 0.5) 0 12%, var(--ao-light) 34%, transparent 76%);
+    opacity: 0;
+    animation: ao-mist-tile 620ms ease-out var(--fx-cell-delay, 0ms) forwards;
+}
+.ao-mist-tile-puff-b {
+    width: 40%;
+    height: 28%;
+    margin: -14% 0 0 -20%;
+    animation-delay: calc(var(--fx-cell-delay, 0ms) + 120ms);
+}
+
+@keyframes ao-mist-tile {
+    0%   { opacity: 0; transform: scale(0.4); }
+    32%  { opacity: 0.42; }
+    100% { opacity: 0; transform: scale(1.3) translateY(-8%); }
+}
+
+/* ============================================================
+   五、常驻龙影（HeroStatusFx 用同一张龙，配色与扫击一致）
+   ============================================================ */
+/* 常驻层的水纹沿用蓝白调色板，龙身本色由独立龙皮提供 */
+.sfx-dragon {
+    --ao-body: #6f91af;
+    --ao-light: #eaf2f4;
+    --ao-deep: #375774;
+    --ao-ink: rgba(5, 30, 33, 0.5);
+    --ao-glint: #fffdf2;
+}
+
+.sfx-dragon .ao-coil {
+    /* 绕身一圈：半径压到棋子外沿一点，别常年压在邻格棋子上 */
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 108%;
+    height: 108%;
+    margin: -54% 0 0 -54%;
+    transform-origin: 50% 50%;
+    /* 方位序号单调递增，所以这段补间只会顺时针转，不会倒着绕回去 */
+    transform: rotate(var(--ao-start, 0deg));
+    transition: transform 640ms cubic-bezier(0.22, 0.58, 0.28, 1);
+    pointer-events: none;
+}
+
+.sfx-dragon .ao-coil-dragon {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 96%;
+    height: 80%;
+    transform: translate(-82%, -28%);
+    opacity: 0.92;
+    animation: sfx-ao-coil-breathe 2.2s ease-in-out infinite alternate;
+}
+
+.sfx-dragon .ao-coil-dragon .ao-dragon-art {
+    filter: drop-shadow(0 1px 1px #38557440);
+}
+
+@keyframes sfx-ao-coil-breathe {
+    from { opacity: .82; }
+    to   { opacity: .98; }
+}
+
+/* ============================================================
+   六、降级与无障碍：流畅档砍散件，只留龙身轮廓；减弱动态则定格在关键帧
+   ============================================================ */
+.fx-lite .ao-mist-puff,
+.fx-lite .ao-swept-spray,
+.fx-lite .ao-dash-splash,
+.fx-lite .ao-mist-tile-puff-b,
+.fx-lite .ao-swept-mark-3,
+.fx-lite .ao-call-arm:nth-child(4) {
+    display: none;
+}
+
+/* 流畅档撤去小投影，龙身仍按较低分段数游动 */
+[data-quality='low'] .sfx-dragon .ao-coil-dragon .ao-dragon-art {
+    filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ao-trace { animation: none; }
+    /* 散件与常驻循环一律停掉：减弱动态的人要的是"看得懂这一格发生了什么"，不是动效 */
+    .ao-swim,
+    .ao-ring-bloom,
+    .ao-mist-puff,
+    .ao-call-gather,
+    .ao-call-cloud,
+    .ao-call-bloom,
+    .ao-mist-tile-puff,
+    .ao-dash-column,
+    .ao-dash-splash,
+    .sfx-dragon .ao-coil-dragon {
+        animation: none;
+    }
+
+    /* 定格也要让人看清"这一拍龙扫过了哪几格"：拖痕直接摊满整段、龙停在终点格 */
+    .ao-trace circle {
+        stroke-dasharray: var(--ao-arc-dash, 50) var(--ao-arc-gap, 50);
+        animation: none;
+    }
+    .ao-dragon,
+    .ao-dash-ride {
+        opacity: 1;
+        animation: none;
+    }
+    .ao-orbit {
+        animation: none;
+        transform: rotate(calc(var(--ao-start, 0deg) + var(--ao-sweep, 180deg)));
+    }
+    .ao-dash-ride {
+        transform: translateX(calc(var(--fx-dist, 1) * (var(--board-cell-size, 76px) + 6px)));
+    }
+    .ao-dash-companion { animation: none; opacity: 0; }
+    .ao-dash-arrival-hidden { visibility: visible; }
+    .ao-swept-mark,
+    .ao-swept-spray,
+    .ao-dash-slash,
+    .ao-dash-rail,
+    .ao-call-stream {
+        animation: none;
+        opacity: 0.9;
+        clip-path: none;
+    }
+    .sfx-dragon .ao-coil {
+        transition: none;
+    }
+}

@@ -106,7 +106,7 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     jinwu_skill: 'fire',         // 金乌攻击
     xuangui_skill: 'impact',     // 玄龟承伤
 
-    // ===== 费曼：粒子标记与范围爆发 =====
+    // ===== 逐光：粒子标记与范围爆发 =====
     feynman_skill1: 'thunder',
     feynman_skill2: 'explosion',
 
@@ -192,6 +192,16 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     xihuan_passive: 'heal',           // 回晖：回合末一颗暖光
 
     // ===== 姜太公：垂钩、拖拽、抛掷、鲸落（水音为主，不用刀剑声凑）=====
+    daizong_skill1: 'buff',            // 镇岳守势：往地上一顿，盾墙立起来
+    daizong_skill2: 'impact',          // 岳倾：攒下的账一次性砸下去
+    aoyuan_skill1: 'summon',          // 唤龙·盘云：龙影自水里立起来
+    aoyuan_skill2: 'dash',             // 乘龙·破浪：一头扎开的水声
+    aoyuan_orbit: 'slash',             // 游龙扫过：半圈龙脊擦着人过去
+    yunxiu_skill1: 'thunder',         // 布云·垂雷：金色闪电接触目标时响雷
+    yunxiu_skill2: 'metal',           // 引雷·落针：针钉进人身上的那一声脆响
+    yunxiu_cloud: 'thunder',          // 云中落雷：每回合挪完格子劈下来的那道雷
+    tingyuan_skill1: 'thunder',        // 引雷：一道随机落雷劈下
+    tingyuan_skill2: 'thunder',        // 万雷朝宗：全场带印者同时被点
     jiangtaigong_skill1: 'water',       // 钓雪：线垂进水里的一声轻响
     jiangtaigong_skill2: 'water',       // 渭水垂竿：拖人过水的闷响
     jiangtaigong_hook: 'impact',        // 上钩：钩尖咬住的那一下
@@ -219,6 +229,10 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     // ===== 游隼：疾掠冲锋与四向风刃 =====
     youjun_skill1: 'dash',
     youjun_skill2: 'snow',
+
+    // ===== 轩辕神君：御剑贯阵与飞剑归元 =====
+    xuanyuan_skill1: 'dash',          // 御剑·贯阵：鎏金跃斩
+    xuanyuan_skill2: 'metal',         // 御剑·归元：剑鸣归鞘
 
     // ===== 叙白：净化治疗与黑白凝珠 =====
     xubai_skill1: 'heal',

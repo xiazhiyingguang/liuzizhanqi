@@ -10,6 +10,10 @@ import { filterPositionsByRage, getRageBinder, rageBlocksCast } from './taunt';
 import { getJinghongOuterRing, isJinghongCharging, isJinghongReleaseWindow, isLingxiEchoPending, findHnyShadow, getHnyFanPositions } from '../data/extended-heroes';
 import { getWangshuAllies } from './wangshu';
 import { jiangtaigongDragCells } from './water-marsh';
+import { dragonDashDistance, dragonSummonCells } from './dragon-orbit';
+import { cloudAnchorCells } from './thunder-cloud';
+import { isZhaoShen, getXuanyuanMovePlans, XUANYUAN_SKILL1_ID } from './xuanyuan-form';
+import { getXuanyuanLeapCells } from './flying-sword';
 
 /**
  * 技能系统
@@ -86,6 +90,37 @@ export class SkillSystem {
             if (!gameState) return cells;
             const allies = getWangshuAllies(caster, gameState);
             return cells.filter(([r, c]) => allies.some(ally => ally.position?.[0] === r && ally.position?.[1] === c));
+        }
+
+        // 敖渊「唤龙·盘云」：游龙只能落在自身周围一格（八方向）的空格上，
+        // 通用 single 口径是曼哈顿距离≤1（只有十字四格），会把四个斜角漏掉。
+        if (skill.id === 'aoyuan_skill1' && gameState) {
+            return dragonSummonCells(gameState as GameState, caster);
+        }
+
+        // 云岫「布云·垂雷」：只能挑自身上下左右各 1~2 格那八格当云心。
+        // 通用 cross 口径只给紧邻四格，会把"隔一格布云"这一档整个抹掉。
+        if (skill.id === 'yunxiu_skill1') {
+            return cloudAnchorCells(caster);
+        }
+
+        // 敖渊「乘龙·破浪」：四方向冲刺落点（天威后每层 +1 格），穿人不减速但落点须为空
+        if (skill.id === 'aoyuan_skill2' && gameState) {
+            const positions: Position[] = [];
+            for (const dir of ['up', 'down', 'left', 'right'] as const) {
+                positions.push(...MovementSystem.getLinePositions(caster.position, dir, dragonDashDistance(caster)).filter(
+                    ([row, col]) => (gameState as GameState).board[row][col] === null
+                ));
+            }
+            return positions;
+        }
+
+        // 轩辕神君技能一「御剑·贯阵」：普通态高亮象走田的空落点；
+        // 昭神后只能跳到站着自己飞剑的格（G 型外圈），落地即抽走那把剑
+        if (skill.id === XUANYUAN_SKILL1_ID && gameState) {
+            return isZhaoShen(caster)
+                ? getXuanyuanLeapCells(caster, gameState as GameState)
+                : getXuanyuanMovePlans(caster, gameState as GameState).map(plan => plan.to);
         }
 
         // 游隼疾掠：四方向冲刺落点；起点处于同轴友方风道时该方向可冲刺整行/整列。
@@ -312,7 +347,7 @@ export class SkillSystem {
                         finalTargetPositions = [center, ...MovementSystem.getAreaPositions(center, 3)];
                     } else {
                         finalTargetPositions = MovementSystem.getLinePositions(caster.position, direction, SkillSystem.rangeFor(skill, caster));
-                        // 费曼致知3：扩范围所需能量 3 → 2
+                        // 逐光致知3：扩范围所需能量 3 → 2
                         const feynmanEnergyNeeded = zhizhiValue(caster, 3, 3, 2);
                         if (skill.id === 'feynman_skill1' && (caster.counters['能量'] ?? 0) >= feynmanEnergyNeeded) {
                             caster.counters['能量'] -= feynmanEnergyNeeded;

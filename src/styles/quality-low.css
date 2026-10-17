@@ -98,3 +98,17 @@
 [data-quality="low"] .fx-lite .fx-theme-chip {
     display: none;
 }
+
+/*
+ * 常驻场地物：雷云与引雷针是"整局都挂在盘上"的动画，不随施法结束回收，
+ * 所以流畅档只留静态雾底与针形，撤掉翻涌与明灭——玩家仍要能看出"这格被云压着"。
+ */
+[data-quality="low"] .bf-cloud-mass,
+[data-quality="low"] .bf-cloud-core::after,
+[data-quality="low"] .bf-rod::after {
+    animation: none;
+}
+[data-quality="low"] .bf-cloud-mass-b,
+[data-quality="low"] .bf-rod::after {
+    display: none;
+}

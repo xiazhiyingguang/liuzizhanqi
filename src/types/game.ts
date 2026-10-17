@@ -192,6 +192,19 @@ export interface DamageResult {
     killed: boolean;           // 是否击杀
     /** 不可规避的固定伤害：直接扣除生命，无视护盾、闪避、免伤替代与伤害转移。 */
     unavoidable?: boolean;
+    /**
+     * 本次结算的原始伤害（未经任何减免）。
+     * 岱宗「镇守」要把同一击改成"由他承受"，必须从这一份重算，
+     * 而不是在"已经被被保护者减免过的余数"上再砍一轮。
+     */
+    baseDamage?: number;
+    /** 这一击是否无视防御：换目标重算时得保持同一口径 */
+    ignoresDefense?: boolean;
+    /**
+     * 岱宗「山岳承转」在这一击里硬挡下来的份额（同时也是记进「岳势」的量）。
+     * 岳势要的是挡下的伤害，不是他身上掉的那份，所以得在结算当场单独记一笔。
+     */
+    mountainBlocked?: number;
     /** 伤害来源标签（burn/bleed/chain…）：随战报日志 details.fxTag 透传给特效层。 */
     logTag?: string;
 }
@@ -239,7 +252,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook' | 'thunder-cloud' | 'lightning-rod' | 'flying-sword';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -369,6 +382,7 @@ export interface GameState {
     // splashPositions=溅射余波格；chainLinks=链式闪电传播格（按传播顺序）；
     // fxVariant=条件形态的特效档案键（如绯雪击碎冰冻的 feixue_shatter），覆盖默认档案
     skillFxExtras?: {
+        dragonAction?: { kind: 'summon'; sourceHeroId: string };
         coveredPositions?: Position[];
         splashPositions?: Position[];
         chainLinks?: Position[];

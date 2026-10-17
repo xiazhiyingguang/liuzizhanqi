@@ -14,6 +14,10 @@ import './hero-codex.css';
 /** 被动卡的特效预览：被动触发的专属特效档案（有定制的英雄才在被动名旁出预览按钮） */
 const PASSIVE_FX_BY_HERO: Record<string, string> = {
     jiangtaigong: 'jiangtaigong_whalefall',
+    // 敖渊的招牌是"绕身游龙每拍扫过半圈"，那一圈龙影由行动结束的钩子派发，挂在被动卡上预览
+    aoyuan: 'aoyuan_orbit',
+    // 云岫的招牌是"雷云每回合先挪一格、再落一次雷"，这一拍同样由回合开始的钩子派发
+    yunxiu: 'yunxiu_cloud',
 };
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -243,20 +247,32 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
                         }
                     />
                 ))}
-                <AbilityCard
-                    mark="被"
-                    title={hero.passive.name}
-                    subtitle="被动能力"
-                    description={hero.passive.description}
-                    accent="#2d6a4f"
-                    trailing={PASSIVE_FX_BY_HERO[hero.id] && (
-                        <SkillFxPreview
-                            skillId={PASSIVE_FX_BY_HERO[hero.id]}
-                            skillName={hero.passive.name}
-                            accent="#2d6a4f"
-                        />
-                    )}
-                />
+                {hero.passive ? (
+                    <AbilityCard
+                        mark="被"
+                        title={hero.passive.name}
+                        subtitle="被动能力"
+                        description={hero.passive.description}
+                        accent="#2d6a4f"
+                        trailing={PASSIVE_FX_BY_HERO[hero.id] && (
+                            <SkillFxPreview
+                                skillId={PASSIVE_FX_BY_HERO[hero.id]}
+                                skillName={hero.passive.name}
+                                accent="#2d6a4f"
+                            />
+                        )}
+                    />
+                ) : (
+                    <article className="rounded-xl border border-dashed border-ink/[0.09] bg-ink/[0.015] p-4">
+                        <div className="flex items-start gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-ink/10 font-title text-lg text-ink-faint">被</span>
+                            <div>
+                                <h4 className="font-title text-xl text-ink-light">无被动</h4>
+                                <p className="mt-1.5 text-sm leading-6 text-ink-faint">这位英雄没有常驻被动，两技能就是他的全部手段。</p>
+                            </div>
+                        </div>
+                    </article>
+                )}
                 {hero.tianwei ? (
                     <AbilityCard
                         mark="威"

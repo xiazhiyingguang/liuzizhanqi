@@ -21,6 +21,7 @@
 import type { BattleLogEntry, Player, Position, Skill } from '../types/game';
 import { BOARD_SIZE } from '../types/game';
 import { lingxiTideHitMs } from './lingxi-tide-fx';
+import { dragonCallHitMs, dragonDashHitMs, dragonSweepCellHitMs } from './dragon-sweep-fx';
 import type { CraftedFxTheme } from './crafted-skill-fx';
 
 // 供 SkillFxLayer 等视觉层统一从本模块取坐标类型
@@ -28,7 +29,7 @@ export type { Position };
 
 /** 技能特效视觉方案（定制原型 + 通用原型） */
 export type SkillFxKind =
-    // —— 初代定制（悟空/绯雪/缚魂灯/太白/费曼，样式已固化在各自 CSS 段）——
+    // —— 初代定制（悟空/绯雪/缚魂灯/太白/逐光，样式已固化在各自 CSS 段）——
     | 'wukong-clone'    // 悟空·毫毛化分身：毫毛带流光旋飞掠向落点 + 烟雾绽开 + 光柱冲击环 + 分身凝形
     | 'wukong-staff'    // 悟空·金箍棒砸击：循攻击方向落棒 + 冲击波 + 尘土
     | 'feixue-blade'    // 绯雪·霜刃破阵：三连冰刃斜掠 + 冰核爆闪 + 碎冰四溅
@@ -90,6 +91,12 @@ export type SkillFxKind =
     | 'moran-inkway'    // 墨阑·入道：脚下运笔成一圈留缺口的墨环，提笔后一道墨痕沿攻击轴劈到目标格
     | 'duosui-reap'     // 夺岁·斩岁：暗赤横斩揭开 + 血偿刻印（带缺口赤环裂三道口）+ 三缕被抽走的血气
     | 'duosui-reckon'   // 夺岁·偿岁：目标格一记短斩 + 沿攻击轴拉回施法者的一条血色收束线，落点六瓣盾环合拢
+    | 'aoyuan-dragon-call'  // 敖渊·唤龙盘云：龙影自云中探出，十字水气被龙身一拍扫开
+    | 'aoyuan-dragon-sweep' // 敖渊·游龙扫击：一整尾龙沿本体外的八格圈顺时针爬过半圈，龙首到哪儿哪儿才炸
+    | 'aoyuan-dragon-dash'  // 敖渊·乘龙破浪：龙身贴着冲刺轴拉成一条，穿人而过并在落点翻身
+    | 'yunxiu-cloud-call'  // 云岫·布云垂雷：一团云砸下来摊成 3×3，云肚子里先闷闪一道电
+    | 'yunxiu-rod-strike'  // 云岫·引雷落针：一光柱针钉进目标格，针身上沿爬满麻痹电花
+    | 'yunxiu-cloud-bolt'  // 云岫·云中落雷：每回合云挪一格后劈下的那道雷，命中格各吃一发
     | 'ink-brush' | 'ink-dash' | 'ink-cut'
     | 'feixue-bond' | 'yang-link' | 'yin-link'
     | 'coin-strike' | 'coin-blessing' | 'coin-awaken'
@@ -123,6 +130,12 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'arc-slash': '弧光斩',
     'duosui-reap': '斩岁·血偿',
     'duosui-reckon': '偿岁·收血成盾',
+    'aoyuan-dragon-call': '唤龙盘云',
+    'aoyuan-dragon-sweep': '游龙扫半圈',
+    'aoyuan-dragon-dash': '乘龙破浪',
+    'yunxiu-cloud-call': '布云垂雷',
+    'yunxiu-rod-strike': '引雷落针',
+    'yunxiu-cloud-bolt': '云中落雷',
     'triple-slash': '三连斩',
     'pierce': '贯日突刺',
     'radial-burst': '环形爆发',
@@ -233,6 +246,10 @@ export interface SkillFxEvent {
     owner: Player;
     skillId?: string;
     sourceHeroId?: string;
+    /** 分段演出只延后表现，不延后战斗状态结算。 */
+    startDelayMs?: number;
+    dragonStartDeg?: number;
+    dragonContactsOnly?: boolean;
     /** 与本事件对应的日志身份，避免飘字匹配到上一手同格特效。 */
     logIds?: string[];
     /** 真实受到伤害的格；与治疗格分别保留，不由原型猜测伤害。 */
@@ -459,6 +476,10 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     youjun_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#8fd8ff', c2: '#e0f6ff' },    // 疾掠
     youjun_skill2: { kind: 'wind-blade-volley', durationMs: 1000, c1: '#5cc8f0', c2: '#eafaff' },   // 四向风刃：四弯风刃射向周身四格
 
+    // ===== 轩辕神君：金行御剑（鎏金）=====
+    xuanyuan_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#d4a843', c2: '#fff2c0' },   // 御剑·贯阵：沿跳击轨迹鎏金一闪
+    xuanyuan_skill2: { kind: 'aura-buff', durationMs: 950, c1: '#d4a843', c2: '#fff6d8' },     // 御剑·归元：飞剑化盾归身
+
     // ===== 叙白：净化治疗与黑白凝珠（素白青 / 暖金）=====
     xubai_skill1: { kind: 'heal-single', recovery: 'purify', durationMs: 1300, impactMs: 260, c1: '#718e8b', c2: '#f7f5ed' }, // 素白拂秽
     xubai_skill2: { kind: 'xubai-pearls', recovery: 'pearls', durationMs: 1400, c1: '#4b4b5d', c2: '#f7f5ed' }, // 黑白珠凝聚
@@ -537,6 +558,22 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
 
     // ===== 姜太公：垂钩、抛掷、鲸落（水青 / 月白）=====
     // 下钩：单格动作，线从上方垂进水面，不给整片底光。
+    // 岱宗：一守一砸，姿态不铺区域底光（护的是半个棋盘，画出来会糊满屏）
+    daizong_skill1: { kind: 'aura-buff', durationMs: 1080, impactMs: 260, c1: '#5b5f7a', c2: '#e7e9f2', fxArea: 'none' },
+    daizong_skill2: { kind: 'radial-burst', durationMs: 1240, impactMs: 340, c1: '#4a4e66', c2: '#dfe2ee', fxArea: 3 },
+    // 敖渊：一整尾会游的龙。唤龙时在召唤格探身，盘旋时沿本体外的八格圈顺时针爬半圈，
+    // 冲刺时把龙身沿轴线拉直穿人——三样画的都是同一条脊线，配色也共用一套青碧。
+    // 唤龙：320ms 探身 + 8×100ms 沿外圈爬满一圈 + 收势，时长要盖住最后一格的爆点
+    aoyuan_skill1: { kind: 'aoyuan-dragon-call', durationMs: 1560, impactMs: 300, c1: '#6483a3', c2: '#eaf2f4', fxArea: 'none' },
+    aoyuan_skill2: { kind: 'aoyuan-dragon-dash', durationMs: 1550, impactMs: 300, c1: '#537594', c2: '#f1f5f3', fxArea: 'none' },
+    aoyuan_orbit: { kind: 'aoyuan-dragon-sweep', durationMs: 1350, impactMs: 140, c1: '#6f91af', c2: '#f0f4ef', fxArea: 'none' },
+    // 云岫：云是常驻场地（画在 Board 上），特效只演"砸下来、挪一格、劈下去"这三个动作
+    yunxiu_skill1: { kind: 'yunxiu-cloud-call', durationMs: 1160, impactMs: 420, c1: '#edb93f', c2: '#fff2b8', fxArea: 'none' },
+    yunxiu_skill2: { kind: 'yunxiu-rod-strike', durationMs: 1040, impactMs: 220, c1: '#2c6f86', c2: '#e2f4f8', fxArea: 'none' },
+    yunxiu_cloud: { kind: 'yunxiu-cloud-bolt', durationMs: 1040, impactMs: 320, c1: '#edb93f', c2: '#fff2b8', fxArea: 'none' },
+    // 霆渊：雷不认人，落点由随机决定；技能二用 chainLinks 把带链者串成一串跳雷
+    tingyuan_skill1: { kind: 'storm-bolt', durationMs: 1150, impactMs: 320, c1: '#6f5bd0', c2: '#efe9ff', fxArea: 'none' },
+    tingyuan_skill2: { kind: 'storm-bolt', durationMs: 1450, impactMs: 260, c1: '#4f3bb0', c2: '#d9ceff', fxArea: 'none' },
     jiangtaigong_skill1: { kind: 'jiangtaigong-cast', durationMs: 980, impactMs: 340, c1: '#3f9c93', c2: '#eaf7f2', fxArea: 'none' },
     // 渭水垂竿：把人沿射线拖回自己身边，落点脚下漫开一片水泽。
     jiangtaigong_skill2: { kind: 'pierce', durationMs: 1040, impactMs: 300, c1: '#2f7f86', c2: '#dff2f0' },
@@ -623,6 +660,14 @@ const SKILL_FX_IMPACT_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>([
     'liehuo-wheel',
     // 棱光千折：光路经过的每一格都要"被打到"的手感，震屏与闪白交给命中格
     'prism-beam',
+    // 游龙扫到/冲到的每一格都是实打实的一击，主角虽然是龙，受击反馈照常给
+    'aoyuan-dragon-call',
+    'aoyuan-dragon-sweep',
+    'aoyuan-dragon-dash',
+    // 云岫三式都是实打实的落雷/落针，命中格要有震屏与闪白
+    'yunxiu-cloud-call',
+    'yunxiu-rod-strike',
+    'yunxiu-cloud-bolt',
     'yunying-sweep',
     'yunying-arc-slash',
     'ink-brush', 'ink-dash', 'ink-cut', 'coin-strike', 'chord-break',
@@ -731,6 +776,8 @@ export function computeFxImpactDelayMs(event: SkillFxEvent, cell: Position): num
     }
     const order = (event.coveredPositions ?? []).findIndex(([r, c]) => r === cell[0] && c === cell[1]);
     const stagger = computeFxCellDelayMs(event.targetPos, cell);
+    // 一团雷云是同时出手，整片闪电与伤害数字共用同一拍。
+    if (kind === 'yunxiu-cloud-call' || kind === 'yunxiu-cloud-bolt') return event.profile.impactMs ?? 320;
     if (kind === 'pierce' || kind === 'ink-brush' || kind === 'starfire-lance') return 90 + computeFxTravelMs(event) + stagger;
     if (kind === 'prism-beam' && order >= 0) return (order + 1) * PRISM_BEAM_STEP_MS;
     if (kind === 'zuizhen-throw') {
@@ -739,6 +786,14 @@ export function computeFxImpactDelayMs(event: SkillFxEvent, cell: Position): num
     }
     if (kind === 'liehuo-blaze') return Math.max(0, order) * 150;
     if (kind === 'yunying-arc-slash') return Math.max(0, order) * 150;
+    // 游龙：龙首爬到第几格，第几格才炸。外圈那 5 格是"一路扫过去"，
+    // 按离主目标的切比雪夫距离排会同时炸两三格，龙就成了背景而不是施暴者。
+    if (kind === 'aoyuan-dragon-sweep' && order >= 0) return dragonSweepCellHitMs(event, cell);
+    if (kind === 'aoyuan-dragon-dash') {
+        return dragonDashHitMs(order >= 0 ? order : cellSteps(event.fromPos, cell));
+    }
+    // 唤龙是"龙先从云里探起来，再一翻身把十字气浪扫开"，起手比扫击慢半拍
+    if (kind === 'aoyuan-dragon-call' && order >= 0) return dragonCallHitMs(order);
     if (kind === 'moran-inkway') return 660 + stagger;
     if (kind === 'jinghua-moonblade') return 460 + stagger;
     if (kind === 'heal-wave') return 180 + computeFxCellDelayMs(event.fromPos, cell);
@@ -797,6 +852,17 @@ export function collectImpactPositions(
         ),
         damagePositions: kept.filter(([row, col]) => damageKeys.has(`${row}:${col}`)),
     };
+}
+
+/** A triggered segment owns all of its logs, even though only its first log stores the anchor. */
+export function primarySkillFxLogs(logs: BattleLogEntry[], sourceHeroId?: string): BattleLogEntry[] {
+    const triggered = new Set<string>();
+    for (const log of logs) {
+        const request = log.details?.skillFxRequest as { logIds?: unknown } | undefined;
+        if (Array.isArray(request?.logIds)) for (const id of request.logIds) if (typeof id === 'string') triggered.add(id);
+    }
+    return logs.filter(log => !triggered.has(log.id) && !log.details?.skillFxRequest &&
+        (!log.details?.sourceHeroId || log.details.sourceHeroId === sourceHeroId));
 }
 
 /** 把真实抵达时间纳入存活余量，远处命中与路径末端都能完整淡出。 */

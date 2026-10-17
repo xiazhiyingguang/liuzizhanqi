@@ -8,6 +8,25 @@ import {
     tokenizeBattleLogMessage
 } from '../../src/core/battle-presentation';
 
+/** 一条最小可被播报识别的英雄击杀日志，只改累计击杀数 */
+function killLog(killCount: number) {
+    return {
+        id: `kill-${killCount}`,
+        timestamp: 100,
+        type: 'kill' as const,
+        player: 'player1' as const,
+        message: `墨阑的第 ${killCount} 次击杀`,
+        details: {
+            kind: 'hero-kill',
+            killerHeroId: 'moran-p1',
+            killerName: '墨阑',
+            victimHeroId: `victim-p2-${killCount}`,
+            victimName: `目标${killCount}`,
+            killCount,
+        },
+    };
+}
+
 describe('battle presentation', () => {
     it('联机双方根据本地玩家身份分别看到胜利和失败', () => {
         expect(getBattleOutcomePresentation('player1', true, 1)).toMatchObject({
@@ -69,12 +88,14 @@ describe('battle presentation', () => {
         expect(getTurnOperatorLabel('player1', false, undefined, true)).toBe('玩家一（你）');
     });
 
-    it('按英雄累计击杀数生成一到四杀播报，并将更高击杀数封顶为四杀', () => {
+    it('按英雄累计击杀数生成一到六杀播报，并将更高击杀数封顶为六杀', () => {
         expect(getKillAnnouncementTier(1)).toBe(1);
         expect(getKillAnnouncementTier(2)).toBe(2);
         expect(getKillAnnouncementTier(3)).toBe(3);
         expect(getKillAnnouncementTier(4)).toBe(4);
-        expect(getKillAnnouncementTier(8)).toBe(4);
+        expect(getKillAnnouncementTier(5)).toBe(5);
+        expect(getKillAnnouncementTier(6)).toBe(6);
+        expect(getKillAnnouncementTier(8)).toBe(6);
 
         const announcement = getLatestKillAnnouncement([{
             id: 'kill-3',
@@ -101,5 +122,13 @@ describe('battle presentation', () => {
             tier: 3,
             title: '三连决胜'
         });
+    });
+
+    it.each([
+        [5, '五连无双', 'PENTA KILL'],
+        [6, '六连灭队', 'HEXAKILL'],
+    ] as const)('%i 杀播报用 %s / %s 文案', (killCount, title, eyebrow) => {
+        const announcement = getLatestKillAnnouncement([killLog(killCount)]);
+        expect(announcement).toMatchObject({ tier: killCount, title, eyebrow });
     });
 });

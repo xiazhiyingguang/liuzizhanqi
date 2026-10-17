@@ -59,8 +59,9 @@ import {
     JINGHONG_MAX,
 } from '../data/extended-heroes';
 import { isRealCharacterHero, recordBattleDamage, recordBattleHealing, recordBattleKill } from './battle-statistics';
-import { huanongyingTianweiExecute, purgeHnyShadow, purgeZhiguangPrisms, queueYunyingLiehuoBehindTianwei, requestYunyingTianweiLanding, requestZhiguangTianweiLanding, requestSkillFx, requestRecoveryFx, LIANZHI_EFFECT, LIANZHI_PURSUE_DAMAGE, zuiyiCap, JINXUE_EFFECT, grantDuosuiTianwei } from '../data/extended-skills';
+import { huanongyingTianweiExecute, purgeHnyShadow, purgeZhiguangPrisms, queueYunyingLiehuoBehindTianwei, requestYunyingTianweiLanding, requestZhiguangTianweiLanding, requestSkillFx, requestRecoveryFx, gainShangguanMoyi, LIANZHI_EFFECT, LIANZHI_PURSUE_DAMAGE, zuiyiCap, JINXUE_EFFECT, grantDuosuiTianwei } from '../data/extended-skills';
 import { applyWeaponOnDamageDealt, applyWeaponOnGuard } from './weapon-effects';
+import { isXuanyuan, markZhaoShenHit, tryEnterZhaoShen } from './xuanyuan-form';
 import {
     chooseWindLaneDirection,
     createWindLane,
@@ -73,6 +74,10 @@ import {
     isJiangtaigong,
     rollWhaleFall,
 } from './water-marsh';
+import { applyDragonTianwei, getScaleDodgeRate } from './dragon-orbit';
+import { fierceMultiplier } from './battle-tempo';
+import { isParalyzed, tingxiDefenseRate } from './thunder-cloud';
+import { findDaizongBulwark, hasStance, queueDaizongLamp, recordStanceDamage, stillnessDefense, stanceConversion } from './mountain-stance';
 
 type DamageCalculationOptions = {
     /** 本次普通伤害段必定暴击。 */
@@ -113,6 +118,21 @@ export class DamageCalculator {
         hits: Hero[];
         state: GameState | null;
     } | null = null;
+
+    /**
+     * 激战用的当前回合号。`calculate` 只拿到攻守双方、拿不到 GameState，
+     * 所以由引擎在回合开始时把回合号同步进来（`GameEngine.startNewTurn`）。
+     * 电脑在克隆盘上做的模拟不推进回合，读到的就是当前这一回合的档位，评分与实战同源。
+     */
+    private static battleRound = 1;
+
+    static setBattleRound(roundNumber: number): void {
+        this.battleRound = Number.isFinite(roundNumber) ? roundNumber : 1;
+    }
+
+    static getBattleRound(): number {
+        return this.battleRound;
+    }
 
     static asOneAttack<T>(run: () => T): T {
         const previous = this.currentAttackGroup;
@@ -460,6 +480,8 @@ export class DamageCalculator {
                 hpDamage: 0,
                 killed: false,
                 unavoidable: true,
+                baseDamage,
+                ignoresDefense: ignoreDefense,
                 logTag: options.logTag,
             };
         }
@@ -476,6 +498,13 @@ export class DamageCalculator {
         const damageBonuses = this.getModifiers(attacker, 'damageBonus');
         for (const bonus of damageBonuses) {
             finalDamage *= (1 + bonus);
+        }
+        // 激战：第 20 回合起全场伤害 ×1.2，第 25 回合起 ×1.4（30 回合封顶不变）。
+        // 挂增伤而不是"攻击提升"——多数英雄没有基础攻击力，那一档对他们空转。
+        // 真实伤害（ignoreDefense）与固定伤害（上面 fixedDamage 已提前返回）都不跟着涨：
+        // 那两类是"不可规避"的设计意图，激战只放大走常规结算的那一口。
+        if (!ignoreDefense) {
+            finalDamage *= fierceMultiplier(this.battleRound);
         }
         // 惊鸿·止水被动「渊渟岳峙」：生命高于50%为攻击形态，增伤50%。
         // 走增伤而非"攻击提升"通道——后者要 attacker.baseAttack 才生效，她并没有基础攻击力。
@@ -505,7 +534,7 @@ export class DamageCalculator {
         finalDamage *= options.damageMultiplier ?? 1;
         for (const effect of attacker.effects) {
             if (effect.type === 'debuff' && effect.value !== undefined &&
-                (effect.name.includes('攻击降低') || effect.name === '恐惧')) {
+                (effect.name.includes('攻击降低') || effect.name === '恐惧' || effect.name === '岳压')) {
                 finalDamage *= Math.max(0, 1 - effect.value * (effect.stackCount ?? 1));
             }
         }
@@ -593,11 +622,25 @@ export class DamageCalculator {
                 defense += 0.5;
             }
 
+            // 岱宗「不动如山」：本回合不动叠出来的减伤，按防御加成结算（先叠满 50% 才换回血）
+            // 摆开镇守时改走下面的承转，同一档减伤不许扣两遍。
+            if (target.passiveId === 'daizong_passive' && !hasStance(target)) {
+                const stillness = stillnessDefense(target);
+                if (stillness > 0) defense += stillness;
+            }
+
+            // 岱宗天威「传灯」：接了灯的友方两回合内防御提升 20%
+            const lamp = target.effects.find(e => e.name === '传灯增防');
+            if (lamp) defense += lamp.value ?? 0.2;
+
             // 琉璃致知3：每层「禅定」再提供 10% 免伤（禅定是她替队友承伤攒下的层数）
             if (target.passiveId === 'liuli_passive') {
                 const zen = target.counters['禅定'] ?? 0;
                 if (zen > 0 && hasZhizhi(target, 3)) defense += zen * 0.1;
             }
+
+            // 云岫被动「霆息」：每层雷息把身子骨养硬一档（5% 防御，封顶 5 层 = 25%）
+            defense += tingxiDefenseRate(target);
 
             // 夜枭天威：下次攻击无视目标50%防御
             if (attacker.name === '暗影猎手·夜枭' && attacker.counters['ignore_defense_next']) {
@@ -611,6 +654,19 @@ export class DamageCalculator {
         const damageReduction = this.getModifiers(target, 'damageReduction');
         for (const reduction of damageReduction) {
             finalDamage *= Math.max(0, 1 - reduction);
+        }
+
+        // 岱宗「山岳承转」：镇守时把这一击硬挡下 40%（致知二 50%），叠上不动如山最高 90%。
+        // 挡下来的那份记进「岳势」，身上只掉剩下的——池子要的是"抵挡"而不是"承受"。
+        let mountainBlocked = 0;
+        if (target.passiveId === 'daizong_passive') {
+            const rate = stanceConversion(target);
+            if (rate > 0) {
+                // 先算挡下多少、再用减法得出余量：直接乘 (1-rate) 会让 0.9 这种比例在取整时少吃 1 点
+                const beforeGuard = finalDamage;
+                mountainBlocked = Math.round(Math.max(0, beforeGuard) * rate);
+                finalDamage = Math.max(0, beforeGuard - mountainBlocked);
+            }
         }
 
         // 冰甲：受到的伤害降低 20%（寒江雪致知3 抬到 40%，建甲时已按施术者写进 value）
@@ -633,6 +689,9 @@ export class DamageCalculator {
             shieldDamage: 0,
             hpDamage: 0,
             killed: false,
+            baseDamage,
+            ignoresDefense: ignoreDefense,
+            mountainBlocked,
             logTag: options.logTag
         };
     }
@@ -810,6 +869,9 @@ export class DamageCalculator {
             }
         }
         let remainingDamage = damageResult.finalDamage;
+        // 后面每一道"这一下没打中"的分支都要求 remainingDamage > 0 才会触发，
+        // 所以入口值本身就是 0 时，说明这一击确实落在了他身上、只是被承转吃得一滴不剩。
+        const damageAtEntry = remainingDamage;
         let actualTarget = target;
         let maxEffectiveDamageForKill = unavoidable ? target.currentHp : (target.currentHp + target.shield);
 
@@ -1181,6 +1243,50 @@ export class DamageCalculator {
             }
         }
 
+        // 敖渊「龙鳞游息」：每层龙鳞提 6% 闪避（致知三 10%）。
+        // 层数各自倒数两回合、会一层层掉下去，所以这一档不设封顶。
+        const scaleDodgeRate = getScaleDodgeRate(actualTarget);
+        // 岱宗「镇守」：被挨打的友方在他护的半区、出手的敌人来自对面半区，这一击整个改由他承受。
+        // 与琉璃援护的区别是护一整片而不是一个标记，所以每次受击现算、不预先往队友身上挂状态。
+        if (!unavoidable && remainingDamage > 0 && actualTarget === target) {
+            const bulwark = findDaizongBulwark(gameState, target, attacker);
+            if (bulwark) {
+                // 从"这一击的原始伤害"按岱宗重算：同一发攻击换个挨的人，而不是拿队友折完的余数再砍一轮
+                const taken = this.calculate(
+                    attacker, bulwark, damageResult.baseDamage ?? remainingDamage, false,
+                    damageResult.ignoresDefense ?? false);
+                this.applyDamage(bulwark, taken, attacker, gameState, isAreaDamage);
+                remainingDamage = 0;
+                damageResult.finalDamage = 0;
+                damageResult.shieldDamage = 0;
+                damageResult.hpDamage = 0;
+                this.addBattleLog(gameState, {
+                    type: 'passive',
+                    player: bulwark.owner,
+                    message: `${bulwark.name}镇守挡在${target.name}身前，硬挡下${taken.mountainBlocked ?? 0}点、承受${taken.finalDamage}点`,
+                });
+            }
+        }
+
+        if (
+            !unavoidable &&
+            remainingDamage > 0 &&
+            scaleDodgeRate > 0 &&
+            attacker.owner !== actualTarget.owner
+        ) {
+            if (Math.random() < scaleDodgeRate) {
+                remainingDamage = 0;
+                damageResult.finalDamage = 0;
+                damageResult.shieldDamage = 0;
+                damageResult.hpDamage = 0;
+                this.addBattleLog(gameState, {
+                    type: 'passive',
+                    player: actualTarget.owner,
+                    message: `${actualTarget.name}龙鳞游息，闪避了${attacker.name}的攻击（闪避率${Math.round(scaleDodgeRate * 100)}%）`,
+                });
+            }
+        }
+
         // 命中表现只记录本次真实扣盾结果，不受后续被动补盾影响。
         const shieldBeforeHit = actualTarget.shield;
         const hitFrom = attacker.position ? [...attacker.position] : undefined;
@@ -1238,26 +1344,41 @@ export class DamageCalculator {
             }
         }
 
+        // 岱宗「岳势」：池子记的是他挡下来的份额，不是身上掉的那份血，等技能二一次性砸回去
+        if (actualTarget.passiveId === 'daizong_passive' && (appliedDamage > 0 || damageAtEntry === 0)) {
+            recordStanceDamage(actualTarget, damageResult.mountainBlocked ?? 0);
+        }
+
         if (appliedDamage > 0 && attacker.owner !== actualTarget.owner) {
             // 专属武器：每次真正造成伤害后逐目标判定（醉月/酒狂一类），与英雄被动分开记账
             applyWeaponOnDamageDealt(attacker, gameState);
+        }
+
+        // 轩辕神君・昭神（顶替天威）：每次对敌方造成伤害都在其身上盖「金痕」；
+        // 在场每一个敌人（含分身/召唤物）都被盖过章就永久进入昭神，移动与技能全面变化
+        if (appliedDamage > 0 && attacker.owner !== actualTarget.owner && isXuanyuan(attacker)) {
+            markZhaoShenHit(actualTarget, attacker);
+            if (tryEnterZhaoShen(attacker, gameState)) {
+                this.addBattleLog(gameState, {
+                    type: 'passive',
+                    player: attacker.owner,
+                    message: `${attacker.name}金痕盖满在场之敌，昭神降世：移动改为 G 型，御剑全面升华`,
+                });
+            }
         }
 
         if (appliedDamage > 0 && attacker.passiveId === 'fengling_passive' && attacker.owner !== actualTarget.owner) {
             this.trackFenglingConsecutiveHit(attacker, actualTarget, gameState);
         }
 
-        // 上官婉儿被动：攻击命中敌人累积墨意，满3层凝为1次闪避（上限2次）
+        // 上官婉儿被动：攻击命中敌人累积墨意，每满3层凝为1次闪避（上限2次；封顶后墨意继续攒）
         if (appliedDamage > 0 && attacker.passiveId === 'shangguan_passive' && attacker.owner !== actualTarget.owner) {
-            EffectManager.addCounter(attacker, '墨意', 1);
-            const moyi = EffectManager.getCounter(attacker, '墨意');
-            if (moyi >= 3 && (EffectManager.getCounter(attacker, '闪避') ?? 0) < 2) {
-                EffectManager.setCounter(attacker, '墨意', 0);
-                EffectManager.addCounter(attacker, '闪避', 1);
+            const { gainedDodges } = gainShangguanMoyi(attacker, 1);
+            if (gainedDodges > 0) {
                 this.addBattleLog(gameState, {
                     type: 'passive',
                     player: attacker.owner,
-                    message: `${attacker.name}凝墨为避，获得1次闪避机会（当前${EffectManager.getCounter(attacker, '闪避')}层）`,
+                    message: `${attacker.name}凝墨为避，获得${gainedDodges}次闪避机会（当前${EffectManager.getCounter(attacker, '闪避')}层）`,
                 });
             }
         }
@@ -1354,13 +1475,17 @@ export class DamageCalculator {
             if (damageResult.isCrit && appliedDamage > 0) detailParts.push('暴击');
             if (damageResult.shieldDamage > 0) detailParts.push(`护盾吸收${damageResult.shieldDamage}`);
             if (actualHpDamage > 0) detailParts.push(`生命-${actualHpDamage}`);
+            // 岱宗的池子中不中都得让玩家看见：他掉的血只是挡剩的那一小半
+            const mountainGain = actualTarget.passiveId === 'daizong_passive'
+                ? (damageResult.mountainBlocked ?? 0) : 0;
+            if (mountainGain > 0) detailParts.push(`挡下${mountainGain}点转为岳势`);
             const detailText = detailParts.length > 0 ? `（${detailParts.join('，')}）` : '';
             this.addBattleLog(gameState, {
                 type: 'damage',
                 player: attacker.owner,
                 message: appliedDamage > 0
                     ? `${attacker.name}对${actualTarget.name}造成${appliedDamage}点伤害${detailText}`
-                    : `${attacker.name}对${actualTarget.name}的攻击未造成伤害`,
+                    : `${attacker.name}对${actualTarget.name}的攻击未造成伤害${detailText}`,
                 details: {
                     kind: 'damage',
                     sourceHeroId: attacker.id,
@@ -2064,8 +2189,36 @@ export class DamageCalculator {
      * 触发天威技能
      */
     static triggerTianwei(hero: Hero, gameState: GameState): void {
+        // 「麻痹」锁的是天威这一步：经脉被雷气锁住的人，这一回合杀再多人也不得天命。
+        // 收口在这里，是因为全场六处触发点（击杀/羁绊/赏金/连枝/代打/引擎）都汇经此门，
+        // 逐个调用点加判据必漏一个。
+        if (isParalyzed(hero)) {
+            this.addBattleLog(gameState, {
+                type: 'passive',
+                player: hero.owner,
+                message: `${hero.name}被麻痹锁住经脉，本次天威未能落下`,
+            });
+            return;
+        }
         hero.counters['__lianzhi_tianwei_group'] = this.currentAttackGroup ?? 0;
-        if (hero.tianweiId === 'duosui_tianwei') {
+        if (hero.tianweiId === 'daizong_tianwei') {
+            // 传灯不当场生效：把这一次天威交给下一个出手的友方（在 endHeroAction 里兑现）
+            queueDaizongLamp(hero);
+            this.addBattleLog(gameState, {
+                type: 'passive',
+                player: hero.owner,
+                message: `${hero.name}天威·传灯：这一盏灯交给下一个出手的友方`,
+            });
+        } else if (hero.tianweiId === 'aoyuan_tianwei') {
+            // 龙腾四海：此后冲刺距离 +1（每次击杀都累一层，永久生效），游龙持续只补第一次
+            for (const message of applyDragonTianwei(hero)) {
+                this.addBattleLog(gameState, {
+                    type: 'passive',
+                    player: hero.owner,
+                    message,
+                });
+            }
+        } else if (hero.tianweiId === 'duosui_tianwei') {
             // 夺岁的天威不当场打伤害：攒成「血诏」，等他下一次真正出手再一并砍出去
             grantDuosuiTianwei(hero);
             this.addBattleLog(gameState, {
@@ -2121,8 +2274,8 @@ export class DamageCalculator {
                     : gameState.deathCounters.player2Dead;
                 const empty = MovementSystem.findNearestEmptyPosition(hero.position ?? [0, 0], gameState);
                 if (empty) {
-                    // 致知1：复活时的生命 亡灵共鸣 × 3 → × 4
-                    const hpPerResonance = zhizhiValue(hero, 1, 3, 4);
+                    // 致知1：复活时的生命 亡灵共鸣 × 2 → × 3
+                    const hpPerResonance = zhizhiValue(hero, 1, 2, 3);
                     target.state = HeroState.ALIVE;
                     target.position = empty;
                     target.currentHp = Math.max(1, Math.min(target.maxHp, resonance * hpPerResonance));
@@ -2490,6 +2643,17 @@ export class DamageCalculator {
                     message: `${hero.name}天威·太公逐泽，可场上还没有一片水泽`,
                 });
             }
+        } else if (hero.tianweiId === 'shangguan_tianwei') {
+            // 天威·泼墨：击杀瞬间一气泼下3层墨意（闪避没满就当场凝成1次闪避）
+            const before = EffectManager.getCounter(hero, '墨意') ?? 0;
+            const { moyi, gainedDodges } = gainShangguanMoyi(hero, 3);
+            this.addBattleLog(gameState, {
+                type: 'tianwei',
+                player: hero.owner,
+                message: gainedDodges > 0
+                    ? `${hero.name}天威·泼墨，3层墨意当场凝成${gainedDodges}次闪避（墨意${before}→${moyi}层）`
+                    : `${hero.name}天威·泼墨，墨意${before}→${moyi}层（闪避已满2次，先攒着）`,
+            });
         } else if (hero.tianweiId === 'jinghong_tianwei') {
             // 天威·惊鸿再振：击杀瞬间振翅再蓄，立即获得2层惊鸿（上限3层；满层时明确播报不落空）
             const before = EffectManager.getCounter(hero, '惊鸿');

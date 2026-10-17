@@ -9,6 +9,7 @@ import HeroList from './HeroList';
 import SkillPanel from './SkillPanel';
 import InkButton from '../ui/InkButton';
 import { getBattleOutcomePresentation, getLatestKillAnnouncement } from '../../core/battle-presentation';
+import { fierceAnnouncement, fierceShortBadge, fierceTier } from '../../core/battle-tempo';
 import TurnActionBanner from './TurnActionBanner';
 import BattleStatisticsModal from './BattleStatisticsModal';
 import BattleReplayModal from './BattleReplayModal';
@@ -65,6 +66,9 @@ export default function BattleScene() {
         selectedHero?.owner === currentPlayer ? selectedHero : null
     );
     const latestKillAnnouncement = getLatestKillAnnouncement(battleLog);
+    const battlePhase = fierceAnnouncement(roundNumber);
+    const fierceShort = fierceShortBadge(roundNumber);
+    const fierceLevel = fierceTier(roundNumber);
     // 联机席位由服务端保留一段时间，倒计时只用来告诉玩家"这一局还没输"
     const [opponentOfflineSeconds, setOpponentOfflineSeconds] = useState<number | null>(null);
     useEffect(() => {
@@ -107,6 +111,15 @@ export default function BattleScene() {
                         <span className="font-title text-lg text-ink">
                             第 {roundNumber} 回合
                         </span>
+                        {fierceShort && (
+                            <span className={`fierce-badge ${fierceLevel === 2 ? 'fierce-badge--2' : ''} px-2 py-1 text-[10px]`}
+                                title={`激战：全场常规伤害提升${fierceLevel === 2 ? ' 40%' : ' 20%'}（固定伤害与真实伤害不涨，治疗不受影响）`}
+                            >
+                                <span className="fierce-badge__pip" aria-hidden="true" />
+                                <span className="fierce-badge__label">激战</span>
+                                {fierceShort}
+                            </span>
+                        )}
                         <span className="text-xs text-ink-faint font-body">
                             行动 {actionsThisTurn}/{actionsRequiredThisTurn}
                         </span>
@@ -195,6 +208,7 @@ export default function BattleScene() {
                         latestKillAnnouncement={latestKillAnnouncement}
                         isAiMode={Boolean(isAiMode)}
                         aiPlayer={aiPlayer}
+                        battlePhase={battlePhase}
                     />
                     {!mobile && <ReinforcementPanel />}
                     <div ref={boardSpaceRef} className="battle-board-space flex min-h-0 w-full flex-1 items-center justify-center">

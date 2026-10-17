@@ -130,6 +130,44 @@ describe('computer AI', () => {
     });
 });
 
+describe('站位规避敌方群攻（扎堆罚）', () => {
+    /**
+     * 候选格固定 [2,1]、敌方群攻手固定 [3,3]，只改"自己人挤不挤在这一格旁边"，
+     * 其余条件（离敌距离、覆盖面、威胁）两态完全一致，测出来的差就是扎堆的代价。
+     */
+    function crowdDelta(moverId: string, aoeEnemyId: string) {
+        const build = (allies: [number, number][]) => {
+            const state = makeGameState({ currentPlayer: 'player2' });
+            const mover = addHero(state, moverId, 'player2', [0, 0]);
+            const templates = ['huifeng', 'guying', 'nightowl'];
+            allies.forEach((cell, index) => addHero(state, templates[index], 'player2', cell));
+            addHero(state, aoeEnemyId, 'player1', [3, 3]);
+            return scoreComputerPosition(state, mover, [2, 1]);
+        };
+        // 挤：三名队友全在候选格一格里；散：只留一名在近处
+        return build([[1, 1], [1, 2], [2, 2]]) - build([[1, 1], [5, 0], [5, 5]]);
+    }
+
+    it('同一格，队友挤在身边明显比散开更差（对面有 3×3 群攻手）', () => {
+        expect(crowdDelta('moran', 'yunying')).toBeLessThan(-1);
+    });
+
+    it('对面不会群攻时不罚扎堆——不能把正常的紧凑阵型一并抹平', () => {
+        // 莉莉丝只有单体恐惧之箭：扎堆与散开同分
+        expect(crowdDelta('moran', 'lilith')).toBe(0);
+    });
+
+    it('支援型照样吃扎堆罚：有群攻手在场时，他贴人堆的意愿要比没有时更低', () => {
+        // 奶妈贴队友本身是正当收益（照应分），所以不能要求他一定选散开；
+        // 但这一档收益必须在对面有范围技时被扣掉一截，否则他会把全队吸成一坨。
+        const withAoe = crowdDelta('baize', 'yunying');
+        const withoutAoe = crowdDelta('baize', 'lilith');
+        expect(withAoe).toBeLessThan(withoutAoe);
+        // 照应分带边际递减：三个队友挤在一格旁的收益，不该是单人的三倍
+        expect(withoutAoe).toBeLessThan(15);
+    });
+});
+
 describe('走位按技能真实形状评估', () => {
     it('范围技优先站"形状真罩得住两个"的格子，而不是"曼哈顿距离凑近但打不到"的格子', () => {
         const state = makeGameState({ currentPlayer: 'player2' });

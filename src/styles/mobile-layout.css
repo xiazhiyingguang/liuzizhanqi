@@ -246,20 +246,33 @@
 
     .battle-replay-modal { padding: 8px; inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
     .battle-replay-modal .battle-replay-card { width: 100%; height: 100%; max-height: 860px; }
-    .battle-replay-card .replay-header { min-height: 54px; padding: 6px 10px; flex-shrink: 0; gap: 8px; }
+    .battle-replay-card .replay-header { min-height: 54px; padding: 6px 10px; flex-shrink: 0; gap: 8px; flex-wrap: wrap; }
+    .battle-replay-card .replay-header h2 { font-size: 16px; }
     .battle-replay-card .replay-header button { min-height: 44px; }
+    .battle-replay-card .replay-readout { font-size: 11px; }
+    .battle-replay-card .replay-readout-step { font-size: 12px; }
+    .battle-replay-card .replay-readout-step b { font-size: 15px; }
+    .battle-replay-card .replay-legend,
     .battle-replay-card .replay-keyboard-hint { display: none; }
-    .battle-replay-card .replay-content { flex-direction: column; overflow-y: auto; padding: 8px; gap: 12px; overflow-anchor: none; }
-    .battle-replay-card .replay-board-column { flex: none; width: 100%; overflow: visible; padding: 0; }
-    .battle-replay-card .replay-board {
-        --board-cell-size: clamp(28px, calc((100vw - 92px) / 6), 62px);
-        flex: none;
-        width: 100%;
-        max-height: none;
+    /* 竖屏：棋盘+战报通栏在上，两条舷并排在下 */
+    .battle-replay-card .replay-content {
+        --board-cell-size: clamp(30px, calc((100vw - 92px) / 6), 68px);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas: 'stage stage' 'p1 p2';
+        /* 棋盘那一行必须按内容取高：auto 行配上 min-height:0 会被压到只剩棋盘高度，
+           战报块就会溢出到下一行、压在两条舷上面 */
+        grid-template-rows: max-content auto;
+        align-items: stretch;
+        overflow-y: auto;
+        padding: 8px;
+        gap: 8px;
+        overflow-anchor: none;
     }
-    .battle-replay-card .replay-narration { width: 100%; flex: none; }
-    .battle-replay-card .replay-narration section:first-child { min-height: 180px; }
-    .battle-replay-card .replay-narration section:first-child > div { max-height: 240px; }
+    .battle-replay-card .replay-stage { display: block; width: 100%; min-height: auto; overflow: visible; padding: 0; }
+    .battle-replay-card .replay-board { flex: none; width: 100%; max-height: none; }
+    .battle-replay-card .replay-narration-box { width: 100%; max-height: none; }
+    .battle-replay-card .replay-log-scroll { min-height: 96px; max-height: 240px; }
+    .battle-replay-card .replay-side-rail { min-height: 168px; max-height: none; }
     .battle-replay-card .replay-footer { padding: 6px 8px; flex-shrink: 0; }
     .battle-replay-card .replay-transport { gap: 4px; flex-wrap: wrap; }
     .battle-replay-card .replay-btn { min-width: 38px; min-height: 40px; }
@@ -367,18 +380,27 @@
     .battle-scene .battle-board-piece { width: calc(var(--board-cell-size) * .5); height: calc(var(--board-cell-size) * .5); }
     .battle-scene .battle-board-piece-name { font-size: 8px; line-height: 8px; }
     .battle-scene .battle-board-hp { height: 2px; }
-    .battle-replay-card .replay-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, .85fr); overflow: hidden; }
-    .battle-replay-card .replay-board-column { min-height: 0; height: 100%; overflow-y: auto; }
-    .battle-replay-card .replay-board { --board-cell-size: clamp(30px, calc((100dvh - 120px) / 6), 52px); }
-    .battle-replay-card .replay-narration { min-height: 0; overflow-y: auto; overflow-anchor: none; }
-    .battle-replay-card .replay-narration section:first-child { min-height: 100px; }
+    .battle-replay-card .replay-content {
+        --board-cell-size: clamp(26px, calc((100dvh - 196px) / 6), 46px);
+        grid-template-columns: minmax(120px, 16%) minmax(0, 1fr) minmax(120px, 16%);
+        grid-template-areas: 'p1 stage p2';
+        justify-content: stretch;
+        align-items: stretch;
+        gap: 6px;
+        padding: 6px;
+        overflow: hidden;
+    }
+    .battle-replay-card .replay-stage { width: 100%; min-height: 0; height: 100%; overflow-y: auto; }
+    .battle-replay-card .replay-narration-box { width: 100%; max-height: none; }
+    .battle-replay-card .replay-log-scroll { min-height: 34px; max-height: 62px; }
+    .battle-replay-card .replay-side-rail { min-height: 0; max-height: none; }
 }
 
-/* 竖屏回放：战报栏在整页滚动流里，高度必须钉死。
+/* 竖屏回放：战报块在整页滚动流里，高度必须钉死。
    它原本按内容伸缩，而"本步战报"的条数每帧都不同——
-   拖一下时间轴，下面的「关键节点」整块就被顶下去几十像素。 */
+   拖一下时间轴，下面的两条舷就被顶下去几十像素。 */
 @media (pointer: coarse) and (max-width: 1023px) and (orientation: portrait) {
-    .battle-replay-card .replay-log-scroll { flex: none; height: 240px; max-height: none; }
+    .battle-replay-card .replay-log-scroll { flex: none; height: 200px; max-height: 200px; }
 }
 
 @media (pointer: coarse) and (max-width: 1023px) {

@@ -20,6 +20,10 @@ test-results
 
 # 本地工具与冗余产物
 .workbuddy/
+vibe_images/
+
+# 根目录音频源文件（未接入游戏，不进仓库）
+/*.mp3
 public/hero-images.zip
 
 # 美术验收落盘：浏览器用户数据目录（493MB 缓存）+ 打包 zip + 生成参数 json，不进仓库

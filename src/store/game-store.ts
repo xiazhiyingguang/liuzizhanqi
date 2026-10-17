@@ -52,6 +52,7 @@ import { audioManager } from '../audio/audio-manager';
 import {
     boundsFromCells,
     collectImpactPositions,
+    primarySkillFxLogs,
     computeFxAngleDeg,
     computeFxDirection,
     computeSkillAreaBounds,
@@ -61,6 +62,16 @@ import {
 } from '../core/skill-fx';
 import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
 import { hookThrowLandings, hookThrowLocked, releaseHookThrowLock, resolveHookThrow } from '../core/water-marsh';
+import { clearStance, hasStance, setStance, stanceDirection } from '../core/mountain-stance';
+import {
+    clearLeapsUsed,
+    getLeapsUsed,
+    isXuanyuan,
+    isZhaoShen,
+    XUANYUAN_LEAP_MAX,
+    XUANYUAN_SKILL1_ID,
+} from '../core/xuanyuan-form';
+import { fireAttachedSwords, getXuanyuanLeapCells, hasAttachedSwords } from '../core/flying-sword';
 
 /** 技能特效事件的自增序号（仅本地视觉层使用） */
 let skillFxSeq = 0;
@@ -1654,6 +1665,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 轩辕神君御剑连破进行中：人骑在剑上不许脚踏实地（会破坏连跳高亮与次数记录）
+        if (isXuanyuan(hero) && getLeapsUsed(hero) > 0) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}御剑连破进行中，无法普通移动`
+            });
+            return;
+        }
+
         // 检查是否已经移动过
         if (hero.hasMovedThisTurn) {
             get().addLog({
@@ -1755,6 +1776,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
         // 重新抬脚走路就重新拿到"撤回这一步"的权利；若这一步又踩响鱼钩，抛掷会重新上锁
         releaseHookThrowLock(hero);
+        // 岱宗「镇守」：脚一挪，这一侧的护持就散了。方向先存一份，撤回这一步时原样还给他
+        if (success && hero.passiveId === 'daizong_passive' && hasStance(hero)) {
+            hero.counters['__daizong_stance_undo'] = stanceDirection(hero) ?? -1;
+            clearStance(hero);
+        }
 
         if (success) {
             if (hero.name === '琉璃') {
@@ -1953,6 +1979,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         hero.position = from;
         delete hero.counters['__move_from'];
         hero.hasMovedThisTurn = false;
+        // 撤回 = 这步没走过：岱宗被移动打断的镇守原样恢复（岳势不清，那是他已经挨过的打）
+        const restoredStance = hero.counters['__daizong_stance_undo'];
+        if (hero.passiveId === 'daizong_passive' && typeof restoredStance === 'number' && restoredStance >= 0) {
+            setStance(hero, restoredStance);
+        }
+        delete hero.counters['__daizong_stance_undo'];
 
         const refundHp = hero.counters['__move_damage_hp'] ?? 0;
         delete hero.counters['__move_damage_hp'];
@@ -2007,7 +2039,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             pendingSkillTargetPositions: [],
             baizeReviveTargetHeroId: undefined,
             jetzmiSkill1Enhanced: false,
-            activeHero: hero
+            // 撤回的口径是"这一步没走过"，所以移动时上的那把切换锁也必须一起退掉：
+            // 锁是 moveHero 扣的，人不换了、伤害退了、位移回退了，却保留锁就没有依据。
+            // 换人不会白送任何资源——每名英雄的 hasMovedThisTurn/hasActedThisTurn 各自独立，
+            // 回到 A 依然只能再走一次；而"落账即定格"的几种情形（镜花交换、鱼钩抛掷、
+            // 李白链、笔走龙蛇）在 undoMove 开头就已经拒绝撤回。
+            activeHero: null
         });
 
         // 撤回后重新显示移动范围，允许重新选择位置
@@ -2063,6 +2100,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 type: 'system',
                 player: hero.owner,
                 message: `${hero.name}的再动只能移动（收回风刃可刷新疾掠）`
+            });
+            return;
+        }
+
+        // 轩辕神君御剑连破进行中：只能继续点高亮飞剑续跳或结束行动，不许换技能
+        if (isXuanyuan(hero) && getLeapsUsed(hero) > 0 && skillId !== XUANYUAN_SKILL1_ID) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}御剑连破进行中，只能继续跃向飞剑或结束行动`
             });
             return;
         }
@@ -3493,6 +3540,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // （如醉掷寒锋的方向提示）时 store 已换成新数组，快照里的数组随之脱钩，
         // 不重新绑定本次伤害结算日志就会连同飘字一起丢失。
         state.battleLog = get().battleLog;
+
+        // 轩辕神君・昭神：他下次出手前，附着在友方身上的御剑先沿四个主方向破空射出
+        if (isXuanyuan(hero) && hasAttachedSwords(state)) {
+            fireAttachedSwords(hero, state);
+            set({
+                board: state.board.map(row => [...row]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                battleLog: [...get().battleLog],
+            });
+        }
+
         const result = SkillSystem.executeSkill(hero, skill, targetPositions, state);
         delete hero.counters['__jetzmi_enhanced'];
 
@@ -3548,6 +3607,37 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
         if (hero.passiveId === 'zhiguang_passive') {
             delete hero.counters['__zhiguang_skill2_dir'];
+        }
+
+        // 轩辕神君・昭神「御剑连破」：这一跳落地后若还有可跳的剑，扣住控制权等玩家点下一把
+        // （至多 3 跳；也可点「结束行动」收剑）。全程快照同步，不走 action 回放。
+        if (skill.id === XUANYUAN_SKILL1_ID && hero.position && isZhaoShen(hero)) {
+            const leaps = getLeapsUsed(hero);
+            if (leaps > 0) {
+                const nextCells = leaps < XUANYUAN_LEAP_MAX ? getXuanyuanLeapCells(hero, state) : [];
+                if (nextCells.length > 0) {
+                    set({
+                        selectedHero: hero,
+                        activeHero: hero,
+                        selectedSkill: skill,
+                        highlightedPositions: nextCells,
+                        skillRange: nextCells,
+                        moveRange: [],
+                        board: state.board.map(row => [...row]),
+                        boardEffects: [...(state.boardEffects ?? [])],
+                        player1Heroes: [...state.player1Heroes],
+                        player2Heroes: [...state.player2Heroes],
+                    });
+                    get().addLog({
+                        type: 'system',
+                        player: hero.owner,
+                        message: `可跃向高亮飞剑继续连破（已跳${leaps}/${XUANYUAN_LEAP_MAX}次），也可结束行动收剑`
+                    });
+                    sendOnlineStateIfNeeded(get());
+                    return;
+                }
+                clearLeapsUsed(hero);
+            }
         }
 
         // 李太白被动链：技能成功后瞬移到历史位置继续攻击，全部用完自动归位
@@ -4308,6 +4398,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
             set({ shangguanDashState: undefined });
         }
 
+        // 轩辕神君御剑连破挂起时结束行动：收起连跳次数，正常走结束流程（已落场的飞剑留在盘上）
+        if (isXuanyuan(hero)) {
+            clearLeapsUsed(hero);
+        }
+
         // 李太白链状态：结束行动 = 归位并结束
         if (state.libaiChainState?.heroId === hero.id) {
             finalizeLibaiChain(hero, state, (entry) => get().addLog(entry));
@@ -4513,8 +4608,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const fxVariantProfile = skillFxExtras?.fxVariant
             ? SKILL_FX_PROFILES[skillFxExtras.fxVariant]
             : undefined;
-        const ownLogs = freshLogs.filter(entry => !entry.details?.skillFxRequest &&
-            (!entry.details?.sourceHeroId || entry.details.sourceHeroId === hero.id));
+        const ownLogs = primarySkillFxLogs(freshLogs, hero.id);
         const impacts = collectImpactPositions(ownLogs, fxTarget);
         const coveredPositions = skillFxExtras?.coveredPositions?.length
             ? skillFxExtras.coveredPositions
@@ -4556,7 +4650,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 同一手技能二触发切形时保留切形演出，避免两个完整王冠在同格叠放。
         const current = get().skillFx;
         if (event.skillId === 'jetzmi_skill2' && current.some(other => sharesFormShiftCast(event, other))) return;
-        const fx: SkillFxEvent = { ...event, id: ++skillFxSeq, bornAt: Date.now() };
+        const fx: SkillFxEvent = { ...event, id: ++skillFxSeq, bornAt: Date.now() + Math.max(0, event.startDelayMs ?? 0) };
         const next: SkillFxEvent[] = [
             ...current.filter(other => !sharesFormShiftCast(event, other)),
             fx
@@ -4618,6 +4712,9 @@ useGameStore.subscribe((state, previous) => {
             profile: resolveSkillFx(request.skillId),
             skillId: request.skillId,
             sourceHeroId: request.sourceHeroId,
+            startDelayMs: request.startDelayMs,
+            dragonStartDeg: request.dragonStartDeg,
+            dragonContactsOnly: request.dragonContactsOnly,
             logIds: request.logIds,
             damagePositions: request.damagePositions,
             softImpactPositions: request.softImpactPositions,

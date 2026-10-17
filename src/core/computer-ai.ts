@@ -12,7 +12,22 @@ import { DamageCalculator } from './damage-calculator';
 import { GameEngine } from './game-engine';
 import { windLaneAxis, windLaneCells, windLaneDirectionFromCode } from './wind-lane';
 import { hookThrowLandings, HOOK_THROW_DAMAGE, marshCovers, whaleFallRate } from './water-marsh';
+import { TINGYUAN_HIT_DAMAGE, hasChainMark, hasThunderMark } from './chain-lightning';
+import { DASH_DAMAGE, ORBIT_DAMAGE, ORBIT_DAMAGE_TALENT, dragonVictimsOnCells, hasDragon, nextOrbitLeg } from './dragon-orbit';
+import {
+    CLOUD_DAMAGE,
+    CLOUD_DAMAGE_TALENT,
+    CLOUD_DRIFT_OFFSETS,
+    CLOUD_MAX,
+    CLOUD_RADIUS,
+    ROD_DAMAGE,
+    bestCloudAnchorCover,
+    cloudVictimCountAt,
+    cloudsOf,
+} from './thunder-cloud';
+import { MOUNTAIN_COUNTER, directionFromCell, guardsCell, hasStance, mountainPressure, stanceDirection, threatensFrom } from './mountain-stance';
 import { isJinghongReleaseWindow, findHnyShadow, findWaterMoon, findMoonSeat } from '../data/extended-heroes';
+import { isZhaoShen } from './xuanyuan-form';
 import { getHnyReplayForm, getJinghuaSwapDestinations, pickYunyingTianweiLanding, pickZhiguangTianweiLanding, runWithoutSkillFx, traceZhiguangBeam, XUBAI_ORB_HEAL, XUBAI_ORB_MAX, ZHIGUANG_DIRECTION_DELTAS } from '../data/extended-skills';
 
 export interface ComputerDeployment {
@@ -149,6 +164,7 @@ const SETUP_FIRST_SKILLS = new Set([
     'bounty_skill1',     // 猎杀令：队友打到目标，赏金追加追击
     'xubai_skill2',      // 黑白凝珠：队友开局残血时自动回血
     'nanfeng_skill2',    // 风道：队友的羽化/击退要顺着这条轴才吃得到
+    'daizong_skill1',    // 镇守：先立起半区护持，后面的队友才有人替他挨打攒岳势
 ]);
 /** 每有一个本回合还能出手、且此刻确有可用方案的队友，铺路者的排序分加这么多。 */
 const SETUP_ORDER_VALUE_PER_ALLY = 18;
@@ -225,6 +241,12 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
         }
         case 'youjun_skill2':
             return 4;
+        // 御剑·贯阵：沿途与周圈两段伤害的均值粗估；昭神态数字更高
+        case 'xuanyuan_skill1':
+            return isZhaoShen(caster) ? 8 : 6;
+        // 御剑·归元：只有周身斜角站人时才打得出伤害，按单把剑气估
+        case 'xuanyuan_skill2':
+            return 6;
         case 'jinghong_skill2':
             return 10;
         case 'huanongying_skill1':
@@ -250,6 +272,26 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
             return 5 + Math.floor(missing * missingRate) + edict;
         }
         // 钓雪本身不打人：威胁来自"踩过就被抛到别处并吃10点"，所以按抛掷伤害估
+        // 岳倾吐的就是攒下的岳势，池子多大伤害就是多大
+        case 'daizong_skill1':
+            return 0;
+        case 'daizong_skill2':
+            return mountainPressure(caster);
+        // 唤龙那一下只打十字，真正的输出在每回合的盘旋里（走下面的站位加分）
+        case 'aoyuan_skill1':
+            return zhizhiValue(caster, 2, ORBIT_DAMAGE, ORBIT_DAMAGE_TALENT);
+        // 布云当拍只劈一片，之后每回合还会挪一格再劈两次（价值走下面的专属静态计分）
+        case 'yunxiu_skill1':
+            return zhizhiValue(caster, 2, CLOUD_DAMAGE, CLOUD_DAMAGE_TALENT);
+        case 'yunxiu_skill2':
+            return ROD_DAMAGE;
+        case 'aoyuan_skill2':
+            return DASH_DAMAGE;
+        case 'tingyuan_skill1':
+            // 伤害写在 execute 里、劈中谁随机，按面板伤害估
+            return zhizhiValue(caster, 2, TINGYUAN_HIT_DAMAGE, 12);
+        case 'tingyuan_skill2':
+            return TINGYUAN_HIT_DAMAGE;
         case 'jiangtaigong_skill1':
             return HOOK_THROW_DAMAGE;
         // 渭水垂竿不造成伤害，价值在拖拽、铺泽与"用技能也算一次出手"的鲸落档（走下面的专属静态计分）
@@ -1335,6 +1377,41 @@ function simulateSkillPlan(
             };
         }
 
+        if (skill.id === 'daizong_skill1') {
+            // 镇守不当场改变棋盘，默认模拟拿不到分数——不静态记账，AI 会把它当废牌（布场型技能的老坑）。
+            // 值 = 这一侧护得住的队友 × 对面真能出手的敌人：两边都对得上的那一侧才值得摆。
+            const cell = targetPositions[targetPositions.length - 1];
+            const origin = simulatedCaster.position;
+            if (!cell || !origin || !isBoardPosition(cell)) return null;
+            const direction = directionFromCell(origin, cell);
+            if (direction === null) return null;
+            if (stanceDirection(simulatedCaster) === direction) return null;   // 已经朝这边摆着，重放没有收益
+            const guarded = heroesFor(simulated, simulatedCaster.owner).filter(hero =>
+                hero.state === HeroState.ALIVE && !!hero.position && hero.id !== simulatedCaster.id &&
+                guardsCell(simulatedCaster, direction, hero.position!)).length;
+            const incoming = enemiesFor(simulated, simulatedCaster.owner).filter(enemy =>
+                enemy.state === HeroState.ALIVE && !!enemy.position && !enemy.hasActedThisTurn &&
+                threatensFrom(simulatedCaster, direction, enemy.position!)).length;
+            if (guarded === 0 || incoming === 0) return null;   // 一侧没人或对面够不着，摆它做什么
+            const stored = (simulatedCaster.counters[MOUNTAIN_COUNTER] ?? 0) as number;
+            return {
+                skillId: skill.id,
+                targetPositions,
+                score: 5 + guarded * 4 + incoming * 3 + Math.min(10, stored * 0.2),
+            };
+        }
+
+        if (skill.id === 'tingyuan_skill1') {
+            // 落雷真的会打痛人，分数交给默认模拟；这里只拦"染无可染"的白放：
+            // 全场都带着没散的印与链时再劈一次只是刷新，该留手给技能二收口。
+            const enemies = enemiesFor(simulated, simulatedCaster.owner).filter(enemy => enemy.state === HeroState.ALIVE);
+            if (enemies.length === 0) return null;
+            const unwritten = enemies.filter(enemy => !hasThunderMark(enemy, simulatedCaster.id)).length;
+            const unlinked = enemies.filter(enemy =>
+                hasThunderMark(enemy, simulatedCaster.id) && !hasChainMark(enemy, simulatedCaster.id)).length;
+            if (unwritten === 0 && unlinked === 0) return null;
+        }
+
         if (skill.id === 'jiangtaigong_skill1') {
             // 下钩不产生即时伤害，价值全在"敌人会不会走过这一格"，所以静态计分：
             // 越贴近还没移动过的敌人越可能踩到；那一格站了人或已有钩子都是非法落点。
@@ -1363,6 +1440,38 @@ function simulateSkillPlan(
                 skillId: skill.id,
                 targetPositions,
                 score: 4 + waiting * 5 + nearby.length * 1.5 + shielded * 2 - Math.max(0, live - 1) * 4 + whaleUpside,
+            };
+        }
+
+        if (skill.id === 'yunxiu_skill1') {
+            // 云是"这一拍压住谁、下一拍还压谁"的场地，不是即时伤害：
+            // 通用模拟只看得到点中的那一格有没有人，会把她当成只会挠一下的近战。
+            const cell = targetPositions[targetPositions.length - 1];
+            if (!cell || !isBoardPosition(cell)) return null;
+            const owner = simulatedCaster.owner;
+            const now = cloudVictimCountAt(simulated, owner, cell);
+            // 云每回合自己挪一格：把"挪一步之后最狠的那一格"也算进账，
+            // 不然电脑永远只往人堆正中放，而人堆会散
+            const drift = CLOUD_DRIFT_OFFSETS.reduce((max, [dr, dc]) => Math.max(
+                max,
+                cloudVictimCountAt(simulated, owner, [cell[0] + dr, cell[1] + dc] as Position)
+            ), 0);
+            if (now === 0 && drift === 0) return null;   // 前后两拍都压不到人，这一手就是白放
+            // 已有云数接近上限时，多铺一团会把最早那团挤掉——只补"值回票价"的那一团
+            const live = cloudsOf(simulated, owner).length;
+            const overlap = cloudsOf(simulated, owner).filter(cloud =>
+                Math.abs(cloud.position[0] - cell[0]) <= CLOUD_RADIUS &&
+                Math.abs(cloud.position[1] - cell[1]) <= CLOUD_RADIUS).length;
+            return {
+                skillId: skill.id,
+                targetPositions,
+                // 定价按"这一团云这辈子还能落几拍雷"算，不是按当拍那一下：
+                // 4 点 × 最多 3 拍 × 现在与挪一格后各自罩住的人数。
+                // 原来只给 5 + now*5，实测局均被枚举 49.75 次却只采纳 5.17 次——
+                // 分数打不过她自己的技能二（平均 36.6），电脑等于把她当只会戳一下的近战用。
+                score: 14 + now * 9 + drift * 5.5
+                    - Math.max(0, live - (CLOUD_MAX - 1)) * 4
+                    - overlap * 6,
             };
         }
 
@@ -1476,6 +1585,17 @@ function simulateSkillPlan(
                 effect.type === 'wind-blade' && effect.sourceHeroId === caster.id
               ).length * 3
             : 0;
+        // 轩辕神君「御剑·归元」：每把回收/附着的飞剑折成 10% 免伤，是实打实的生存收益；
+        // 不计分的话它经常 0 伤而被施法闸门拦下，飞剑铺满地也永远不会收。
+        let swordBonus = 0;
+        if (skill.id === 'xuanyuan_skill2' && result.success) {
+            const teamMitigation = (snapshot: GameState) =>
+                (snapshot.player1Heroes.concat(snapshot.player2Heroes))
+                    .filter(hero => hero.owner === caster.owner)
+                    .reduce((sum, hero) => sum + (hero.effects.find(effect =>
+                        effect.name === '御剑免伤')?.value ?? 0), 0);
+            swordBonus = Math.max(0, teamMitigation(simulated) - teamMitigation(state)) * 40;
+        }
         // 花弄影的「重演」在行动末才结算，execute 返回值里一分不显：从模拟盘面读回
         // 影子与招式记忆，把影子的补刀计入本次施法收益；影格本身还是下一手「弄影」
         // 的进场板，围着影子站几个敌人另外计分，否则 AI 只会把影子甩到无人区。
@@ -1728,6 +1848,7 @@ function simulateSkillPlan(
             + dashBonus
             + bladeRefreshBonus
             + bladeBonus
+            + swordBonus
             + replayBonus
             + jinghongBonus
             + deathFuelBonus
@@ -1996,6 +2117,55 @@ export function pickJiangtaigongHookLanding(caster: Hero, state: GameState): Pos
     return best;
 }
 
+/** 会"一次罩一片"的伤害技：十字/方块/直线三类是真正的群攻形状。 */
+function hasAreaDamageSkill(hero: Hero): boolean {
+    return [getSkill(hero.skill1Id), getSkill(hero.skill2Id)].some(skill =>
+        !!skill && skill.type === 'damage' &&
+        (skill.rangeType === 'area' || skill.rangeType === 'cross' || skill.rangeType === 'line'));
+}
+
+function chebyshevGap(left: Position, right: Position): number {
+    return Math.max(Math.abs(left[0] - right[0]), Math.abs(left[1] - right[1]));
+}
+
+/** 第 1 个满值、往后每个只再值一半：让"多罩一个人"仍然更好，但边际收益压不过把他吸进同一发群攻 */
+function diminishingCount(count: number): number {
+    let total = 0;
+    let weight = 1;
+    for (let index = 0; index < count; index++) {
+        total += weight;
+        weight *= 0.5;
+    }
+    return total;
+}
+
+/**
+ * 扎堆罚：我方几个人挤在候选格旁边，等于替对面把范围技的命中数买好了。
+ * 罚值按"那一发的真实伤害 × 被罩住的额外人数"计，与"留在原地多罩一个敌人"的
+ * 那份收益（输出×2.4）同量级——不然电脑会理性地选择换血，看起来就是不会躲。
+ * 只有附近确实有会群攻、这回合还没动过手的敌人才罚，免得把"后排抱团等奶"一并抹平。
+ */
+function clusterExposurePenalty(state: GameState, hero: Hero, position: Position): number {
+    const threat = enemiesFor(state, hero.owner).find(enemy =>
+        enemy.state === HeroState.ALIVE && !!enemy.position && !enemy.hasActedThisTurn &&
+        !EffectManager.isStunned(enemy) && hasAreaDamageSkill(enemy) &&
+        chebyshevGap(position, enemy.position) <= maximumSkillReach(enemy) + enemy.moveRange + 2);
+    if (!threat) return 0;
+    let bodies = 0;
+    for (const ally of heroesFor(state, hero.owner)) {
+        if (ally.id === hero.id || ally.state !== HeroState.ALIVE || !ally.position) continue;
+        // 贴身那一圈给满权重，第二圈只给四分之一：一步就能走出 3×3，
+        // 但两格半径算太重会让"挪一格"看起来毫无收益，电脑干脆不动。
+        const gap = chebyshevGap(position, ally.position);
+        if (gap <= 1) bodies += 1;
+        else if (gap <= 2) bodies += 0.25;
+    }
+    if (bodies < 1) return 0;
+    const blast = estimateDamageAgainst(threat, hero);
+    if (blast <= 0) return 0;
+    return Math.min(3, bodies) * blast * 0.35;
+}
+
 export function scoreComputerPosition(state: GameState, hero: Hero, position: Position): number {
     const ratings = ratingsForHero(hero);
     const hpRatio = hero.maxHp > 0 ? hero.currentHp / hero.maxHp : 0;
@@ -2010,7 +2180,7 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
     for (const victim of coverage.coveredEnemies) {
         score += ratings.输出 * 2.4 + ratings.控制 * 1.4 + (1 - effectiveHpRatio(victim)) * 20;
     }
-    score += coverage.allyCoverage * ratings.支援 * 0.7;
+    score += diminishingCount(coverage.allyCoverage) * ratings.支援 * 0.7;
 
     for (const enemy of enemies) {
         const distance = MovementSystem.getManhattanDistance(position, enemy.position!);
@@ -2027,7 +2197,9 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
                     const lethal = threat >= hero.currentHp + hero.shield;
                     const deathRisk = lethal ? (hpRatio < 0.35 ? 6 : 3.2) : 1;
                     const actedFactor = enemy.hasActedThisTurn ? 0.25 : 1;
-                    score -= threat * (0.24 + (1 - hpRatio) * 0.5) * actedFactor * deathRisk;
+                    // 0.24 那一档实测让"躲一发"永远换不过"多罩一个敌人"（17 分），
+                    // 电脑于是纯按最大化这一击来打，看起来就是不会规避伤害。
+                    score -= threat * (THREAT_WEIGHT + (1 - hpRatio) * 0.5) * actedFactor * deathRisk;
                 } else {
                     // 没有直接伤害技能的治疗/辅助单位，保留轻微威慑分。
                     score -= (1.15 - hpRatio) * ratingsForHero(enemy).输出 * 0.5;
@@ -2045,9 +2217,14 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
     }
 
     if (ratings.支援 >= 7) {
-        for (const ally of allies) {
-            const distance = MovementSystem.getManhattanDistance(position, ally.position!);
-            score += Math.max(0, 4 - distance) * ratings.支援 * 0.5;
+        // 照应分按"越近越值、但每个队友只算前一档的一半"给：
+        // 不设递减的话奶妈会把全队吸成一坨，扎堆罚永远追不上那份贴人奖励。
+        let mateWeight = 1;
+        for (const distance of allies
+            .map(ally => MovementSystem.getManhattanDistance(position, ally.position!))
+            .sort((left, right) => left - right)) {
+            score += Math.max(0, 4 - distance) * ratings.支援 * 0.5 * mateWeight;
+            mateWeight *= 0.5;
         }
     }
 
@@ -2075,13 +2252,47 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
     if (hero.position && hooksAlongLine(state, hero.position, position, hero.owner === 'player1' ? 'player2' : 'player1') > 0) {
         score -= HOOK_THROW_DAMAGE;
     }
+    // 敖渊的主输出是绕身那一圈，通用形状评分只看技能自身的 single/line 范围，
+    // 读不到"站进这里下一圈能扫到几个人"——不给这一笔，电脑会把他当纯近战用。
+    if (hero.passiveId === 'aoyuan_passive' && hasDragon(hero)) {
+        const swept = dragonVictimsOnCells(state, hero, nextOrbitLeg(hero, position)).length;
+        score += swept * (ratings.输出 * 2 + 4);
+    }
+
+    // 云岫的雷云只能铺在她自身两格十字范围内，所以站位的价值是"站过去之后，
+    // 一团新云最多能压住几个人"。通用形状评分只看技能自己那一格，读不到这件事。
+    if (hero.passiveId === 'yunxiu_passive') {
+        score += bestCloudAnchorCover(state, hero, position) * (ratings.输出 * 2 + 4);
+    }
+
+    // 站进自己人的堆里，对面一发群攻就多罩几个人——这一手要在站位账上扣掉
+    score -= clusterExposurePenalty(state, hero, position);
     return score;
+}
+
+/**
+ * 岱宗「砸得出去了才走这一步」：镇守期间他本来钉在原地攒岳势，但池子够肥、身边却没有一个敌人时，
+ * 再站着就变成囤货——移动本来就要散姿态，而岳倾自身也会解除姿态，所以这一路不亏。
+ */
+const DAIZONG_CASHOUT_PRESSURE = 25;
+
+function daizongShouldWalkToCashOut(state: GameState, hero: Hero): boolean {
+    if (mountainPressure(hero) < DAIZONG_CASHOUT_PRESSURE || !hero.position) return false;
+    const foes = heroesFor(state, hero.owner === 'player1' ? 'player2' : 'player1')
+        .filter(foe => foe.state === HeroState.ALIVE && !!foe.position);
+    return !foes.some(foe =>
+        Math.abs(foe.position![0] - hero.position![0]) <= 1 &&
+        Math.abs(foe.position![1] - hero.position![1]) <= 1);
 }
 
 export function chooseComputerMove(state: GameState, hero: Hero): Position | null {
     if (!hero.position || hero.hasMovedThisTurn) return null;
     // 惊鸿·止水：决渊释放回合必须站定，store 会拦下移动，这里直接不把它列入计划
     if (hero.passiveId === 'jinghong_passive' && isJinghongReleaseWindow(hero, state)) return null;
+    // 岱宗：镇守一摆就该钉在原地——移动既散姿态、又断掉「不动如山」的记账，岳势立刻停止上涨。
+    // 他攒池子的速度全看"站着挨打"，所以电脑宁愿浪费一次移动力（图鉴提示同一口径）。
+    if (hero.passiveId === 'daizong_passive' && hasStance(hero)
+        && !daizongShouldWalkToCashOut(state, hero)) return null;
     const positions = MovementSystem.getMovablePositions(hero, state);
     const currentScore = scoreComputerPosition(state, hero, hero.position);
     const candidates = positions
@@ -2362,8 +2573,28 @@ const JOINT_MIN_PLAN_SCORE = 30;
  * 这类技能必须先手释放——先普通移动一步会把它们的前提花光（合击直接判定"已移动过"放不出来）。
  */
 export function isSelfPropellingSkill(skillId: string | undefined): boolean {
-    return skillId === 'youjun_skill1' || skillId === 'wukong_skill2';
+    return skillId === 'youjun_skill1' || skillId === 'wukong_skill2' || skillId === 'aoyuan_skill2' || skillId === 'xuanyuan_skill1';
 }
+
+/**
+ * 走出群攻覆盖圈的位移奖励：站位分只按 0.3 折算，纯保命位移永远跨不过 JOINT_MOVE_MARGIN，
+ * 所以这一项单独记账，权重直接对齐"留在人堆里每回合多挨一发"的真实损失。
+ */
+const EXPOSURE_RELIEF_WEIGHT = 0.9;
+
+/**
+ * 站位分在"先挪一步再打"总分里的折算权重。
+ * 别指望靠抬这个数让电脑动起来：实测把它从 0.3 抬到 0.7，"移动后行动的回合占比"反而从
+ * 37.1% 掉到 32.2%，最长重复技能串从 5 涨到 12——因为方案分（1.0 权重）的差距本来就是
+ * 几十点量级，放大站位项只会让排序更抖，不会让被压住的位移翻身的门槛。
+ * 规避伤害走上面那条专门的 relief 记账。
+ */
+const JOINT_POSITION_WEIGHT = 0.3;
+
+/** 站位账里「这一格会挨一发」的基础罚值系数（另按残血加罚）。
+ * 实测抬到 0.7 不会让电脑更会躲：移动占比 33.2%→32.4%、抱团反而从 2.28 涨到 2.56，
+ * 因为它只是把"挨打"这项罚重了，没打开"要不要挪"这个闸门。 */
+const THREAT_WEIGHT = 0.24;
 
 /**
  * 移动+技能联合规划：枚举若干高价值站位，模拟"先移动到该格再放技能"的总收益。
@@ -2379,6 +2610,9 @@ export function planJointMoveForHero(
 ): ComputerJointMovePlan | null {
     if (!caster.position || caster.hasMovedThisTurn || caster.hasActedThisTurn) return null;
     if (caster.state !== HeroState.ALIVE) return null;
+    // 岱宗摆着镇守时不参与"先走一步再放技能"的联合规划：那一步会把姿态踩散（见 chooseComputerMove）
+    if (caster.passiveId === 'daizong_passive' && hasStance(caster)
+        && !daizongShouldWalkToCashOut(state, caster)) return null;
     const topK = difficultyProfile().jointMoveTopK;
     if (topK <= 0) return null;
 
@@ -2390,8 +2624,9 @@ export function planJointMoveForHero(
     // 自带位移的技能（游隼疾掠）把"这一步位移"本身就是伤害来源，先走一步会把冲刺额度
     // 提前花光，贴脸后冲刺反而变成负收益，因此这类方案一律不换取位。
     if (baseline && isSelfPropellingSkill(baseline.skillId)) return null;
+    const exposureNow = clusterExposurePenalty(state, caster, currentPos);
     const baselineTotal =
-        (baseline?.score ?? 0) + scoreComputerPosition(state, caster, currentPos) * 0.3;
+        (baseline?.score ?? 0) + scoreComputerPosition(state, caster, currentPos) * JOINT_POSITION_WEIGHT;
 
     // 按站位质量取前 topK 个候选格，避免全图模拟
     const ranked = movable
@@ -2403,7 +2638,11 @@ export function planJointMoveForHero(
     for (const candidate of ranked) {
         const plan = simulateHeroMoveThenSkill(state, caster, candidate.position);
         if (!plan) continue;
-        const total = plan.score + candidate.posScore * 0.3;
+        // 走出敌方群攻的覆盖圈本身就值"少挨一发"：站位分在总分里只按 0.3 折算，纯保命位移
+        // 永远跨不过 JOINT_MOVE_MARGIN，于是电脑宁可四个人挤在一格吃一发大范围技能也不肯散。
+        // 把"少罩住几个自己人"单独记一笔，规避伤害才真的进得了决策。
+        const relief = (exposureNow - clusterExposurePenalty(state, caster, candidate.position)) * EXPOSURE_RELIEF_WEIGHT;
+        const total = plan.score + candidate.posScore * JOINT_POSITION_WEIGHT + relief;
         if (!best || total > best.totalScore) {
             best = { position: candidate.position, plan, totalScore: total };
         }

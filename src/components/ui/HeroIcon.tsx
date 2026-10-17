@@ -338,7 +338,7 @@ function TPaintingIcon() {
 }
 
 function FeynmanIcon() {
-    // 粒子加速者 — 三条电子轨道与中心粒子
+    // 逐光 — 三条电子轨道与中心粒子
     return (
         <Stroke>
             <ellipse cx={16} cy={16} rx={12} ry={5} strokeWidth={1.5} />
@@ -515,6 +515,20 @@ function YoujunIcon() {
     );
 }
 
+function XuanyuanIcon() {
+    // 轩辕神君 — 一剑斜越田字：虚线是对角跳痕，中心叉是畅通无阻的象眼
+    return (
+        <Stroke>
+            <path d="M7 25 L25 7" strokeWidth={1} opacity={0.4} strokeDasharray="3 3" />
+            <path d="M13 16 L16 19 M13 19 L16 16" strokeWidth={1.2} opacity={0.55} />
+            <path d="M17 15 L27 5" />
+            <path d="M22 5 H27 V10" />
+            <path d="M15 17 L19 13" strokeWidth={1.6} />
+            <Dot cx={7.5} cy={24.5} r={1.4} opacity={0.7} />
+        </Stroke>
+    );
+}
+
 function XubaiIcon() {
     // 叙白 — 净钵涤秽，一滴净水落下，钵中凝出黑白双珠
     return (
@@ -649,6 +663,57 @@ function XihuanIcon() {
     );
 }
 
+function DaizongIcon() {
+    // 岱宗 — 一面山形盾墙：三重山脊立在横线上，顶上一枚碑点
+    return (
+        <Stroke>
+            <path d="M4.6 21.4 L9.6 11.8 L13.4 17.2 L17.4 8.6 L23.4 21.4" strokeWidth={1.9} />
+            <path d="M3.4 24.6 L25.4 24.6" strokeWidth={1.5} opacity={0.8} />
+            <path d="M8.2 21.4 L11.4 15.6 L14.4 20.2" strokeWidth={1.1} opacity={0.55} />
+            <circle cx="17.4" cy="6.2" r="1.2" fill="currentColor" stroke="none" opacity={0.7} />
+        </Stroke>
+    );
+}
+
+function AoyuanIcon() {
+    // 游龙·敖渊 — 一尾龙影绕着水涡盘一圈，龙头探出、两点鳞光
+    return (
+        <Stroke>
+            <path d="M6.2 9.4 Q10.4 4.6 16.6 7.2 Q22.4 9.6 21.2 15.4 Q20.2 20.4 14.6 21.4 Q8.6 22.4 6.4 17.6" strokeWidth={1.9} />
+            <path d="M6.2 9.4 L4.2 7.2 M6.2 9.4 L9.2 8.2" strokeWidth={1.3} opacity={0.8} />
+            <path d="M11.4 24.6 Q15.6 27.4 20.4 25.4 Q24.6 23.6 26.4 20.2" strokeWidth={1.3} opacity={0.6} />
+            <circle cx="18.6" cy="11.4" r="1.1" fill="currentColor" stroke="none" opacity={0.75} />
+            <circle cx="12.6" cy="15.6" r="0.9" fill="currentColor" stroke="none" opacity={0.5} />
+        </Stroke>
+    );
+}
+
+function YunxiuIcon() {
+    // 云岫 — 一团云上垂下引雷针：云头 + 一根针 + 一点电花
+    return (
+        <Stroke>
+            <path d="M6.4 10.6 Q6.2 6.6 10.2 5.6 Q12.4 3.2 15.6 4.6 Q19.6 3.8 21.2 7.4 Q24.6 8.2 24.2 11.6 Q23.6 14.4 20.2 14.2 L8.4 14.2 Q5.6 14.4 6.4 10.6 Z" strokeWidth={1.6} />
+            <path d="M15.4 16.4 L15.4 25.4 M13.2 23.6 L15.4 27.6 L17.6 23.6" strokeWidth={1.9} />
+            <path d="M10.6 18.4 L8.6 21.4 L11.2 21.4 L9.6 24.4" strokeWidth={1.3} opacity={0.72} />
+            <path d="M20.4 18.4 L22.4 21.4 L19.8 21.4 L21.4 24.4" strokeWidth={1.3} opacity={0.72} />
+            <circle cx="15.4" cy="15.6" r="1.1" fill="currentColor" stroke="none" opacity={0.7} />
+        </Stroke>
+    );
+}
+
+function TingyuanIcon() {
+    // 霆渊 — 一道折雷劈进深渊：云头 + 锯齿电光 + 底下旋涡
+    return (
+        <Stroke>
+            <path d="M7.4 6.6 Q10.4 4.2 13.6 6.2 Q17.4 4.4 20.6 6.8" strokeWidth={1.5} opacity={0.75} />
+            <path d="M15.6 8.2 L10.4 16.6 L14.6 16.6 L9.2 25.4" strokeWidth={2} />
+            <path d="M18.4 12.6 L15.4 17.4 L18.6 17.4 L15.8 22.2" strokeWidth={1.3} opacity={0.7} />
+            <path d="M6.2 27.4 Q12.4 24.2 19.4 27.4 Q24.2 29.4 27.8 27" strokeWidth={1.3} opacity={0.6} />
+            <circle cx="21.6" cy="9.4" r="1.1" fill="currentColor" stroke="none" opacity={0.7} />
+        </Stroke>
+    );
+}
+
 function JiangtaigongIcon() {
     // 姜太公 — 一竿垂进水里：斜钓竿 + 垂线 + 鱼钩 + 水面两圈涟漪
     return (
@@ -736,6 +801,7 @@ const iconMap: Record<string, () => JSX.Element> = {
     zhenyue: () => <ChenyuanIcon />,
     daier: () => <DaiIcon />,
     yousun: () => <YoujunIcon />,
+    xuanyuan: () => <XuanyuanIcon />,
     xubai: () => <XubaiIcon />,
     wangshu: () => <WangshuIcon />,
     lingxi: () => <LingxiIcon />,
@@ -749,6 +815,10 @@ const iconMap: Record<string, () => JSX.Element> = {
     xihuan: () => <XihuanIcon />,
     duosui: () => <DuosuiIcon />,
     jiangtaigong: () => <JiangtaigongIcon />,
+    tingyuan: () => <TingyuanIcon />,
+    aoyuan: () => <AoyuanIcon />,
+    yunxiu: () => <YunxiuIcon />,
+    daizong: () => <DaizongIcon />,
 };
 
 /** 已拥有专属线性图标的英雄模板 id；新增英雄必须补一个，否则测试会拦住通用兜底图标 */

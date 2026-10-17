@@ -7,6 +7,7 @@ import { zhizhiValue } from './hero-zhizhi';
 import { DamageCalculator } from './damage-calculator';
 import { markYoujunKnifeSpot, processWindBladeEntry } from './wind-blade';
 import { triggerHookBite } from './water-marsh';
+import { isXuanyuan, getXuanyuanMovePlans } from './xuanyuan-form';
 
 /**
  * 移动范围计算选项。
@@ -64,6 +65,18 @@ export class MovementSystem {
         options?: MoveOptions
     ): Position[] {
         if (!hero.position) return [];
+
+        // 轩辕神君：不走曼哈顿逐格走，而是象棋式跳法（普通态象走田、昭神态 G 型外圈）。
+        // 技能位移/指定范围的外部移动（rangeOverride、skillMovement）不抢道，强制位移照常；
+        // 束缚格仍钳制落点（跳得再远也飞不出罩子）
+        if (rangeOverride === undefined && !options?.skillMovement && isXuanyuan(hero)) {
+            const jumpZoneCells = options?.ignoreBindingZone
+                ? null
+                : this.getBindingZoneCells(hero, gameState);
+            return getXuanyuanMovePlans(hero, gameState)
+                .filter(plan => !jumpZoneCells || jumpZoneCells.has(this.posToKey(plan.to)))
+                .map(plan => plan.to);
+        }
 
         const start = hero.position;
         const movablePositions: Position[] = [];
@@ -158,6 +171,15 @@ export class MovementSystem {
      */
     static getMovePath(hero: Hero, to: Position, gameState: GameState): Position[] {
         if (!hero.position || !this.inBounds(to)) return [];
+
+        // 轩辕神君：落点与沿途格由形态形状直接给出（象眼 / G 外圈走过的格），BFS 不适用
+        if (isXuanyuan(hero)) {
+            const plan = getXuanyuanMovePlans(hero, gameState).find(
+                item => item.to[0] === to[0] && item.to[1] === to[1]
+            );
+            return plan ? plan.path : [];
+        }
+
         const start = hero.position;
         const queue: Position[] = [start];
         const visited = new Set<string>([this.posToKey(start)]);

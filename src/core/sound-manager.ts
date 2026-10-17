@@ -11,6 +11,7 @@ import { audioManager } from '../audio/audio-manager';
 import { MATERIAL_SOUND_DESIGNS, MATERIAL_SOUND_FILES, materialSoundId, planSkillSoundCues, type SkillSoundCue } from './skill-sound-cues';
 import type { SkillFxEvent } from './skill-fx';
 import { getSkillSound } from '../data/skill-sounds';
+import { isYunxiuCloudFx } from './yunxiu-cloud-fx';
 
 export type SoundName =
     | 'slash'
@@ -181,6 +182,7 @@ export class SoundManager {
         nodes: Array<{ source: AudioBufferSourceNode; gain: GainNode }>;
     }>();
     private visibilityListening = false;
+    private delayedSkillTimers = new Map<number, ReturnType<typeof setTimeout>>();
     private materialBus: { context: AudioContext; node: DynamicsCompressorNode } | null = null;
 
     private getMaterialBus(context: AudioContext): DynamicsCompressorNode {
@@ -220,6 +222,16 @@ export class SoundManager {
         }
         if (typeof document !== 'undefined' && document.hidden) return;
         if (!materialSoundId(event)) {
+            const cloudStrike = isYunxiuCloudFx(event.profile.kind);
+            if (cloudStrike && !(event.damagePositions ?? event.impactPositions)?.length) return;
+            const delay = event.bornAt + (cloudStrike ? event.profile.impactMs ?? 320 : 0) - Date.now();
+            if (delay > 0) {
+                if (!this.delayedSkillTimers.has(event.id)) this.delayedSkillTimers.set(event.id, setTimeout(() => {
+                    this.delayedSkillTimers.delete(event.id);
+                    this.playSkillFx(event);
+                }, delay));
+                return;
+            }
             this.playSkill(event.skillId, getSkillSound(event.skillId));
             return;
         }
@@ -273,6 +285,8 @@ export class SoundManager {
     }
 
     cancelSkillFx(id: number): void {
+        const timer = this.delayedSkillTimers.get(id);
+        if (timer !== undefined) { clearTimeout(timer); this.delayedSkillTimers.delete(id); }
         const voice = this.skillVoices.get(id);
         if (!voice) return;
         voice.canceled = true;
@@ -290,10 +304,12 @@ export class SoundManager {
     }
 
     retainSkillFx(ids: Set<number>): void {
+        for (const id of this.delayedSkillTimers.keys()) if (!ids.has(id)) this.cancelSkillFx(id);
         for (const id of this.skillVoices.keys()) if (!ids.has(id)) this.cancelSkillFx(id);
     }
 
     cancelSkillSounds(): void {
+        for (const id of this.delayedSkillTimers.keys()) this.cancelSkillFx(id);
         for (const id of this.skillVoices.keys()) this.cancelSkillFx(id);
     }
 

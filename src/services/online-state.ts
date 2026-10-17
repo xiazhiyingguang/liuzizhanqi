@@ -2,6 +2,7 @@ import { useGameStore } from '../store/game-store';
 import { collectFormShiftLogIds } from '../core/mechanism-fx-events';
 import {
     collectImpactPositions,
+    primarySkillFxLogs,
     computeFxAngleDeg,
     computeFxDirection,
     computeSkillAreaBounds,
@@ -239,8 +240,7 @@ export function commitOnlineCastReplay(replay: OnlineCastReplay | null): void {
         : shatteredFrozen
         ? (SKILL_FX_PROFILES.feixue_shatter ?? resolveSkillFx(replay.skillId))
         : resolveSkillFx(replay.skillId);
-    const ownLogs = freshLogs.filter(entry => !entry.details?.skillFxRequest &&
-        (!entry.details?.sourceHeroId || entry.details.sourceHeroId === replay.sourceHeroId));
+    const ownLogs = primarySkillFxLogs(freshLogs, replay.sourceHeroId);
     const impacts = collectImpactPositions(ownLogs, targetPos);
     const coveredPositions = extras?.coveredPositions?.length ? extras.coveredPositions
         : shatteredFrozen ? [targetPos, ...MovementSystem.getAreaPositions(targetPos, 3)]

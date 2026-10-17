@@ -11,6 +11,8 @@ import {
 } from '../../core/hero-status-presentation';
 import { DamageCalculator } from '../../core/damage-calculator';
 import HeroAvatar from '../ui/HeroAvatar';
+import StatusGlyph from './StatusGlyph';
+import { resolveCounterGlyphId, resolveEffectGlyphId, statusGlyphTone, STAT_GLYPH, type StatusGlyphId } from '../../core/hero-status-icons';
 import { MOBILE_LAYOUT_QUERY } from '../../hooks/useMobileLayout';
 
 type Placement = 'right' | 'auto-vertical';
@@ -31,9 +33,9 @@ interface PopoverPosition {
     maxHeight?: number;
 }
 
-const POPOVER_WIDTH = 320;
+const POPOVER_WIDTH = 344;
 /** 卡片高度预算（含内边距），用于把卡片钳制在视口内 */
-const POPOVER_HEIGHT_BUDGET = 420;
+const POPOVER_HEIGHT_BUDGET = 470;
 const EDGE_GAP = 12;
 const CLOSE_GRACE_MS = 260;
 /** 长按唤出状态卡片的判定时长：碰得比这更短只当作普通点选，避免走位误触弹出卡片 */
@@ -83,7 +85,7 @@ export default function HeroStatusPopover({
             const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
             const width = viewport?.width ?? window.innerWidth, height = viewport?.height ?? window.innerHeight;
             const panelWidth = Math.min(POPOVER_WIDTH, width - EDGE_GAP * 2);
-            const maxHeight = Math.min(460, height - EDGE_GAP * 2);
+            const maxHeight = Math.min(POPOVER_HEIGHT_BUDGET, height - EDGE_GAP * 2);
             const panelHeight = Math.min(popoverRef.current?.scrollHeight ?? POPOVER_HEIGHT_BUDGET, maxHeight);
             const below = rect.bottom + 10;
             const desiredTop = below + panelHeight <= top + height - EDGE_GAP ? below : rect.top - panelHeight - 10;
@@ -181,13 +183,11 @@ export default function HeroStatusPopover({
     const isDead = hero.state === HeroState.DEAD;
     const isTempDead = hero.state === HeroState.TEMP_DEAD;
 
-    const statCells: Array<{ label: string; value: string }> = [
-        ...(hero.baseAttack !== undefined ? [{ label: '攻击', value: String(hero.baseAttack) }] : []),
-        { label: '防御', value: formatPercent(hero.defense) },
-        { label: '移动', value: `${hero.moveRange} 格` },
-        { label: '暴击率', value: formatPercent(critRate) },
-        { label: '暴伤', value: `+${critDamageBonus}%` },
-        { label: '击杀', value: String(hero.killCount) }
+    // 属性栏只留三项：攻击/移动/击杀在棋盘与战后统计里都看得到，卡片上把位置让给状态本身
+    const statCells: Array<{ label: string; value: string; glyph: StatusGlyphId }> = [
+        { label: '防御', value: formatPercent(hero.defense), glyph: STAT_GLYPH.defense },
+        { label: '暴击率', value: formatPercent(critRate), glyph: STAT_GLYPH.critRate },
+        { label: '暴伤', value: `+${critDamageBonus}%`, glyph: STAT_GLYPH.critDamage }
     ];
 
     return (
@@ -227,15 +227,15 @@ export default function HeroStatusPopover({
                     ref={popoverRef}
                     id={popoverId}
                     role="tooltip"
-                    className="hero-status-tooltip pointer-events-auto fixed z-[100] w-80 max-h-[460px] overflow-y-auto overscroll-contain rounded-xl border border-gold/25
+                    className="hero-status-tooltip pointer-events-auto fixed z-[100] max-h-[470px] overflow-y-auto overscroll-contain rounded-xl border border-gold/25
                         bg-[#f7f0df]/95 p-3.5 text-left shadow-[0_14px_42px_rgba(36,29,18,0.22)] backdrop-blur-md animate-fade-in"
                     onMouseEnter={clearTimer}
                     onMouseLeave={scheduleHide}
                     style={{
                         left: position.left,
                         top: position.top,
-                        width: position.width,
-                        maxHeight: position.maxHeight,
+                        width: position.width ?? POPOVER_WIDTH,
+                        maxHeight: position.maxHeight ?? POPOVER_HEIGHT_BUDGET,
                         transform: position.above ? 'translateY(-100%)' : undefined
                     }}
                 >
@@ -282,12 +282,18 @@ export default function HeroStatusPopover({
                         </div>
                     </div>
 
-                    {/* 属性网格 */}
-                    <div className="grid grid-cols-3 gap-1.5">
+                    {/* 属性栏：三项各自带字形，数字抬到主视觉尺寸 */}
+                    <div className="grid grid-cols-3 gap-2">
                         {statCells.map(stat => (
-                            <div key={stat.label} className="rounded-lg border border-ink/[0.06] bg-white/45 px-2 py-1.5 text-center">
-                                <div className="text-[9px] leading-tight text-ink-faint font-body">{stat.label}</div>
-                                <div className="mt-0.5 text-xs font-semibold tabular-nums text-ink font-body">{stat.value}</div>
+                            <div key={stat.label} className="rounded-lg border border-ink/[0.08] bg-white/55 px-1.5 py-2.5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
+                                <div className="flex items-center justify-center gap-1 text-[10px] leading-none text-ink-faint font-body">
+                                    <StatusGlyph id={stat.glyph} size={13} />
+                                    <span>{stat.label}</span>
+                                </div>
+                                <div className="mt-1.5 text-[17px] leading-none font-semibold tabular-nums text-ink font-body"
+                                    style={{ color: statusGlyphTone(stat.glyph) }}>
+                                    {stat.value}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -295,47 +301,50 @@ export default function HeroStatusPopover({
                     {/* 玩家向计数器（猎砂/天禄/破锋/财气等） */}
                     {counterEntries.length > 0 && (
                         <div className="mt-2.5 flex flex-wrap gap-1">
-                            {counterEntries.map(counter => (
-                                <span
-                                    key={counter.label}
-                                    className="rounded-full border border-gold/35 bg-gold/10 px-2 py-0.5 text-[10px] leading-none text-gold-dark font-body"
-                                >
-                                    {counter.label}{counter.displayValue ? ` ${counter.displayValue}` : ` ×${counter.value}`}
-                                </span>
-                            ))}
+                            {counterEntries.map(counter => {
+                                const glyph = resolveCounterGlyphId(counter.label);
+                                return (
+                                    <span
+                                        key={counter.label}
+                                        className="flex items-center gap-1 rounded-full border border-gold/35 bg-gold/10 px-2 py-0.5 text-[10px] leading-none text-gold-dark font-body"
+                                    >
+                                        <StatusGlyph id={glyph} size={12} />
+                                        {counter.label}{counter.displayValue ? ` ${counter.displayValue}` : ` ×${counter.value}`}
+                                    </span>
+                                );
+                            })}
                         </div>
                     )}
 
-                    {/* 状态效果列表（已合并去重） */}
+                    {/* 状态效果列表（已合并去重）：字形 + 同色状态名，颜色即类别 */}
                     {displayEffects.length > 0 ? (
                         <div className="mt-2.5 space-y-1.5">
-                            {displayEffects.map(effect => (
-                                <div key={effect.id} className="rounded-lg border border-ink/[0.07] bg-white/35 px-2.5 py-2">
-                                    <div className="flex items-start gap-2">
-                                        <span
-                                            className={`mt-px flex-shrink-0 rounded border px-1.5 py-px text-[9px] leading-none font-body ${EFFECT_BADGE_CLASS[effect.type]}`}
-                                        >
-                                            {effectTypeLabel(effect)}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-baseline justify-between gap-2">
-                                                <span className="font-body text-xs font-semibold text-ink">
-                                                    {effect.name}
-                                                    {(effect.stackCount ?? 1) > 1 ? ` ×${effect.stackCount}` : ''}
-                                                </span>
-                                                <span className="flex-shrink-0 text-[9px] text-gold-dark font-body">
-                                                    {effectDurationLabel(effect)}
-                                                </span>
-                                            </div>
-                                            {effect.description && (
-                                                <p className="mt-1 text-[10px] leading-4 text-ink-light font-body">
-                                                    {effect.description}
-                                                </p>
-                                            )}
+                            {displayEffects.map(effect => {
+                                const glyph = resolveEffectGlyphId(effect.name, effect.type);
+                                const tone = statusGlyphTone(glyph);
+                                return (
+                                    <div key={effect.id} className="rounded-lg border border-ink/[0.07] bg-white/40 px-2.5 py-2">
+                                        <div className="flex items-center gap-2">
+                                            <StatusGlyph id={glyph} size={18} />
+                                            <span className="min-w-0 flex-1 truncate font-body text-[13px] font-semibold" style={{ color: tone }}>
+                                                {effect.name}
+                                                {(effect.stackCount ?? 1) > 1 ? ` ×${effect.stackCount}` : ''}
+                                            </span>
+                                            <span className={`flex-shrink-0 rounded border px-1.5 py-px text-[9px] leading-none font-body ${EFFECT_BADGE_CLASS[effect.type]}`}>
+                                                {effectTypeLabel(effect)}
+                                            </span>
+                                            <span className="flex-shrink-0 text-[9px] text-gold-dark font-body">
+                                                {effectDurationLabel(effect)}
+                                            </span>
                                         </div>
+                                        {effect.description && (
+                                            <p className="mt-1 pl-[26px] text-[10px] leading-4 text-ink-light font-body">
+                                                {effect.description}
+                                            </p>
+                                        )}
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     ) : (
                         <p className="mt-2.5 rounded-lg border border-dashed border-ink/10 bg-white/25 px-2.5 py-2 text-center text-[10px] text-ink-faint font-body">

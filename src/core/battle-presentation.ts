@@ -176,7 +176,7 @@ export function getTurnOperatorLabel(
     return `${playerLabel}（${currentPlayer === localPlayer ? '你' : '对手'}）`;
 }
 
-export type KillAnnouncementTier = 1 | 2 | 3 | 4;
+export type KillAnnouncementTier = 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface KillAnnouncement {
     id: string;
@@ -193,12 +193,19 @@ const KILL_TIER_COPY: Record<KillAnnouncementTier, Pick<KillAnnouncement, 'title
     1: { title: '首破', eyebrow: 'FIRST BLOOD' },
     2: { title: '二连击破', eyebrow: 'DOUBLE KILL' },
     3: { title: '三连决胜', eyebrow: 'TRIPLE KILL' },
-    4: { title: '四连超凡', eyebrow: 'QUADRA KILL' }
+    4: { title: '四连超凡', eyebrow: 'QUADRA KILL' },
+    // 每方 6 名英雄（4 上阵 + 2 替补），所以 6 杀在规则上就是"把对面整队清空"
+    5: { title: '五连无双', eyebrow: 'PENTA KILL' },
+    6: { title: '六连灭队', eyebrow: 'HEXAKILL' }
 };
+
+/** 全部连杀档位，横幅上的战功菱形数与最高档都取自这里，加档位只改这一处 */
+export const KILL_ANNOUNCEMENT_TIERS: KillAnnouncementTier[] = [1, 2, 3, 4, 5, 6];
 
 export function getKillAnnouncementTier(killCount: number): KillAnnouncementTier {
     if (!Number.isFinite(killCount)) return 1;
-    return Math.min(4, Math.max(1, Math.floor(killCount))) as KillAnnouncementTier;
+    const top = KILL_ANNOUNCEMENT_TIERS[KILL_ANNOUNCEMENT_TIERS.length - 1];
+    return Math.min(top, Math.max(1, Math.floor(killCount))) as KillAnnouncementTier;
 }
 
 export function getLatestKillAnnouncement(battleLog: BattleLogEntry[]): KillAnnouncement | null {

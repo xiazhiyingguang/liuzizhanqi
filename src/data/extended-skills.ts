@@ -26,9 +26,64 @@ import { DamageCalculator } from '../core/damage-calculator';
 import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
 import { MovementSystem } from '../core/movement-system';
+import { dragonDashTiming } from '../core/dragon-sweep-fx';
 import { WindLaneDirection, createWindLane, windLaneAxis, windLaneDirectionFromCode } from '../core/wind-lane';
 import { applyRage } from '../core/taunt';
+import {
+    DASH_DAMAGE,
+    DASH_DISTANCE,
+    advanceDragon,
+    attachDragon,
+    dragonDashDistance,
+    dragonDashPath,
+    dragonSummonCells,
+    dragonVictimsOnCells,
+    dragonStrike,
+    hasDragon,
+    markDragonOrbitedThisAction,
+    orbitCell,
+    scaledDragonDamage,
+} from '../core/dragon-orbit';
+import {
+    DIR_LABEL,
+    clearStance,
+    directionFromCell,
+    hasStance,
+    mountainPressure,
+    releaseMountainPressure,
+    setStance,
+    stanceDirection,
+} from '../core/mountain-stance';
+import {
+    TINGYUAN_HIT_DAMAGE,
+    applyChainMark,
+    applyThunderMark,
+    chainDamageFor,
+    chainMarkedEnemies,
+    hasChainMark,
+    thunderMarkedEnemies,
+} from '../core/chain-lightning';
 import { markYoujunKnifeSpot, placeWindBlade, retractWindBladesOnCells, WIND_BLADE_DAMAGE, youjunDashMaxDistance } from '../core/wind-blade';
+import {
+    addSwordMitigation,
+    attachSwordToAlly,
+    findFlyingSwordAt,
+    findNearestAllyForSword,
+    getDiagonalSwords,
+    getFlyingSwords,
+    placeFlyingSword,
+    removeFlyingSword,
+    SWORD_MITIGATION_PER_STACK,
+} from '../core/flying-sword';
+import {
+    getGMovePlans,
+    getLeapsUsed,
+    getXiangMovePlans,
+    isZhaoShen,
+    setLeapsUsed,
+    XUANYUAN_LEAP_MAX,
+    type MovePlan,
+} from '../core/xuanyuan-form';
 import { BOARD_SIZE, BoardEffect, Effect, GameState, Hero, HeroState, Player, Position, Skill, SkillExecuteResult } from '../types/game';
 import {
     addHeroToOwnerList,
@@ -68,6 +123,14 @@ import { applyHeroWeapon, createHero } from './heroes';
 import { applyWeaponOnArrival } from '../core/weapon-effects';
 import { applyZhizhiForMode, hasZhizhi, zhizhiValue } from '../core/hero-zhizhi';
 import { advanceWangshuPhase, getWangshuAllies, getWangshuMultiplier, getWangshuPhase, WANGSHU_PHASE_NAMES } from '../core/wangshu';
+import {
+    cloudAnchorCells,
+    placeCloud,
+    placeRod,
+    applyParalysis,
+    ROD_DAMAGE,
+    strikeCloud,
+} from '../core/thunder-cloud';
 
 function result(log: string[] = []): SkillExecuteResult {
     return { success: true, damageDealt: [], healingDone: [], effectsApplied: [], log };
@@ -187,8 +250,8 @@ export const skeletonkingSkill2: Skill = {
     execute: (caster, targets, gameState) => {
         const target = targets[0];
         if (!target) return fail('没有可攻击目标');
-        // 致知3：亡灵共鸣的系数 1 → 3
-        const base = 7 + resonanceCount(caster.owner, gameState) * zhizhiValue(caster, 3, 1, 3);
+        // 致知3：亡灵共鸣的系数 1 → 2
+        const base = 7 + resonanceCount(caster.owner, gameState) * zhizhiValue(caster, 3, 1, 2);
         const damage = damageOne(caster, target, base, gameState, false, false, true);
         const output = result([`${caster.name}造成${damage.finalDamage}点伤害`]);
         output.damageDealt?.push(damage.finalDamage);
@@ -2026,6 +2089,39 @@ export const SHANGGUAN_BRUSH_LIFETIME = 3;
 
 /** 上官婉儿毛笔落下/经过格子的固定伤害（策划案 2026-09 上调为 9） */
 export const SHANGGUAN_BRUSH_DAMAGE = 9;
+/** 墨意换算：每满3层凝1次闪避，闪避最多存2次 */
+export const SHANGGUAN_MOYI_PER_DODGE = 3;
+export const SHANGGUAN_DODGE_MAX = 2;
+/** 致知3 的加成上限对应的墨意层数（每层5%，封顶30%） */
+export const SHANGGUAN_MOYI_DAMAGE_CAP_STACKS = 6;
+
+/**
+ * 墨意→闪避的唯一换算口（被动与天威都走这里，别在调用点各写一遍）。
+ * 闪避封顶2次时**不转化**，墨意继续往上攒——这正是致知3 能吃满30%的来源。
+ */
+export function gainShangguanMoyi(hero: Hero, amount: number): { moyi: number; gainedDodges: number } {
+    EffectManager.addCounter(hero, '墨意', amount);
+    let moyi = EffectManager.getCounter(hero, '墨意') ?? 0;
+    let gainedDodges = 0;
+    while (moyi >= SHANGGUAN_MOYI_PER_DODGE
+        && (EffectManager.getCounter(hero, '闪避') ?? 0) < SHANGGUAN_DODGE_MAX) {
+        moyi -= SHANGGUAN_MOYI_PER_DODGE;
+        EffectManager.addCounter(hero, '闪避', 1);
+        gainedDodges++;
+    }
+    EffectManager.setCounter(hero, '墨意', moyi);
+    return { moyi, gainedDodges };
+}
+
+/**
+ * 致知3「墨渖未干」：每层墨意为婉儿的技能伤害提升5%，最多6层=30%。
+ * 读的是这一击命中前已有的层数（墨意是在伤害结算之后才+1的，所以本击不吃自己的层数）。
+ */
+export function shangguanSkillDamage(hero: Hero, base: number): number {
+    if (!hasZhizhi(hero, 3)) return base;
+    const moyi = Math.min(SHANGGUAN_MOYI_DAMAGE_CAP_STACKS, EffectManager.getCounter(hero, '墨意') ?? 0);
+    return Math.floor(base * (1 + 0.05 * moyi));
+}
 
 /** 查找指定格子上的毛笔（上官婉儿的棋盘效果） */
 export function findBrushAt(gameState: GameState, row: number, col: number): BoardEffect | undefined {
@@ -2179,8 +2275,8 @@ export function performShangguanDashSegment(
             const dmg = DamageCalculator.calculate(
                 caster,
                 enemy,
-                // 致知2：每段冲刺 6 → 8 点固定伤害
-                zhizhiValue(caster, 2, 6, 8),
+                // 致知2：每段冲刺 6 → 8 点固定伤害；致知3：再按当前墨意层数放大
+                shangguanSkillDamage(caster, zhizhiValue(caster, 2, 6, 8)),
                 false,
                 false,
                 { fixedDamage: true, canCrit: false }
@@ -2260,12 +2356,12 @@ export const shangguanSkill1: Skill = {
         }
 
         const output = result();
-        // 落在敌方英雄身上：立即造成9点固定伤害（不可闪避）
+        // 落在敌方英雄身上：立即造成9点固定伤害（不可闪避；致知3 按墨意层数放大）
         if (occupant && occupant.owner !== caster.owner && occupant.state === HeroState.ALIVE) {
             const dmg = DamageCalculator.calculate(
                 caster,
                 occupant,
-                SHANGGUAN_BRUSH_DAMAGE,
+                shangguanSkillDamage(caster, SHANGGUAN_BRUSH_DAMAGE),
                 false,
                 false,
                 { fixedDamage: true, canCrit: false }
@@ -2955,6 +3051,9 @@ export interface PendingSkillFxRequest {
     /** 区域层包围盒：火墙这类"铺满整条射线"的特效需要它才能画出整面 */
     areaBounds?: SkillAreaBounds;
     sourceHeroId?: string;
+    startDelayMs?: number;
+    dragonStartDeg?: number;
+    dragonContactsOnly?: boolean;
     logIds?: string[];
     /**
      * 逐格上报的恢复段（攻击附带治疗、潮汐回血一类）：一次结算里会有 N 条，
@@ -5472,7 +5571,7 @@ export const duosuiSkill2: Skill = {
  * 羲和：把一片友方的"百分比血量"抹平，从富的人身上抽走的那部分记作「盈光」。
  * 盈光只涨不跌（只保留历史上最大的一次交换量），技能二按它照人一回，溢出转护盾。
  */
-export const XIHUAN_LEVEL_RANGE = 2;
+export const XIHUAN_LEVEL_SIZE = 3;   // 均光的拉平面：以她自己为圆心的 3×3（含四个斜角）
 /** 均光的残血补量：每名"低于自身最大生命50%"的友方各多吃一口（致知二 6 → 8） */
 export const XIHUAN_LOW_HEAL = 6;
 export const XIHUAN_LOW_HEAL_TALENT = 8;
@@ -5480,16 +5579,9 @@ export const XIHUAN_PASSIVE_HEAL = 5;
 /** 玩家可见的资源计数器（中文键会自动进状态面板，见 hero-status-presentation） */
 export const XIHUAN_SURPLUS_KEY = '盈光';
 
-/** 以羲和为圆心、左右上下各 2 格的十字（含她自己脚下） */
-function xihuanCrossCells(center: Position): Position[] {
-    const cells: Position[] = [[center[0], center[1]]];
-    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
-        for (let step = 1; step <= XIHUAN_LEVEL_RANGE; step++) {
-            const cell: Position = [center[0] + dr * step, center[1] + dc * step];
-            if (MovementSystem.inBounds(cell)) cells.push(cell);
-        }
-    }
-    return cells;
+/** 以羲和为圆心的 3×3（含她自己脚下那格）；getAreaPositions 不含圆心，这里补上 */
+function xihuanLevelCells(center: Position): Position[] {
+    return [center, ...MovementSystem.getAreaPositions(center, XIHUAN_LEVEL_SIZE)];
 }
 
 /** 站在格子上的存活友方（只认棋盘上真实的那个人，避免幽灵单位） */
@@ -5524,7 +5616,7 @@ export const xihuanSkill1: Skill = {
     id: 'xihuan_skill1',
     name: '均光',
     type: 'heal',
-    description: '拉平自身两格十字范围内所有友方（包括自己）的百分比血量；拉平前每有一名低于自身最大生命50%的友方，拉平后再为其恢复6点生命。本次从友方身上抽走的生命总量记为「盈光」，盈光只保留最大值',
+    description: '拉平自身周围 3×3 范围内所有友方（包括自己）的百分比血量；拉平前每有一名低于自身最大生命50%的友方，拉平后再为其恢复6点生命。本次从友方身上抽走的生命总量记为「盈光」，盈光只保留最大值',
     rangeType: 'single',
     range: 0,
     targetType: 'self',
@@ -5533,8 +5625,8 @@ export const xihuanSkill1: Skill = {
     execute: (caster, _targets, gameState) => {
         if (!caster.position) return fail('羲和不在场上');
         const logIdsBefore = new Set(gameState.battleLog.map(log => log.id));
-        const allies = alliesOnCells(caster, xihuanCrossCells(caster.position), gameState);
-        if (allies.length < 2) return fail('十字两格内需要至少另一名友方才能均光');
+        const allies = alliesOnCells(caster, xihuanLevelCells(caster.position), gameState);
+        if (allies.length < 2) return fail('周围 3×3 内需要至少另一名友方才能均光');
         const wounded = allies.filter(ally => ally.currentHp < ally.maxHp * 0.5);
 
         const averageRatio = allies.reduce((sum, ally) => sum + ally.currentHp / ally.maxHp, 0) / allies.length;
@@ -5804,7 +5896,569 @@ export const jiangtaigongSkill2: Skill = {
     },
 };
 
+/**
+ * 霆渊·技能一「引雷」：天雷不认人，只认运气——全场随机劈中一名敌人。
+ * 先打完再挂印：这一记本身不带传导，雷印是留给技能二的账。
+ */
+export const tingyuanSkill1: Skill = {
+    id: 'tingyuan_skill1',
+    name: '引雷',
+    type: 'damage',
+    description: '随机劈中全场一名敌人造成10点伤害（致知二12），雷落之后在其身上留下「引雷印」（3回合）与「链式闪电」（2回合），皆可刷新不可叠加',
+    rangeType: '全场',
+    range: 6,
+    targetType: 'enemy',
+    targetCount: 'random',
+    execute: (caster, targets, gameState) => {
+        // 玩家点中的那一格只是"我要出手"的锚点，真正挨劈的人要在全场存活敌人里重摇。
+        // 绝不能直接用 targets[0]：selectTargets 的候选集就是点击格上那一个人，
+        // 随机在只有一个候选时必然退化成"点谁劈谁"，等于把这套设计的运气成分抹掉。
+        const target = randomLivingHero(getEnemies(caster, gameState)) ?? targets[0] ?? null;
+        if (!target) return fail('场上没有敌人');
+        const damage = damageOne(caster, target, zhizhiValue(caster, 2, TINGYUAN_HIT_DAMAGE, 12), gameState);
+        const output = result([`${caster.name}引雷劈中${target.name}，打下引雷印与链式闪电`]);
+        output.damageDealt?.push(damage.finalDamage);
+        // 人已经被劈死了，印就随这具身体散了——别把雷印挂在尸体上等人复活白捡
+        if (target.state === HeroState.ALIVE && target.position) {
+            applyThunderMark(target, caster.id);
+            applyChainMark(target, caster.id);
+        } else {
+            output.log = [`${caster.name}引雷劈死了${target.name}`];
+        }
+        output.fxCoveredPositions = target.position ? [[...target.position] as Position] : [];
+        // 随机落雷的雷光要跟着真victim走，而不是玩家随手点中的那格
+        gameState.skillFxExtras = { targetPos: target.position ? [...target.position] as Position : undefined };
+        return output;
+    },
+};
+
+/**
+ * 霆渊·技能二「万雷朝宗」：把全场带「引雷印」的人一起点名，
+ * 其中带「链式闪电」的每一个都跳出一轮传导——传导只打带链者、只跳一层不再引爆。
+ */
+export const tingyuanSkill2: Skill = {
+    id: 'tingyuan_skill2',
+    name: '万雷朝宗',
+    type: 'damage',
+    description: '对全场所有带「引雷印」的敌人各造成10点伤害；其中带「链式闪电」的每人都跳出一轮传导，对所有带链者造成1+本次命中的引雷印数量点伤害（只跳一层）',
+    rangeType: '全场',
+    range: 6,
+    targetType: 'enemy',
+    targetCount: 'all',
+    execute: (caster, _targets, gameState) => {
+        const struck = thunderMarkedEnemies(gameState, caster);
+        if (!struck.length) return fail('场上没有引雷印，万雷找不到靶子');
+        const carriers = chainMarkedEnemies(gameState, caster);
+        const chainDamage = chainDamageFor(struck.length);
+        const output = result();
+        let waves = 0;
+        DamageCalculator.asOneAttack(() => {
+            for (const target of struck) {
+                // 名单是出手那一刻的快照：反伤/死亡连锁可能已经带走前面的人，别补刀尸体
+                if (target.state !== HeroState.ALIVE) continue;
+                const damage = damageOne(caster, target, TINGYUAN_HIT_DAMAGE, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+                // 只有真的打到他身上、且他带着链，才牵得动一轮传导
+                if (damage.finalDamage > 0 && hasChainMark(target, caster.id)) waves++;
+            }
+            for (let wave = 0; wave < waves; wave++) {
+                for (const carrier of carriers) {
+                    if (carrier.state !== HeroState.ALIVE) continue;
+                    const spread = damageOne(caster, carrier, chainDamage, gameState, true);
+                    output.damageDealt?.push(spread.finalDamage);
+                }
+            }
+        });
+        const spreadCells = [...new Set([...struck, ...carriers])].filter(hero => hero.position);
+        output.log = [waves > 0
+            ? `${caster.name}引万雷朝宗，${struck.length}道引雷印同时落雷，${waves}道雷链在两回合内互跳传导，每跳${chainDamage}点`
+            : `${caster.name}引万雷朝宗，${struck.length}道引雷印同时落雷，只是链式闪电已经散了`];
+        output.fxCoveredPositions = spreadCells.map(hero => [...hero.position!] as Position);
+        // 电光是从主目标格开始一跳一跳串过去的，链路顺序按雷落下的格序
+        const [headCell, ...tailCells] = output.fxCoveredPositions ?? [];
+        gameState.skillFxExtras = {
+            targetPos: headCell,
+            chainLinks: tailCells.length ? tailCells : undefined,
+        };
+        return output;
+    },
+};
+
+/**
+ * 敖渊·技能一「唤龙·盘云」：在自身周围一格唤出不占格的游龙，
+ * 召唤那一下对游龙所在格的十字范围敌人打一发；此后每次行动结束由引擎推着它顺时针扫半圈。
+ */
+export const aoyuanSkill1: Skill = {
+    id: 'aoyuan_skill1',
+    name: '唤龙·盘云',
+    type: 'damage',
+    description: '在自身周围一格内选一空格唤出「游龙」（持续2回合，绕身盘旋、不占格）：召唤时对游龙所在格的十字范围敌人造成4点伤害。此后自己每次行动结束，游龙顺时针扫过半圈（含起点共5格）并对路径上的敌人造成4点伤害；游龙每次造成伤害，自己获得1层「龙鳞」',
+    rangeType: 'single',
+    range: 1,
+    targetType: 'empty',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('敖渊不在场上');
+        const cell = encodedTarget(caster);
+        if (!cell) return fail('未选择唤龙的位置');
+        if (!dragonSummonCells(gameState, caster).some(
+            spot => spot[0] === cell[0] && spot[1] === cell[1])) {
+            return fail('游龙只能落在自身周围一格的空格里');
+        }
+        attachDragon(caster, cell);
+        const output = result([`${caster.name}唤出游龙，龙影盘在(${cell[0] + 1},${cell[1] + 1})`]);
+        const cross: Position[] = [cell, ...MovementSystem.getCrossPositions(cell)];
+        const hits = dragonStrike(gameState, caster, cross, output.log);
+        if (hits === 0) output.log.push('十字范围内没有敌人，龙影只是掠过水面');
+        // 特效格序按"召唤格外圈顺时针八格"排：龙首爬到第几格，第几格才炸。
+        // 伤害仍是十字四格（斜向那四格龙会经过、但扫不到人），别把两者混成一个数组。
+        output.fxCoveredPositions = Array.from({ length: 8 },
+            (_, index) => orbitCell(cell, index)).filter(
+            ([row, col]) => row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE);
+        gameState.skillFxExtras = { targetPos: [...cell] as Position,
+            dragonAction: { kind: 'summon', sourceHeroId: caster.id } };
+        return output;
+    },
+};
+
+/**
+ * 敖渊·技能二「乘龙·破浪」：沿一个方向冲刺最多3格（天威后4格），穿过路径上的敌人并各打8点。
+ * 游龙附着时，冲刺落地后立刻带龙扫半圈——这一圈就是本回合的那一次盘旋，
+ * 行动结束时不再重复推进，否则一次行动白得两圈。
+ */
+export const aoyuanSkill2: Skill = {
+    id: 'aoyuan_skill2',
+    name: '乘龙·破浪',
+    type: 'damage',
+    description: '选择上下左右一个方向，向该方向冲刺最多3格（天威后+1），对路径上的敌人造成8点伤害；若游龙附着自身，冲刺后游龙立刻顺时针扫过半圈（含起点共5格）再造成一轮4点伤害。游龙每次造成伤害同样叠「龙鳞」',
+    rangeType: 'line',
+    range: DASH_DISTANCE,
+    rangeFor: caster => dragonDashDistance(caster),
+    targetType: 'any',
+    targetCount: 'all',
+    execute: (caster, _targets, gameState) => {
+        const origin = caster.position;
+        if (!origin || caster.state !== HeroState.ALIVE) return fail('敖渊不在场上');
+        const clicked = encodedTarget(caster);
+        if (!clicked) return fail('未选择冲刺落点');
+        const direction = MovementSystem.getDirection(origin, clicked);
+        if (!direction) return fail('破浪必须沿上下左右之一的直线冲刺');
+        const reach = dragonDashDistance(caster);
+        const distance = MovementSystem.getManhattanDistance(origin, clicked);
+        if (distance < 1 || distance > reach) return fail(`这一头只能冲 1~${reach} 格`);
+        if (gameState.board[clicked[0]][clicked[1]] !== null) return fail('冲刺落点必须是空格');
+
+        const output = result();
+        const path = dragonDashPath(caster, clicked);
+        const pierced = dragonVictimsOnCells(gameState, caster, path);
+        const dashAmount = scaledDragonDamage(caster, DASH_DAMAGE);
+        DamageCalculator.asOneAttack(() => {
+            for (const victim of pierced) {
+                if (victim.state !== HeroState.ALIVE) continue;
+                const damage = DamageCalculator.calculate(caster, victim, dashAmount, false);
+                DamageCalculator.applyDamage(victim, damage, caster, gameState, true);
+            }
+        });
+        output.log.push(pierced.length > 0
+            ? `${caster.name}乘龙破浪，穿过${pierced.length}名敌人`
+            : `${caster.name}乘龙破浪，这一头扎进空处`);
+
+        // 手动落位：冲刺是直线穿人，普通寻路走不通，与游隼疾掠同一口径
+        gameState.board[origin[0]][origin[1]] = null;
+        gameState.board[clicked[0]][clicked[1]] = caster;
+        caster.position = [...clicked] as Position;
+        caster.hasMovedThisTurn = true;
+        DamageCalculator.applyDilanMovementDamage(caster, distance, gameState, caster.owner);
+
+        if (hasDragon(caster)) {
+            // 这一圈就是本回合的那一次盘旋：先记账，免得行动结束的钩子再推一遍
+            markDragonOrbitedThisAction(caster);
+            advanceDragon(gameState, caster, output.log, { startDelayMs: dragonDashTiming(distance).sweepDelayMs });
+        }
+        output.fxCoveredPositions = [...path, clicked];
+        gameState.skillFxExtras = {
+            fromPos: [...origin] as Position,
+            targetPos: [...clicked] as Position,
+        };
+        return output;
+    },
+};
+
+/**
+ * 云岫·技能一「布云·垂雷」：在两格十字范围内挑一处，铺开一团会自己挪窝的雷云。
+ * 落云当拍先炸一次；此后每回合开始由引擎推着它先移动、再落一次雷（见 thunder-cloud.ts）。
+ */
+export const yunxiuSkill1: Skill = {
+    id: 'yunxiu_skill1',
+    name: '布云·垂雷',
+    type: 'special',
+    description: '在自身两格十字范围内选一格，以它为中心铺开一团 3×3 雷云（存 3 回合）：落云当拍对云内敌人造成 4 点伤害（致知二 5），此后每回合开始雷云先随机挪一格、再落一次雷。被打中的敌人若带「链式闪电」，那条印续回 2 回合。每边场上最多 3 团雷云，第 4 团挤散最早的那团',
+    rangeType: 'cross',
+    range: 2,
+    targetType: 'any',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('云岫不在场上');
+        const cell = encodedTarget(caster);
+        if (!cell) return fail('未选择布云的位置');
+        if (!cloudAnchorCells(caster).some(
+            spot => spot[0] === cell[0] && spot[1] === cell[1])) {
+            return fail('雷云只能铺在自身两格十字范围内的位置上');
+        }
+        const output = result();
+        const cloud = placeCloud(gameState, caster, cell, output.log);
+        if (!cloud) return fail('这一格铺不出雷云');
+        output.log.push(`${caster.name}在(${cell[0] + 1},${cell[1] + 1})上空铺开一团雷云`);
+        // 落云当拍就炸一次：这一下是"云压下来"，不是"云走回来"，所以先手伤害要在这里
+        const hits = strikeCloud(gameState, cloud, output.log);
+        if (hits === 0) output.log.push('云下暂时没人，雷声只在云肚子里滚了一圈');
+        // 整团 3×3 云层由 ThunderCloudLayer 绘制；落雷在同一张区域 SVG 中指向真实命中格。
+        gameState.skillFxExtras = { targetPos: [...cell] as Position };
+        return output;
+    },
+};
+
+/**
+ * 云岫·技能二「引雷·落针」：一针刺在人身上，顺手在他脚下留一枚风向标——
+ * 下一拍她自己名下所有雷云都会朝这枚针挪一格，然后针作废。
+ */
+export const yunxiuSkill2: Skill = {
+    id: 'yunxiu_skill2',
+    name: '引雷·落针',
+    type: 'damage',
+    description: '攻击自身 5×5 范围内的一名敌人，造成 6 点伤害并施加 1 回合「麻痹」（麻痹期间无法触发天威）；同时在他脚下落一枚引雷针：下一次雷云移动时，云岫名下所有雷云都改朝这枚针挪一格，随后针消失',
+    rangeType: 'area',
+    range: 2,
+    areaSize: 5,
+    targetType: 'enemy',
+    targetCount: 1,
+    execute: (caster, targets, gameState) => {
+        const target = targets.find(hero => hero.state === HeroState.ALIVE && hero.position);
+        if (!target || !target.position) return fail('5×5 范围内没有可引的敌人');
+        const output = result();
+        const damage = damageOne(caster, target, ROD_DAMAGE, gameState, true);
+        output.damageDealt?.push(damage.finalDamage);
+        // 针是钉进人身上的东西：闪掉了也照样麻痹、照样落针，别让人白躲一手
+        applyParalysis(target, caster.id);
+        const [row, col] = target.position;
+        placeRod(gameState, caster, [row, col]);
+        output.log.push(`${caster.name}以引雷针刺中${target.name}，造成${damage.finalDamage}点伤害并使其麻痹`);
+        output.log.push(`引雷针落在(${row + 1},${col + 1})，下一拍她的雷云都会朝这里挪`);
+        output.fxCoveredPositions = [[row, col]];
+        gameState.skillFxExtras = { targetPos: [row, col] as Position };
+        return output;
+    },
+};
+
+/**
+ * 岱宗·技能一「镇岳守势」：挑一个方向摆开半区镇守。
+ * 姿态不产生伤害，价值全在"这一侧的队友挨的打都改由他吃"，所以走静态计分而不是模拟收益。
+ */
+export const daizongSkill1: Skill = {
+    id: 'daizong_skill1',
+    name: '镇岳守势',
+    type: 'special',
+    description: '面朝敌人来袭的方向摆开镇守（上下左右四选一）：以棋盘中线为界，他身后那半场里的友方被这一侧的敌人打中时，伤害全部由岱宗承受。镇守期间他把这一击硬挡下40%（致知二50%），叠上「不动如山」最高挡90%；挡下的份额记作「岳势」，剩下那部分才落在他身上。姿态一直维持到他移动或使用技能二',
+    rangeType: 'cross',
+    range: 1,
+    targetType: 'any',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        const origin = caster.position;
+        const clicked = encodedTarget(caster);
+        const direction = origin && clicked ? directionFromCell(origin, clicked) : null;
+        if (direction === null) return fail('镇守只能朝上下左右四个方向摆开');
+        if (hasStance(caster) && stanceDirection(caster) === direction) {
+            return fail('岱宗已经朝这一侧镇守');
+        }
+        setStance(caster, direction);
+        const output = result([
+            `${caster.name}面朝${DIR_LABEL[direction]}摆开镇守，这一侧的友方由他护住`,
+        ]);
+        output.fxCoveredPositions = [origin!];
+        gameState.skillFxExtras = { targetPos: [...origin!] as Position };
+        return output;
+    },
+};
+
+/**
+ * 岱宗·技能二「岳倾」：把攒下的岳势一次性砸回自身周围 3×3。
+ * 伤害就是池子本身（不吃攻击力），命中者再挂两回合「岳压」；这一用也解除镇守姿态。
+ */
+export const daizongSkill2: Skill = {
+    id: 'daizong_skill2',
+    name: '岳倾',
+    type: 'damage',
+    description: '把身上的「岳势」一次性砸向自身周围 3×3：对每个命中的敌人造成等量于岳势的伤害，并使其造成的伤害降低20%、持续两回合。用过后镇守姿态解除',
+    rangeType: 'area',
+    range: 1,
+    areaSize: 3,
+    targetType: 'enemy',
+    targetCount: 'all',
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('岱宗不在场上');
+        const stored = mountainPressure(caster);
+        if (stored <= 0) return fail('身上没有岳势，岱宗砸不出东西');
+        clearStance(caster);
+        const cells = MovementSystem.getAreaPositions(caster.position, 3);
+        const victims = releaseMountainPressure(gameState, caster, cells);
+        const output = result();
+        if (victims.length === 0) {
+            output.log = [`${caster.name}把${stored}点岳势砸进空气里`];
+            output.fxCoveredPositions = cells;
+            return output;
+        }
+        DamageCalculator.asOneAttack(() => {
+            for (const victim of victims) {
+                if (victim.state !== HeroState.ALIVE) continue;
+                const damage = DamageCalculator.calculate(caster, victim, stored, false);
+                DamageCalculator.applyDamage(victim, damage, caster, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+            }
+        });
+        output.log = [`${caster.name}岳倾而下，${stored}点岳势砸中${victims.length}名敌人`];
+        output.fxCoveredPositions = cells;
+        gameState.skillFxExtras = {
+            targetPos: [...caster.position] as Position,
+            empowered: stored >= 30,
+        };
+        return output;
+    },
+};
+
+/** 轩辕神君技能1的逐跳结算：沿途伤害 → 落位 → 落点周圈伤害 → 每个命中格留一把飞剑 */
+function xuanyuanLeapStrike(
+    caster: Hero,
+    plan: MovePlan,
+    pathDamage: number,
+    ringDamage: number,
+    gameState: GameState,
+    zhaoShen: boolean,
+    consumedSword: boolean
+): SkillExecuteResult {
+    const start = caster.position as Position;
+    const landing = plan.to;
+    const output = result();
+    const hitCells: Position[] = [];
+    const victimsOn = (cells: Position[]) => {
+        const seen = new Set<string>();
+        const list: Array<{ enemy: Hero; cell: Position }> = [];
+        for (const [r, c] of cells) {
+            const unit = gameState.board[r]?.[c];
+            if (!unit || unit.state !== HeroState.ALIVE || unit.owner === caster.owner) continue;
+            const key = `${r},${c}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            list.push({ enemy: unit, cell: [r, c] });
+        }
+        return list;
+    };
+
+    // 路径＝沿笔经过的格（象眼 / G 外圈走过的格）；落点在 path 里但永远为空
+    DamageCalculator.asOneAttack(() => {
+        for (const victim of victimsOn(plan.path)) {
+            const damage = damageOne(caster, victim.enemy, pathDamage, gameState, true);
+            output.damageDealt?.push(damage.finalDamage);
+            hitCells.push(victim.cell);
+        }
+    });
+
+    // 骑剑落位：这是技能自带的跳跃位移，不吃羽化逐格伤害
+    gameState.board[start[0]][start[1]] = null;
+    gameState.board[landing[0]][landing[1]] = caster;
+    caster.position = [landing[0], landing[1]];
+
+    const ringCells: Position[] = [];
+    for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const cell: Position = [landing[0] + dr, landing[1] + dc];
+            if (MovementSystem.inBounds(cell)) ringCells.push(cell);
+        }
+    }
+    DamageCalculator.asOneAttack(() => {
+        for (const victim of victimsOn(ringCells)) {
+            const damage = damageOne(caster, victim.enemy, ringDamage, gameState, true);
+            output.damageDealt?.push(damage.finalDamage);
+            hitCells.push(victim.cell);
+        }
+    });
+
+    // 每个命中过人的格子钉下一把飞剑（同一格重复命中只刷新）
+    for (const cell of hitCells) placeFlyingSword(gameState, caster, cell);
+
+    const totalDamage = (output.damageDealt ?? []).reduce((sum, amount) => sum + amount, 0);
+    const hitCount = new Set(hitCells.map(([r, c]) => `${r},${c}`)).size;
+    output.log.unshift(
+        `${caster.name}${zhaoShen ? '御剑跃击' : '象踏跃击'}落至(${landing[0] + 1},${landing[1] + 1})，命中${hitCount}个目标共${totalDamage}点伤害，场上钉下飞剑`
+    );
+    if (consumedSword) output.log.push('落点的飞剑被收入鞘中，随之消失');
+    output.fxCoveredPositions = [...plan.path, landing, ...ringCells];
+    return output;
+}
+
+/**
+ * 轩辕神君技能一「御剑·贯阵」：自带位移的命中落剑技。
+ * 普通态象走田（5/6），昭神态骑自己的剑沿 G 型外圈连跳（4/8，至多 3 跳，终点剑消失）。
+ */
+export const xuanyuanSkill1: Skill = {
+    id: 'xuanyuan_skill1',
+    name: '御剑·贯阵',
+    type: 'damage',
+    description: '普通形态：象走田斜跳两格（象眼有人也照跳），对沿途敌人造成5点伤害，落点后对周围一圈敌人造成6点伤害，每个命中目标所在格留下一把【飞剑】。昭神形态：沿G型跃向一把自己的飞剑所在格（那把剑消失），沿途造成4点、落点周围8点伤害并照样留剑，一次行动内至多连跳3次（可中途停下）',
+    rangeType: 'single',
+    range: 2,
+    targetType: 'any',
+    targetCount: 'all',
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('轩辕神君不在场上');
+        const clicked = encodedTarget(caster);
+        if (!clicked) return fail('未选择跃击落点');
+        const zhaoShen = isZhaoShen(caster);
+        const start = caster.position;
+        const leapMax = XUANYUAN_LEAP_MAX;
+
+        if (zhaoShen) {
+            const used = getLeapsUsed(caster);
+            if (used >= leapMax) return fail(`御剑连破一次行动至多连跳${leapMax}次`);
+            const plan = getGMovePlans(start).find(item => item.to[0] === clicked[0] && item.to[1] === clicked[1]);
+            if (!plan) return fail('御剑跃只能落在 G 型外圈的格子上');
+            if (gameState.board[clicked[0]][clicked[1]] !== null) return fail('跃击落点必须是空格');
+            const endpointSword = findFlyingSwordAt(gameState, clicked, caster.id);
+            if (!endpointSword) return fail('只能跃向站着自己【飞剑】的格子');
+            removeFlyingSword(gameState, endpointSword.id);
+            setLeapsUsed(caster, used + 1);
+            const output = xuanyuanLeapStrike(
+                caster,
+                plan,
+                zhizhiValue(caster, 1, 4, 5),
+                zhizhiValue(caster, 1, 8, 9),
+                gameState,
+                true,
+                true
+            );
+            output.log.unshift(`御剑连破第${used + 1}/${leapMax}跳`);
+            return output;
+        }
+
+        const plan = getXiangMovePlans(start).find(item => item.to[0] === clicked[0] && item.to[1] === clicked[1]);
+        if (!plan) return fail('象走田只能沿对角线跃两格');
+        if (gameState.board[clicked[0]][clicked[1]] !== null) return fail('跃击落点必须是空格');
+        return xuanyuanLeapStrike(
+            caster,
+            plan,
+            zhizhiValue(caster, 1, 5, 6),
+            zhizhiValue(caster, 1, 6, 7),
+            gameState,
+            false,
+            false
+        );
+    },
+};
+
+/**
+ * 轩辕神君技能二「御剑·归元」：飞剑换免伤盾。
+ * 普通态回收四斜角（每把换 10% 免伤，归途对所在格敌人 6 伤）；
+ * 昭神态全场飞剑各自飞向最近友方附着，等他下次出手前沿四主方向射出。
+ */
+export const xuanyuanSkill2: Skill = {
+    id: 'xuanyuan_skill2',
+    name: '御剑·归元',
+    type: 'buff',
+    description: '普通形态：回收周身四个斜方向上的所有【飞剑】，对所在格敌人造成6点伤害，每把回收的飞剑化作护盾（每把免伤10%，可叠加）。昭神形态：所有飞剑各自附着到离它最近的友方身上，每把化作10%免伤护盾；他下次出手前这些飞剑沿四个主方向射出1格，对敌人造成6点伤害（同格多把叠加），护盾随剑收回',
+    rangeType: 'single',
+    range: 0,
+    targetType: 'self',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('轩辕神君不在场上');
+        const output = result();
+        const perStack = zhizhiValue(caster, 3, SWORD_MITIGATION_PER_STACK, 0.12);
+        const shotDamage = zhizhiValue(caster, 2, 6, 7);
+
+        if (isZhaoShen(caster)) {
+            const swords = getFlyingSwords(gameState, caster.id);
+            if (swords.length === 0) return fail('场上没有可供召唤的飞剑');
+            const attachedByName = new Map<string, number>();
+            for (const sword of swords) {
+                const ally = findNearestAllyForSword(gameState, sword) ?? caster;
+                removeFlyingSword(gameState, sword.id);
+                addSwordMitigation(ally, 1, perStack);
+                attachSwordToAlly(ally, 1);
+                attachedByName.set(ally.name, (attachedByName.get(ally.name) ?? 0) + 1);
+            }
+            const detail = [...attachedByName.entries()].map(([name, count]) => `${name}×${count}`).join('、');
+            output.log.push(`${caster.name}召来${swords.length}把飞剑各寻其主（${detail}），御剑护身，待他下次出手前破空射出`);
+            output.fxCoveredPositions = swords.map(sword => [...sword.position] as Position);
+            return output;
+        }
+
+        const swords = getDiagonalSwords(gameState, caster);
+        if (swords.length === 0) return fail('周身四个斜方向没有可回收的飞剑');
+        let hitCount = 0;
+        let totalDamage = 0;
+        DamageCalculator.asOneAttack(() => {
+            for (const sword of swords) {
+                const occupant = gameState.board[sword.position[0]]?.[sword.position[1]];
+                if (occupant && occupant.state === HeroState.ALIVE && occupant.owner !== caster.owner) {
+                    const damage = damageOne(caster, occupant, shotDamage, gameState, true, false, false, { canCrit: false });
+                    output.damageDealt?.push(damage.finalDamage);
+                    totalDamage += damage.finalDamage;
+                    hitCount++;
+                }
+                removeFlyingSword(gameState, sword.id);
+            }
+        });
+        const mitigated = addSwordMitigation(caster, swords.length, perStack);
+        output.log.push(
+            `${caster.name}收回${swords.length}把飞剑${hitCount > 0 ? `，归途剑气命中${hitCount}名敌人共${totalDamage}点伤害` : ''}，御剑护身：受到的伤害降低${Math.round(mitigated * 100)}%`
+        );
+        output.fxCoveredPositions = swords.map(sword => [...sword.position] as Position);
+        return output;
+    },
+};
+
+/**
+ * AI 御剑连跳的直估：这一跳能挨多少点伤害（只数人头不跑结算），
+ * 0 分代表这一跳空转，电脑不该为此再跳。
+ */
+export function scanXuanyuanLeapValue(caster: Hero, cell: Position, gameState: GameState): number {
+    if (!caster.position) return 0;
+    const plan = getGMovePlans(caster.position).find(item => item.to[0] === cell[0] && item.to[1] === cell[1]);
+    if (!plan) return 0;
+    const pathDamage = zhizhiValue(caster, 1, 4, 5);
+    const ringDamage = zhizhiValue(caster, 1, 8, 9);
+    const isVictim = (r: number, c: number) => {
+        const unit = gameState.board[r]?.[c];
+        return !!unit && unit.owner !== caster.owner && unit.state === HeroState.ALIVE;
+    };
+    // 沿途与周圈两段都命中同一人时两段都算，与真实结算同口径
+    let value = 0;
+    for (const [r, c] of plan.path) {
+        if (isVictim(r, c)) value += pathDamage;
+    }
+    for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const r = plan.to[0] + dr;
+            const c = plan.to[1] + dc;
+            if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) continue;
+            if (!isVictim(r, c)) continue;
+            value += ringDamage;
+        }
+    }
+    return value;
+}
+
 export const EXTENDED_SKILLS: Record<string, Skill> = {
+    daizong_skill1: daizongSkill1,
+    daizong_skill2: daizongSkill2,
+    aoyuan_skill1: aoyuanSkill1,
+    aoyuan_skill2: aoyuanSkill2,
+    yunxiu_skill1: yunxiuSkill1,
+    yunxiu_skill2: yunxiuSkill2,
+    tingyuan_skill1: tingyuanSkill1,
+    tingyuan_skill2: tingyuanSkill2,
     jiangtaigong_skill1: jiangtaigongSkill1,
     jiangtaigong_skill2: jiangtaigongSkill2,
     xihuan_skill1: xihuanSkill1,
@@ -5881,4 +6535,6 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     zhiguang_skill2: zhiguangSkill2,
     duosui_skill1: duosuiSkill1,
     duosui_skill2: duosuiSkill2,
+    xuanyuan_skill1: xuanyuanSkill1,
+    xuanyuan_skill2: xuanyuanSkill2,
 };

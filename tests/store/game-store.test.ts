@@ -235,6 +235,31 @@ describe('game store battle interactions', () => {
         expect(useGameStore.getState().selectedHero).toBe(hero);
     });
 
+    it('撤回移动后解除切换锁：可以改操作另一名英雄（这一步按没走过处理）', () => {
+        const state = loadBattleState();
+        const first = addHero(state, 'moran', 'player1', [0, 0]);
+        const second = addHero(state, 'baize', 'player1', [2, 0]);
+        addHero(state, 'liuli', 'player2', [0, 5]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: first,
+        });
+
+        useGameStore.getState().moveHero([0, 1]);
+        expect(useGameStore.getState().activeHero).toBe(first);   // 移动即锁定
+
+        useGameStore.getState().undoMove();
+        expect(useGameStore.getState().activeHero).toBeNull();    // 撤回把锁一起退掉
+
+        useGameStore.getState().selectHeroForAction(second);
+        expect(useGameStore.getState().selectedHero).toBe(second);
+        // 换人不能白送资源：原来那名英雄回到"没走过"的状态，仍然只能走一次
+        expect(first.hasMovedThisTurn).toBe(false);
+        expect(first.position).toEqual([0, 0]);
+    });
+
     it('refunds feather movement damage taken by the move when it is undone', () => {
         const state = loadBattleState();
         const hero = addHero(state, 'moran', 'player1', [0, 0]);

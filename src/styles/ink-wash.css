@@ -133,6 +133,32 @@
     height: var(--board-cell-size);
 }
 
+/* 桌面棋盘略放大；同时按中间区域的实际宽高限幅，矮屏不裁掉末行。 */
+@media (min-width: 1024px) and (min-height: 701px) {
+    .battle-board-stage {
+        --board-cell-size: clamp(70px, min(7.35vw, 11.4vh), 108px);
+    }
+
+    @supports (container-type: size) {
+        .battle-board-space { container-type: size; }
+        .battle-board-space > .battle-board-shell {
+            /* 六格、五道间隙、棋框及舍入余量共预留 66px。 */
+            --board-cell-size: max(1px, min(108px, 7.35vw, calc((100cqw - 66px) / 6), calc((100cqh - 66px) / 6)));
+        }
+    }
+
+    .battle-board-space > .battle-board-shell .battle-board-piece {
+        width: clamp(44px, calc(var(--board-cell-size) * .61), 64px);
+        height: clamp(44px, calc(var(--board-cell-size) * .61), 64px);
+    }
+    .battle-board-space > .battle-board-shell .battle-board-piece-name {
+        font-size: clamp(10px, calc(var(--board-cell-size) * .12), 12px);
+    }
+    .battle-board-space > .battle-board-shell .battle-board-hp {
+        width: clamp(40px, calc(var(--board-cell-size) * .56), 60px);
+    }
+}
+
 /* 冰晶：寒江雪的棋盘障碍物（Lucide 标准雪花图标） */
 .ice-crystal-snow {
     width: 84%;
@@ -916,6 +942,17 @@
     --kill-glow: rgba(155, 35, 44, 0.48);
 }
 
+/* 五连起跳出"红到发紫"的梯度，六连把光晕翻成金：血尽而金生 */
+.kill-announcement--5 {
+    --kill-accent: #7a1f56;
+    --kill-glow: rgba(150, 45, 110, 0.5);
+}
+
+.kill-announcement--6 {
+    --kill-accent: #5c1230;
+    --kill-glow: rgba(190, 150, 60, 0.55);
+}
+
 .kill-announcement__content {
     position: relative;
     z-index: 2;
@@ -931,6 +968,15 @@
     animation:
         kill-announcement-content-in 520ms cubic-bezier(0.16, 1.15, 0.3, 1) both,
         kill-announcement-impact 360ms 500ms ease-out;
+}
+
+/* 五连起震得更久一点，六连再叠一次回震，让"灭队"和"四连"在手感上分出层 */
+.kill-announcement--5 .kill-announcement__content,
+.kill-announcement--6 .kill-announcement__content {
+    animation:
+        kill-announcement-content-in 520ms cubic-bezier(0.16, 1.15, 0.3, 1) both,
+        kill-announcement-impact 460ms 480ms ease-out,
+        kill-announcement-impact 340ms 960ms ease-out;
 }
 
 .kill-announcement__portrait {
@@ -987,6 +1033,18 @@
     font-weight: 600;
 }
 
+.kill-announcement--5 .kill-announcement__title {
+    font-size: 23px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+}
+
+.kill-announcement--6 .kill-announcement__title {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+}
+
 .kill-announcement__duel {
     height: 12px;
     overflow: hidden;
@@ -1030,6 +1088,14 @@
 .kill-announcement__marks span:nth-child(2) { animation-delay: 90ms; }
 .kill-announcement__marks span:nth-child(3) { animation-delay: 180ms; }
 .kill-announcement__marks span:nth-child(4) { animation-delay: 270ms; }
+.kill-announcement__marks span:nth-child(5) { animation-delay: 360ms; }
+.kill-announcement__marks span:nth-child(6) { animation-delay: 450ms; }
+
+/* 六杀即整队清空，最后一枚战功镶金边，跟五杀拉开一眼能看出来的差距 */
+.kill-announcement--6 .kill-announcement__marks span:nth-child(6).is-lit {
+    border-color: #d9b64a;
+    box-shadow: 0 0 10px rgba(217, 182, 74, 0.75);
+}
 
 .kill-announcement__flare {
     position: absolute;
@@ -1060,6 +1126,21 @@
 
 .kill-announcement__slash--one { transform: translate(-50%, -50%) rotate(-7deg); }
 .kill-announcement__slash--two { transform: translate(-50%, -50%) rotate(8deg); animation-delay: 180ms; }
+.kill-announcement__slash--three { transform: translate(-50%, -50%) rotate(-22deg); animation-delay: 300ms; }
+
+.kill-announcement--5 .kill-announcement__flare,
+.kill-announcement--6 .kill-announcement__flare {
+    width: 320px;
+    height: 320px;
+    opacity: 0.58;
+}
+
+.kill-announcement--6 .kill-announcement__portrait {
+    box-shadow:
+        0 0 0 1px #d9b64a,
+        0 0 0 3px rgba(92, 18, 48, 0.55),
+        0 0 22px var(--kill-glow);
+}
 
 @keyframes kill-announcement-lifetime {
     0% { opacity: 0; filter: saturate(0.7) blur(3px); }
@@ -4407,6 +4488,66 @@
     72% { opacity: 1; }
 }
 
+/* 被岱宗镇守护住的半区：整片染一层石青底纹，摆完姿态一眼看清盖住了哪几列 */
+.battle-cell.cell-daizong-guard::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(108, 128, 168, 0.10), rgba(108, 128, 168, 0.04));
+    box-shadow: inset 0 0 0 1px rgba(108, 128, 168, 0.16);
+    pointer-events: none;
+}
+
+/* 镇守：石青盾墙 + 山影上升；岳势：墨金压印，两者同屏时一眼分得开 */
+.sfx-bulwark { --sfx-c: 108, 128, 168; --sfx-c2: 214, 226, 240; }
+.sfx-bulwark-ring {
+    border-width: 3px;
+    border-color: rgba(108, 128, 168, 0.72);
+    animation-duration: 2.1s;
+}
+.sfx-pressure { --sfx-c: 196, 158, 86; --sfx-c2: 246, 226, 178; }
+.sfx-pressure-ring {
+    border-style: double;
+    border-color: rgba(196, 158, 86, 0.7);
+    animation-duration: 1.35s;
+}
+.sfx-pressure-count {
+    position: absolute;
+    right: -2px;
+    bottom: -1px;
+    min-width: 15px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: rgba(74, 60, 28, 0.88);
+    color: #f7ecc9;
+    font: 700 9px/15px var(--font-body, system-ui, sans-serif);
+    text-align: center;
+    letter-spacing: 0;
+}
+
+/* 游龙：青碧龙影绕身巡行（龙形本体见 aoyuan-dragon-fx.css 的遮罩层）；
+   龙鳞：淡金鳞片，两者同屏时一冷一暖分得开 */
+.sfx-dragon { --sfx-c: 107, 143, 177; --sfx-c2: 228, 239, 245; }
+.sfx-dragon-ring {
+    border-color: rgba(107, 143, 177, 0.48);
+    animation-duration: 2.6s;
+}
+.sfx-scales { --sfx-c: 226, 190, 108; --sfx-c2: 255, 236, 190; }
+.sfx-orbit-scales b {
+    width: 5px;
+    height: 6px;
+    border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+}
+
+/* 引雷印：雷金双纹 + 篆环（比链式闪电更暖一档，两枚印同时挂时一眼分得出谁是靶） */
+.sfx-thundermark { --sfx-c: 255, 214, 92; --sfx-c2: 255, 158, 62; }
+.sfx-bolt-thunder { inset: 20% 30% 26% 18%; transform: rotate(-12deg); }
+.sfx-bolt-thunder-alt { inset: 26% 16% 20% 30%; transform: rotate(150deg); opacity: 0.72; }
+.sfx-thunder-ring {
+    border-style: double;
+    animation-duration: 1.15s;
+}
 .sfx-chainmark { --sfx-c: 110, 205, 255; --sfx-c2: 196, 148, 255; }
 .sfx-bolt-chain { inset: 24%; }
 .sfx-chain-ring {
@@ -5348,14 +5489,83 @@
     .cell-picked-corner { animation: none !important; }
 }
 
-/* ======== 对局回放（v1，只读） ======== */
+/* ======== 对局回放（观战台式三列 + 通栏双轨时间轴，只读） ======== */
 
-/* 整盘恒为刚性 6×6：单格边长随弹层可用宽度收敛（左栏宽 = 弹层宽 − 320 战报栏 − 约 48 内边距），
-   最宽 62px、最窄 34px，既不溢出也不再随帧内容抖动 */
+/* 三列舞台：两条舷 + 中间按棋盘实宽收缩的一列，整体居中。
+   --board-cell-size 必须定义在棋盘与战报块的共同祖先上，两边才能同宽。 */
+.replay-content {
+    /* 高度轴：弹层高 − 页眉 64 − 内容内边距 32 − 页脚 100 − 战报块 90 − 棋盘框内边距与行距 60
+       宽度轴：弹层宽 − 两条舷 600 − 两处间距 40 − 内容内边距 32 − 棋盘框内边距与行距 60
+       旧版只按宽度推导且上限 62px，于是 1400 宽的弹层里棋盘只有 420px，左栏 44% 是空白。 */
+    --board-cell-size: clamp(40px,
+            min(92px,
+                calc((min(96vh, 980px) - 350px) / 6),
+                calc((min(97vw, 1400px) - 732px) / 6)),
+            92px);
+    grid-template-columns: minmax(220px, 300px) auto minmax(220px, 300px);
+    /* 显式指定落位：中间列一旦带上 grid-column 跨度，自动放置会把它提前到第一行，
+       窄屏下两条舷就会和棋盘叠在一起 */
+    grid-template-areas: 'p1 stage p2';
+    align-items: start;
+}
+
+.replay-stage {
+    grid-area: stage;
+}
+
+.replay-rail-player1 {
+    grid-area: p1;
+}
+
+.replay-rail-player2 {
+    grid-area: p2;
+}
+
 .replay-board {
-    --board-cell-size: clamp(34px, min(62px, calc((96vw - 400px) / 6)), 62px);
     flex-shrink: 0;
-    align-self: flex-start;
+    align-self: center;
+}
+
+/* 中间列按棋盘实宽收缩：舷与棋盘之间不留空洞 */
+.replay-stage {
+    width: calc(var(--board-cell-size) * 6 + 66px);
+    max-width: 100%;
+}
+
+/* 战报块与棋盘同宽：读棋→读报是上下一次扫视，不再横跳 */
+.replay-narration-box {
+    flex-shrink: 0;
+    width: calc(var(--board-cell-size) * 6 + 66px);
+    max-width: 100%;
+    /* 默认只留 3~4 行主数据，前文靠「展开前文」唤出 */
+    max-height: 148px;
+}
+
+.replay-log-scroll {
+    min-height: 52px;
+}
+
+/* 窄窗（非触控，如分屏/小笔记本）：三列会把棋盘挤到溢出，改成一通栏两舷并排。
+   必须限定 pointer:fine，否则会盖掉 mobile-layout.css 里给触控端的分栏规则 */
+@media (max-width: 880px) and (pointer: fine) {
+    .battle-replay-card .replay-content {
+        --board-cell-size: clamp(34px, calc((min(97vw, 1400px) - 120px) / 6), 68px);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas: 'stage stage' 'p1 p2';
+        grid-template-rows: max-content auto;
+        align-items: stretch;
+        overflow-y: auto;
+        gap: 10px;
+    }
+
+    .battle-replay-card .replay-stage {
+        display: block;
+        width: 100%;
+        min-height: auto;
+    }
+
+    .battle-replay-card .replay-narration-box { width: 100%; }
+    .battle-replay-card .replay-side-rail { max-height: 320px; }
 }
 
 /* 棋子与血条按单格等比缩放：实战那套有 44px 下限，格子收窄后会撑出格子 */
@@ -5391,13 +5601,235 @@
     overflow-anchor: none;
 }
 
-/* 花名册不参与左栏的固有宽度计算。
-   状态串（锋鸣2 · 破锋1 · 潮汐3…）是一整行不换行的文字，条数随帧变化；
-   左栏是按内容宽收缩的，于是它会被这行字推着变宽，右侧整栏战报跟着平移几十像素。
-   width:0 让它对固有宽度贡献为零，min-width:100% 再把它拉回左栏实宽。 */
-.replay-roster {
-    width: 0;
-    min-width: 100%;
+/* 两条舷：玩家一在左、玩家二在右，与棋盘的描边色同源，
+   原来挤在棋盘下方 178px 里的名单（连"吟游诗人"都要滚动才看全）升成主数据区。 */
+.replay-side-rail {
+    min-width: 0;
+    /* 高度按人数收缩：人少时不拉伸到整屏高，留一只空箱子 */
+    max-height: 100%;
+}
+
+.replay-rail-player1 {
+    border-left: 3px solid rgba(44, 62, 107, 0.55);
+}
+
+.replay-rail-player2 {
+    border-right: 3px solid rgba(150, 45, 34, 0.5);
+}
+
+/* 行高恒定：状态条数随帧增减，行若按内容伸缩，逐帧翻动时整条舷会上下抽动 */
+.replay-rail-row {
+    height: 46px;
+    padding: 3px 0;
+    border-bottom: 1px dashed rgba(26, 26, 26, 0.07);
+}
+
+.replay-rail-row.is-actor {
+    background: rgba(212, 168, 67, 0.14);
+    box-shadow: inset 2px 0 0 #d4a843;
+}
+
+.replay-rail-row.is-dead,
+.replay-rail-row.is-offboard {
+    opacity: 0.5;
+}
+
+.replay-rail-row.is-dead .replay-rail-name {
+    text-decoration: line-through;
+}
+
+.replay-rail-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: rgba(26, 26, 26, 0.08);
+}
+
+.replay-rail-avatar-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+}
+
+.replay-rail-name {
+    font-size: 12px;
+}
+
+.replay-rail-hp {
+    font-size: 10px;
+    opacity: 0.75;
+    font-variant-numeric: tabular-nums;
+}
+
+.replay-rail-badge {
+    flex-shrink: 0;
+    padding: 0 4px;
+    border-radius: 4px;
+    font-size: 9px;
+    line-height: 14px;
+    color: #f5f0e8;
+    background: rgba(26, 26, 26, 0.45);
+}
+
+.replay-rail-row.is-dead .replay-rail-badge {
+    background: rgba(150, 45, 34, 0.8);
+}
+
+/* 页眉读数条 */
+.replay-readout {
+    font-size: 12px;
+    color: #3d3d3d;
+}
+
+.replay-readout-step {
+    font-family: var(--font-title, inherit);
+    font-size: 14px;
+    color: #1a2744;
+}
+
+.replay-readout-step b {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.replay-readout-cell::before {
+    content: '·';
+    margin-right: 0.75rem;
+    opacity: 0.4;
+}
+
+.replay-readout-side-player1 { color: #2c3e6b; font-weight: 600; }
+.replay-readout-side-player2 { color: #962d22; font-weight: 600; }
+
+.replay-readout-actor b {
+    color: #1a2744;
+}
+
+.replay-mark-tag {
+    display: inline-block;
+    margin-right: 4px;
+    padding: 0 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    line-height: 16px;
+    color: #f7f2ea;
+}
+
+/* 图例：解释时间轴刻度的配色，原来这份信息完全缺失 */
+.replay-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.replay-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.replay-legend-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* 通栏时间轴：上轨回合分段、中轨事件刻度、下轨拖拽 */
+.replay-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.replay-rounds {
+    position: relative;
+    height: 16px;
+}
+
+.replay-round-band {
+    position: absolute;
+    top: 0;
+    height: 16px;
+    /* 与下轨 thumb（14px）的可行程对齐：两端各内缩半个 thumb，
+       按整宽铺会让"当前步"的刻度系统性偏右半个拇指宽 */
+    left: calc(7px + (100% - 14px) * var(--replay-ratio, 0));
+    width: calc((100% - 14px) * var(--replay-span, 0));
+    min-width: 10px;
+    padding: 0;
+    border: 1px solid rgba(26, 26, 26, 0.1);
+    border-radius: 4px;
+    background: rgba(245, 240, 232, 0.9);
+    color: rgba(26, 26, 26, 0.5);
+    font-size: 9px;
+    line-height: 14px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.replay-round-band:hover {
+    border-color: rgba(44, 62, 107, 0.4);
+    background: rgba(255, 255, 255, 0.95);
+    color: #1a2744;
+}
+
+.replay-round-band.is-current {
+    border-color: rgba(212, 168, 67, 0.7);
+    background: rgba(212, 168, 67, 0.22);
+    color: #1a2744;
+    font-weight: 700;
+}
+
+.replay-round-label {
+    display: block;
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* 事件刻度直接落在拖拽轨上：同一份数据只讲一遍，
+   原来"关键节点 chip + 底部刻度"两套控件是并排重复的 */
+.replay-event {
+    position: absolute;
+    top: 50%;
+    width: 9px;
+    height: 9px;
+    padding: 0;
+    /* 与滑块 thumb（14px）的可行程对齐：两端各内缩半个 thumb，
+       按整宽铺会让"当前步"的刻度系统性偏右半个拇指宽 */
+    left: calc(7px + (100% - 14px) * var(--replay-ratio, 0));
+    z-index: 2;
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    opacity: 0.9;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.replay-event:hover {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.45);
+}
+
+.replay-event.is-current {
+    opacity: 1;
+    box-shadow: 0 0 0 2px rgba(212, 168, 67, 0.85);
+    transform: translate(-50%, -50%) scale(1.3);
+}
+
+.replay-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.replay-btn-event {
+    font-size: 11px;
+    letter-spacing: 0;
 }
 
 /* 当前行动者：金色描边，与实战的可操作选中态区分（这里只是"正在看谁行动"） */
@@ -5520,19 +5952,6 @@
 }
 
 /* 时间轴上的关键节点刻度 */
-.replay-tick {
-    position: absolute;
-    top: -3px;
-    width: 3px;
-    height: 12px;
-    border-radius: 2px;
-    transform: translateX(-50%);
-    pointer-events: none;
-    /* 与滑块 thumb（14px）的可行程对齐：两端各内缩半个 thumb，
-       用整宽百分比会让我方当前步的刻度恒偏右 7px */
-    left: calc(7px + (100% - 14px) * var(--replay-ratio, 0));
-}
-
 .replay-mark-kill { background: #c0392b; }
 .replay-mark-tianwei { background: #d4a843; }
 .replay-mark-reinforce { background: #2d6a4f; }
@@ -5540,57 +5959,10 @@
 .replay-mark-round { background: rgba(26, 26, 26, 0.28); }
 .replay-mark-end { background: #8f2f2a; }
 
-.replay-mark-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 7px;
-    border-radius: 999px;
-    border: 1px solid rgba(26, 26, 26, 0.14);
-    background: rgba(255, 255, 255, 0.5);
-    color: #3d3d3d;
-    font-size: 11px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.replay-mark-chip:hover {
-    border-color: rgba(44, 62, 107, 0.4);
-    background: rgba(255, 255, 255, 0.8);
-}
-
-.replay-mark-chip .replay-mark-kind {
-    font-weight: 700;
-    padding-left: 9px;
-    position: relative;
-}
-
-.replay-mark-chip .replay-mark-kind::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    width: 5px;
-    height: 5px;
-    margin-top: -2.5px;
-    border-radius: 50%;
-    background: currentColor;
-}
-
-.replay-mark-chip .replay-mark-step {
-    opacity: 0.6;
-    font-variant-numeric: tabular-nums;
-}
-
-.replay-mark-chip.is-current {
-    border-color: rgba(212, 168, 67, 0.7);
-    background: rgba(212, 168, 67, 0.16);
-    color: #1a2744;
-}
-
 @media (prefers-reduced-motion: reduce) {
     .replay-btn,
-    .replay-mark-chip { transition: none; }
+    .replay-event,
+    .replay-round-band { transition: none; }
 }
 
 /* ============================================================
@@ -11443,5 +11815,46 @@
 
 html[data-quality="low"] .bf-water-marsh-ripple,
 html[data-quality="low"] .bf-fish-hook {
+    animation: none !important;
+}
+
+/* ============================================================
+   轩辕神君（金行）· 飞剑：钉在格上的金色剑罡
+   与风刃同一类常驻陷阱，但拆不掉也不可踩响——纯场地资源。
+   ============================================================ */
+.bf-flying-sword {
+    position: absolute;
+    inset: 24%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(212, 168, 67, 0.88);
+    filter: drop-shadow(0 0 4px rgba(212, 168, 67, 0.5));
+    animation: bf-flying-sword-hover 2.6s ease-in-out infinite;
+}
+
+.bf-flying-sword svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* 红方剑罡偏绯金 */
+.bf-flying-sword-p2 {
+    color: rgba(232, 160, 150, 0.9);
+    filter: drop-shadow(0 0 4px rgba(226, 140, 130, 0.45));
+}
+
+@keyframes bf-flying-sword-hover {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bf-flying-sword {
+        animation: none !important;
+    }
+}
+
+html[data-quality="low"] .bf-flying-sword {
     animation: none !important;
 }

@@ -13,8 +13,13 @@ import { WindBladeGlyph } from './WindBladeGlyph';
 import { resolveHeroLinks } from '../../core/hero-link-view';
 import { isLowQuality } from '../../core/render-quality';
 import { marshCovers } from '../../core/water-marsh';
+import { ThunderCloudLayer } from './ThunderCloudField';
+import { isYunxiuCloudFx } from '../../core/yunxiu-cloud-fx';
+import '../../styles/thunder-cloud-fx.css';
+import { guardedCellKeys } from '../../core/mountain-stance';
 import { resolveHitFeedback, type HitFeedback } from '../../core/hit-feedback';
 import { HitContactFx, HitResponsivePiece } from './HitFeedbackFx';
+import { useAoyuanPresentation } from '../../hooks/useAoyuanPresentation';
 
 /**
  * 流畅档下一张范围技能最多铺开几格"逐格特效"（impact/area）。
@@ -141,9 +146,13 @@ export default function Board() {
         selectDaiReviveTarget,
         releaseAutoBattle
     } = useGameStore();
+    const dragonPresentation = useAoyuanPresentation(skillFx);
 
     // 挂起的棋盘动作：可点格直接从挂起态推导，不依赖各条 set 路径是否记得同步 skillRange，
     // 否则会出现"天威已经触发、棋盘上却没有任何提示"的错觉
+    // 岱宗的镇守护的是"半区"，不摆出来玩家根本不知道自己盖住了哪几列——
+    // 实测玩家把岱宗摆在边列时朝右摆只能护住一列，看起来就像技能毫无作用
+    const daizongGuardedCells = guardedCellKeys({ player1Heroes, player2Heroes });
     const pendingChoiceHero = pendingBoardAction
         ? [...player1Heroes, ...player2Heroes].find(item => item.id === pendingBoardAction.heroId)
         : undefined;
@@ -491,6 +500,10 @@ export default function Board() {
         };
 
         for (const event of skillFx) {
+            if (isYunxiuCloudFx(event.profile.kind)) {
+                push(event.targetPos[0], event.targetPos[1], event, 'target');
+                continue;
+            }
             push(event.fromPos[0], event.fromPos[1], event, 'caster');
             push(event.targetPos[0], event.targetPos[1], event, 'target');
             for (const [row, col] of event.splashPositions ?? []) push(row, col, event, 'splash');
@@ -598,6 +611,13 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 轩辕神君的飞剑：命中痕迹、昭神态的跃剑跳板与御剑回收的资源，同屏至多 6 把
+                            const flyingSword = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'flying-sword' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
                             // 镜花·水月的两枚镜像标记：水月（可踏的跳板）与月座（等她归场）
                             const waterMoon = (boardEffects ?? []).find(
                                 effect =>
@@ -633,6 +653,13 @@ export default function Board() {
                             const fishHook = (boardEffects ?? []).find(
                                 effect =>
                                     effect.type === 'fish-hook' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            // 引雷针：钉在一格里，只管用一次——下一拍所有云都朝它挪一格
+                            const lightningRod = (boardEffects ?? []).find(
+                                effect =>
+                                    effect.type === 'lightning-rod' &&
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
@@ -680,7 +707,7 @@ export default function Board() {
                                     onClick={(e) => handleCellClick(e, rowIndex, colIndex)}
                                     onMouseDown={(e) => e.preventDefault()}
                                     style={{ userSelect: 'none' }}
-                                    className={`${cellClass} battle-board-cell flex flex-col items-center justify-center`}
+                                    className={`${cellClass}${daizongGuardedCells.has(`${rowIndex},${colIndex}`) ? ' cell-daizong-guard' : ''} battle-board-cell flex flex-col items-center justify-center`}
                                 >
                                     {cellContacts.map(hit => <HitContactFx key={hit.id} hit={hit} />)}
                                     {pickedCorner && (
@@ -775,6 +802,20 @@ export default function Board() {
                                         </div>
                                     )}
 
+
+                                    {lightningRod && (
+                                        <div
+                                            className={`bf-rod bf-rod-${lightningRod.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title="引雷针：下一拍她名下所有雷云都会朝这一格挪一格，随后针作废"
+                                        >
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M12 3v13" />
+                                                <path d="M8.4 16.2h7.2L12 21z" />
+                                                <path d="M12 6.5l3.2-2.2M12 9.5l-3-2" />
+                                            </svg>
+                                        </div>
+                                    )}
+
                                     {windLanes.map(lane => (
                                         <div
                                             key={lane.id}
@@ -789,6 +830,21 @@ export default function Board() {
                                             title="风刃：敌人踏入受到4点伤害后消失；游隼经过时收回并刷新疾掠"
                                         >
                                             <WindBladeGlyph />
+                                        </div>
+                                    )}
+
+                                    {flyingSword && (
+                                        <div
+                                            className={`bf-flying-sword bf-flying-sword-${flyingSword.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title={`飞剑：轩辕神君的剑罡（剩${flyingSword.duration}回合）。昭神态可跃上它（那把剑消失），技能可回收/召它化盾；敌方踩上去不受影响也拆不掉`}
+                                        >
+                                            {/* Lucide 标准佩剑图标（ISC 协议） */}
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
+                                                <path d="m13 19 6-6" />
+                                                <path d="m16 16 4 4" />
+                                                <path d="m19 14 2 2" />
+                                            </svg>
                                         </div>
                                     )}
 
@@ -982,7 +1038,7 @@ export default function Board() {
                                             hero={cell}
                                             delayMs={650}
                                             placement="auto-vertical"
-                                            className="board-hero-content flex flex-col items-center gap-0.5 outline-none"
+                                            className={`board-hero-content flex flex-col items-center gap-0.5 outline-none${dragonPresentation.hideIdle.has(cell.id) ? ' ao-dragon-performing' : ''}${dragonPresentation.hideArrived.has(cell.id) ? ' ao-dash-arrival-hidden' : ''}`}
                                         >
                                             <HitResponsivePiece key={cell.id} hits={cellContacts.filter(hit => !hit.targetHeroId || hit.targetHeroId === cell.id)}>
                                             <div className="piece-shell">
@@ -1109,6 +1165,8 @@ export default function Board() {
                             );
                         })
                     )}
+
+                    <ThunderCloudLayer effects={boardEffects} />
 
                     {/* AOE 整体特效：覆盖整个作用范围的一体化动效（冲击波/火海/雷暴…），
                         单元素跨格子铺在区域包围盒上，与逐格特效叠加而非替代 */}

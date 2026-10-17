@@ -52,6 +52,8 @@ describe('resolveHeroStatusFx', () => {
             ['羽化', 'feather'],
             ['猎杀令', 'bounty'],
             ['猎杀标记', 'deathmark'],
+            ['引雷印', 'thundermark'],
+            ['链式闪电', 'chainmark'],
             ['恐惧', 'fear'],
             ['凋零', 'wither'],
             ['逆风', 'headwind'],

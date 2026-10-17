@@ -1,0 +1,183 @@
+/* Yunxiu: lightning rod. Shared 3x3 clouds: yunxiu-storm-field.css. */
+.skill-fx-kind-yunxiu-cloud-call,
+.skill-fx-kind-yunxiu-rod-strike,
+.skill-fx-kind-yunxiu-cloud-bolt {
+    --yx-pitch: calc(var(--board-cell-size, 76px) + 6px);
+    --yx-body: var(--fx-c1, #1f7f6d);
+    --yx-light: var(--fx-c2, #cdf3e6);
+    --yx-flash: #fffdf2;
+    --yx-deep: #0b3b3a;
+}
+
+/* —— 电光本体 —— */
+.yx-bolt-glyph {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.yx-bolt-shadow {
+    fill: rgba(8, 40, 40, 0.42);
+    transform: translate(1.4px, 1.4px);
+}
+
+.yx-bolt-core {
+    fill: var(--yx-flash);
+    stroke: var(--yx-light);
+    stroke-width: 1.2;
+}
+
+.yx-rod-from { position: absolute; inset: 0; }
+
+/* 一条绷紧的光：她手上到目标格那条轴，读得出针是从她手里掷出去的 */
+.yx-rod-line {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(max(var(--fx-dist, 1), 1) * (var(--board-cell-size, 76px) + 6px));
+    height: 4px;
+    margin-top: -2px;
+    transform: rotate(var(--fx-rot, 0deg));
+    transform-origin: 0 50%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--yx-light) 0%, var(--yx-flash) 48%, rgba(255, 253, 242, 0) 96%);
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    animation: yx-rod-line 420ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes yx-rod-line {
+    0%   { opacity: 0; clip-path: inset(0 100% 0 0); }
+    28%  { opacity: 0.92; clip-path: inset(0 0 0 0); }
+    100% { opacity: 0; clip-path: inset(0 0 0 72%); }
+}
+
+.yx-rod { position: absolute; inset: 0; }
+
+/* 针下来的那道竖光 */
+.yx-rod-streak {
+    position: absolute;
+    left: 50%;
+    top: -60%;
+    width: 10%;
+    height: 160%;
+    margin-left: -5%;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255, 253, 242, 0) 0%, var(--yx-light) 52%, var(--yx-flash) 100%);
+    opacity: 0;
+    transform: scaleY(0.2);
+    transform-origin: 50% 100%;
+    animation: yx-rod-streak 420ms cubic-bezier(0.16, 0.86, 0.32, 1) forwards;
+}
+
+@keyframes yx-rod-streak {
+    0%   { opacity: 0; transform: scaleY(0.16); }
+    40%  { opacity: 0.95; transform: scaleY(1); }
+    100% { opacity: 0; transform: scaleY(1.1); }
+}
+
+/* 针本身：钉进来时先冲高、再扎到底 */
+.yx-rod-needle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 26%;
+    height: 74%;
+    margin: -37% 0 0 -13%;
+    filter: drop-shadow(0 0 5px var(--yx-light));
+    animation: yx-rod-needle 620ms cubic-bezier(0.2, 0.72, 0.24, 1) forwards;
+}
+
+.yx-rod-needle svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.yx-needle-body { fill: var(--yx-body); stroke: var(--yx-deep); stroke-width: 1.1; }
+.yx-needle-edge { stroke: var(--yx-flash); stroke-width: 2.2; stroke-linecap: round; }
+.yx-needle-head { fill: var(--yx-light); stroke: var(--yx-flash); stroke-width: 1.1; }
+
+@keyframes yx-rod-needle {
+    0%   { opacity: 0; transform: translateY(-120%) scale(0.8); }
+    26%  { opacity: 1; transform: translateY(0) scale(1); }
+    42%  { transform: translateY(6%) scaleY(0.94); }
+    100% { opacity: 0; transform: translateY(10%) scaleY(0.86); }
+}
+
+/* 麻痹环：两圈从外向内收拢，收到底就是"锁住这一回合" */
+.yx-paralysis-ring {
+    position: absolute;
+    inset: 2%;
+    border-radius: 50%;
+    border: 2px solid var(--yx-light);
+    opacity: 0;
+    transform: scale(1.5);
+    animation: yx-paralysis 620ms ease-in 180ms forwards;
+}
+
+.yx-paralysis-ring-b {
+    border-style: dashed;
+    border-color: var(--yx-body);
+    animation-delay: 300ms;
+    animation-duration: 560ms;
+}
+
+@keyframes yx-paralysis {
+    0%   { opacity: 0; transform: scale(1.5) rotate(0deg); }
+    30%  { opacity: 0.85; }
+    100% { opacity: 0; transform: scale(0.34) rotate(120deg); }
+}
+
+/* —— 被劈中的每一格：一道短雷 + 焦痕，等雷落下的那一刻才起 —— */
+.yx-bolt-cell { position: absolute; inset: 0; }
+
+.yx-bolt-cell-strike {
+    position: absolute;
+    left: 42%;
+    top: -18%;
+    width: 20%;
+    height: 84%;
+    opacity: 0;
+    filter: drop-shadow(0 0 6px var(--yx-light));
+    animation: yx-bolt-cell-strike 360ms cubic-bezier(0.2, 0.8, 0.3, 1) var(--fx-hit-ms, 0ms) forwards;
+}
+
+@keyframes yx-bolt-cell-strike {
+    0%   { opacity: 0; transform: scaleY(0.4); }
+    20%  { opacity: 1; transform: scaleY(1); }
+    44%  { opacity: 0.3; }
+    62%  { opacity: 0.9; }
+    100% { opacity: 0; transform: scaleY(1.06); }
+}
+
+.yx-bolt-cell-scorch {
+    position: absolute;
+    inset: 30%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(11, 59, 58, 0.55) 0 26%, transparent 72%);
+    opacity: 0;
+    transform: scale(0.5);
+    animation: yx-bolt-cell-scorch 620ms ease-out calc(var(--fx-hit-ms, 0ms) + 60ms) forwards;
+}
+
+@keyframes yx-bolt-cell-scorch {
+    0%   { opacity: 0; transform: scale(0.5); }
+    24%  { opacity: 0.8; }
+    100% { opacity: 0; transform: scale(1.4); }
+}
+
+.yx-bolt-cell .fxp-hitflash,
+.yx-bolt-cell .fxp-spark {
+    animation-delay: var(--fx-hit-ms, 0ms);
+}
+
+.fx-lite .yx-paralysis-ring-b, .fx-lite .yx-bolt-cell-scorch { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .yx-rod-streak, .yx-paralysis-ring { animation: none; }
+    .yx-rod-needle, .yx-bolt-cell-strike, .yx-rod-line {
+        opacity: 1; animation: none; clip-path: none; transform: none;
+    }
+}

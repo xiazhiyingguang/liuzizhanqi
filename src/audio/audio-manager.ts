@@ -1,5 +1,6 @@
 import { GamePhase } from '../types/game';
 import { BgmInstrument, BgmNote, BgmTrack, battleBgm, menuBgm, midiToFrequency, trackById } from './bgms';
+import { FanfareNote, planKillFanfare } from './kill-fanfare';
 
 /** UI 点击音效类别：按交互语义区分音色（data-sfx 标签对应） */
 export type UiClickSound = 'tap' | 'primary' | 'cancel' | 'toggle' | 'tab' | 'skill';
@@ -198,6 +199,97 @@ class AudioManager {
                 this.playUiSkill(ctx, time, bus);
                 break;
         }
+    }
+
+    /**
+     * 连杀号角（只有五杀与六杀会响）：五声音阶逐级上行 + 低鼓，六杀再叠一口非谐波的钟。
+     * 挂在 sfx 总线上，所以右下角「静」能连同其他音效一起压掉；编曲表在 audio/kill-fanfare。
+     */
+    playKillFanfare(tier: number): void {
+        const plan = planKillFanfare(tier);
+        if (!plan) return;
+        this.unlock();
+        const ctx = this.ctx;
+        const bus = this.sfxGain;
+        if (!ctx || !bus || ctx.state !== 'running') return;
+        const origin = ctx.currentTime + 0.02;
+        for (const note of plan.notes) this.playFanfareNote(ctx, origin + note.atMs / 1000, note, bus);
+        for (const hit of plan.drums) this.playFanfareDrum(ctx, origin + hit.atMs / 1000, hit.gain, bus);
+        if (plan.bell) this.playFanfareBell(ctx, origin + plan.bell.atMs / 1000, plan.bell, bus);
+    }
+
+    private playFanfareNote(ctx: AudioContext, at: number, note: FanfareNote, dest: AudioNode): void {
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(note.freq, at);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.0001, at);
+        env.gain.linearRampToValueAtTime(note.gain, at + 0.012);
+        env.gain.exponentialRampToValueAtTime(0.001, at + note.durMs / 1000);
+        osc.connect(env);
+        env.connect(dest);
+        osc.start(at);
+        osc.stop(at + note.durMs / 1000 + 0.03);
+
+        // 八度泛音让号角不至于太"单音"，音量压得很低，只是给一点金属边
+        const octave = ctx.createOscillator();
+        octave.type = 'sine';
+        octave.frequency.setValueAtTime(note.freq * 2, at);
+        const octaveEnv = ctx.createGain();
+        octaveEnv.gain.setValueAtTime(note.gain * 0.22, at);
+        octaveEnv.gain.exponentialRampToValueAtTime(0.001, at + note.durMs / 1000 * 0.6);
+        octave.connect(octaveEnv);
+        octaveEnv.connect(dest);
+        octave.start(at);
+        octave.stop(at + note.durMs / 1000);
+    }
+
+    private playFanfareDrum(ctx: AudioContext, at: number, gain: number, dest: AudioNode): void {
+        const body = ctx.createOscillator();
+        body.type = 'sine';
+        body.frequency.setValueAtTime(116, at);
+        body.frequency.exponentialRampToValueAtTime(46, at + 0.16);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(gain, at);
+        env.gain.exponentialRampToValueAtTime(0.001, at + 0.24);
+        body.connect(env);
+        env.connect(dest);
+        body.start(at);
+        body.stop(at + 0.26);
+
+        if (!this.noiseBuffer) return;
+        const slap = ctx.createBufferSource();
+        slap.buffer = this.noiseBuffer;
+        const lowpass = ctx.createBiquadFilter();
+        lowpass.type = 'lowpass';
+        lowpass.frequency.value = 420;
+        const slapEnv = ctx.createGain();
+        slapEnv.gain.setValueAtTime(gain * 0.5, at);
+        slapEnv.gain.exponentialRampToValueAtTime(0.001, at + 0.06);
+        slap.connect(lowpass);
+        lowpass.connect(slapEnv);
+        slapEnv.connect(dest);
+        slap.start(at);
+        slap.stop(at + 0.07);
+    }
+
+    /** 钟：1 / 2.76 / 5.4 倍的非谐波泛音，衰减拉到 1.6s 收住整个播报 */
+    private playFanfareBell(ctx: AudioContext, at: number, bell: FanfareNote, dest: AudioNode): void {
+        const partials = [1, 2.76, 5.4];
+        partials.forEach((ratio, index) => {
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(bell.freq * ratio, at);
+            const env = ctx.createGain();
+            const peak = bell.gain / (index + 1.2);
+            env.gain.setValueAtTime(0.0001, at);
+            env.gain.linearRampToValueAtTime(peak, at + 0.008);
+            env.gain.exponentialRampToValueAtTime(0.001, at + bell.durMs / 1000);
+            osc.connect(env);
+            env.connect(dest);
+            osc.start(at);
+            osc.stop(at + bell.durMs / 1000 + 0.05);
+        });
     }
 
     dispose(): void {

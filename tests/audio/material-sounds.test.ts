@@ -118,6 +118,29 @@ function playback() {
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
 describe('真实音频调度与清理', () => {
+    it('云岫雷声随金色闪电接触目标时响起，空云不会凭空打雷', () => {
+        const { manager } = playback();
+        const play = vi.spyOn(manager, 'playSkill').mockImplementation(() => undefined);
+        manager.playSkillFx(event('yunxiu_skill1', { impactPositions: [[2, 3]] }));
+        vi.advanceTimersByTime(419); expect(play).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1); expect(play).toHaveBeenCalledWith('yunxiu_skill1', 'thunder');
+        manager.playSkillFx(event('yunxiu_cloud', { id: 2, bornAt: Date.now(), impactPositions: [], damagePositions: [] }));
+        vi.advanceTimersByTime(1000); expect(play).toHaveBeenCalledTimes(1);
+    });
+    it('游龙追加段的声音等待冲刺结束，取消或静音后不再补响', () => {
+        const { manager } = playback();
+        const play = vi.spyOn(manager, 'playSkill').mockImplementation(() => undefined);
+        const fx = event('aoyuan_orbit', { bornAt: 10560 });
+        manager.playSkillFx(fx); manager.playSkillFx(fx);
+        vi.advanceTimersByTime(559); expect(play).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1); expect(play).toHaveBeenCalledTimes(1);
+        manager.playSkillFx({ ...fx, id: 2, bornAt: 11000 });
+        manager.retainSkillFx(new Set()); vi.advanceTimersByTime(500);
+        expect(play).toHaveBeenCalledTimes(1);
+        manager.playSkillFx({ ...fx, id: 3, bornAt: 12000 });
+        manager.setMuted(true); manager.setMuted(false); vi.advanceTimersByTime(1000);
+        expect(play).toHaveBeenCalledTimes(1);
+    });
     it('补偿 WAV 瞬态位置，让能量峰落在目标时刻', async () => {
         const { manager, nodes, context } = playback();
         const fx = event('hanjiangxue_skill1');

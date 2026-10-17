@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DamageCalculator } from '../../src/core/damage-calculator';
 import { EffectManager } from '../../src/core/effect-manager';
 import { GameEngine } from '../../src/core/game-engine';
+import { grantZhizhi } from '../../src/core/hero-zhizhi';
 import { SkillSystem } from '../../src/core/skill-system';
 import {
     bardSkill1,
@@ -74,6 +75,44 @@ describe('extended heroes', () => {
         expect(ally.currentHp).toBe(15);
         expect(ally.hasActedThisTurn).toBe(false);
         expect(ally.hasMovedThisTurn).toBe(false);
+    });
+
+    it('骸骨君王天威按亡灵共鸣×2 复活阵亡友方，致知一抬到 ×3', () => {
+        const build = () => {
+            const state = makeGameState();
+            const king = addHero(state, 'skeletonking', 'player1', [2, 2]);
+            const fallen = addHero(state, 'baize', 'player1', [0, 0]);
+            fallen.state = HeroState.DEAD;
+            fallen.currentHp = 0;
+            state.board[0][0] = null;
+            state.deathCounters.player1Dead = 3;
+            return { state, king, fallen };
+        };
+
+        const plain = build();
+        DamageCalculator.triggerTianwei(plain.king, plain.state);
+        expect(plain.fallen.state).toBe(HeroState.ALIVE);
+        expect(plain.fallen.currentHp).toBe(6);   // 共鸣 3 × 2
+
+        const enhanced = build();
+        grantZhizhi(enhanced.king, 1);
+        DamageCalculator.triggerTianwei(enhanced.king, enhanced.state);
+        expect(enhanced.fallen.currentHp).toBe(9);   // 致知一：共鸣 3 × 3
+    });
+
+    it('骸骨君王技能二的共鸣系数：无致知 ×1，致知三 ×2', () => {
+        const cast = (withZhizhi: boolean) => {
+            const state = makeGameState();
+            const caster = addHero(state, 'skeletonking', 'player1', [2, 2]);
+            if (withZhizhi) grantZhizhi(caster, 3);
+            state.deathCounters.player1Dead = 3;
+            const enemy = addHero(state, 'moran', 'player2', [2, 3]);
+            skeletonkingSkill2.execute!(caster, [enemy], state);
+            return enemy.maxHp - enemy.currentHp;
+        };
+
+        expect(cast(false)).toBe(10);    // 7 + 3×1
+        expect(cast(true)).toBe(13);     // 7 + 3×2
     });
 
     it('杰茨米技能导致的暂时死亡为原地切换形态，不下场且计入共鸣', () => {
@@ -817,6 +856,35 @@ describe('extended heroes', () => {
         caster.hasActedThisTurn = true;
         GameEngine.endHeroAction(enemy, state);
         expect(caster.shield).toBe(3);
+    });
+
+    it('骸骨君王的护盾封顶在6点，致知二提高到10点', () => {
+        // 4 名阵亡单位 × 3 = 12 点，无致知时只能留到 6
+        const plain = makeGameState();
+        const king = addHero(plain, 'skeletonking', 'player1', [2, 2]);
+        const enemy = addHero(plain, 'baize', 'player2', [5, 5]);
+        for (let index = 0; index < 4; index++) {
+            const corpse = addHero(plain, 'moran', 'player1', [0, index] as [number, number]);
+            corpse.state = HeroState.DEAD;
+            plain.board[0][index] = null;
+        }
+        king.hasActedThisTurn = true;
+        GameEngine.endHeroAction(enemy, plain);
+        expect(king.shield).toBe(6);
+
+        // 致知二把上限抬到 10，仍然吃不满 12
+        const boosted = makeGameState();
+        const zhizhiKing = addHero(boosted, 'skeletonking', 'player1', [2, 2]);
+        const boostedEnemy = addHero(boosted, 'baize', 'player2', [5, 5]);
+        grantZhizhi(zhizhiKing, 2);
+        for (let index = 0; index < 4; index++) {
+            const corpse = addHero(boosted, 'moran', 'player1', [0, index] as [number, number]);
+            corpse.state = HeroState.DEAD;
+            boosted.board[0][index] = null;
+        }
+        zhizhiKing.hasActedThisTurn = true;
+        GameEngine.endHeroAction(boostedEnemy, boosted);
+        expect(zhizhiKing.shield).toBe(10);
     });
 
     it('击杀会触发扩展英雄天威：杰茨米增加2点共鸣、旺财增加2攻击', () => {

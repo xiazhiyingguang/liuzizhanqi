@@ -13,7 +13,8 @@
  * 通用原型（arc-slash/pierce/burst/…）的配色由档案 c1/c2 注入：
  * --fx-c1 主色、--fx-c2 辅色、--fx-glow 光晕，动画细节见 ink-wash.css。
  */
-import { memo, useEffect, useId, type CSSProperties } from 'react';
+import { memo, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import HeroAvatar from '../ui/HeroAvatar';
 import { WindBladeGlyph } from './WindBladeGlyph';
 import { MirrorBladeLaunchFx, MirrorBladeImpactFx } from './MirrorBladeFx';
 import { SkillThemeCasterFx, SkillThemeTargetFx } from './SkillThemeFx';
@@ -41,8 +42,15 @@ import '../../styles/xihuan-skill-fx.css';
 import '../../styles/jiangtaigong-skill-fx.css';
 import '../../styles/huanongying-skill-fx.css';
 import '../../styles/jinghong-skill-fx.css';
-import type { Position, SkillAreaBounds, SkillFxEvent } from '../../core/skill-fx';
+import '../../styles/aoyuan-dragon-fx.css';
+import { DragonArt } from './AoyuanDragonArt';
+import '../../styles/yunxiu-cloud-fx.css';
+import { YunxiuCloudStrikeFx } from './YunxiuCloudStrikeFx';
+import { isYunxiuCloudFx } from '../../core/yunxiu-cloud-fx';
+import { BOARD_SIZE } from '../../types/game';
+import type { Position, SkillAreaBounds, SkillFxEvent, SkillFxKind } from '../../core/skill-fx';
 import { computeFxAngleDeg, computeFxCellDelayMs, computeFxImpactDelayMs, computeFxTravelMs, computeFxTailMs, isPerTargetFxKind, PRISM_BEAM_STEP_MS, resolveAreaFxKind } from '../../core/skill-fx';
+import { DRAGON_CALL_LEAD_MS, DRAGON_SWEEP_LEAD_MS, RING_STEP_DEG, dragonCallHitMs, dragonCallRingGeometry, dragonDashTiming, dragonSweepGeometry } from '../../core/dragon-sweep-fx';
 import { useGameStore } from '../../store/game-store';
 import { isLowQuality, scaleParticleCount } from '../../core/render-quality';
 
@@ -248,6 +256,22 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
         case 'duosui-reckon':
             // 偿岁收回来的那笔血落在夺岁自己身上，盾环在他脚下合拢
             return <DuosuiGuardFx />;
+        case 'aoyuan-dragon-call':
+            // 唤龙·盘云起手：云气在敖渊脚下收拢，一缕龙气飘向他点中的那一格
+            return <DragonCallCasterFx event={event} />;
+        case 'aoyuan-dragon-sweep':
+            // 游龙扫击画在敖渊脚下：龙首沿外圈顺时针爬半圈，扫到哪格哪格才炸
+            return <DragonSweepFx event={event} />;
+        case 'aoyuan-dragon-dash':
+            // 乘龙·破浪起手：龙身沿冲刺轴拉直，一路顶到落点
+            return <DragonDashFx event={event} />;
+        case 'yunxiu-cloud-call':
+            return null;
+        case 'yunxiu-rod-strike':
+            // 引雷·落针起手：一道光顺着她到目标那条轴绷紧
+            return <YunxiuRodCasterFx event={event} />;
+        case 'yunxiu-cloud-bolt':
+            return null;
         case 'wind-blade-volley':
             // 四向风刃是自身技，四弯风刃自施法者格射向周身四格
             return (
@@ -1000,9 +1024,305 @@ function DuosuiGuardFx() {
     );
 }
 
-/** 着弹大闪核 + 双层冲击环 + 晶屑光尘（pierce 目标格） */
-function PierceImpactFx() {
+/* ============================================================
+   敖渊·游龙（蓝白龙皮 + 动态脊线，三式共用同一套骨骼）
+   设计要点：
+   - 龙首跟随战斗轨迹，龙身分段弯曲，龙尾、须鬃错相摆动；
+   - 龙首恒朝前进方向（外圈巡行时容器顺时针转，龙身不用自己调头）；
+   - 命中格一律"龙到才炸"，节拍由 core/dragon-sweep-fx 的纯函数算。
+   ============================================================ */
+
+/** 龙头沿战斗轨迹前进，蓝白龙皮沿脊线弯曲，须鬃独立摆动。 */
+function DragonBodyRiding({ mode = 'orbit', bornAt }: { mode?: 'orbit' | 'dash' | 'sweep'; bornAt: number }) {
     return (
+        <span className="ao-swim">
+            <DragonArt mode={mode} bornAt={bornAt} />
+        </span>
+    );
+}
+
+/** 几缕盘云：龙过留雾。角度与延后量由 --ao-puff-* 决定，落位与配色由所在父层决定 */
+function DragonMist({ count = 3 }: { count?: number }) {
+    return (
+        <>
+            {Array.from({ length: count }, (_, index) => (
+                <b
+                    key={index}
+                    className="ao-mist-puff"
+                    style={{
+                        '--ao-puff-angle': `${index * (360 / count) + 24}deg`,
+                        '--ao-puff-delay': `${index * 70}ms`,
+                    } as CSSProperties}
+                />
+            ))}
+        </>
+    );
+}
+
+/** 扫击几何 → CSS 变量（起点方位、转过角度、巡行时长、拖痕弧长、贴盘边裁切） */
+function dragonSweepVars(event: SkillFxEvent): CSSProperties {
+    const geometry = dragonSweepGeometry(event);
+    return {
+        '--ao-start': `${Math.round(geometry.startDeg)}deg`,
+        '--ao-sweep': `${Math.round(geometry.sweepDeg)}deg`,
+        '--ao-spin-ms': `${geometry.spinMs}ms`,
+        // 巡行的起播延迟也交给变量：CSS 里那个 120ms 缺省值一旦和 TS 常量岔开，
+        // 命中格的爆点就会跑在龙前面
+        '--ao-lead-ms': `${DRAGON_SWEEP_LEAD_MS}ms`,
+        // dash 用两段裸数（pathLength 已归一到 100），CSS 里不做算术，省得 calc 与 SVG 单位打架
+        '--ao-arc-dash': String(geometry.arcPercent),
+        '--ao-arc-gap': String(Math.round((100 - geometry.arcPercent) * 10) / 10),
+        '--ao-clip-t': String(geometry.clip.t),
+        '--ao-clip-r': String(geometry.clip.r),
+        '--ao-clip-b': String(geometry.clip.b),
+        '--ao-clip-l': String(geometry.clip.l),
+    } as CSSProperties;
+}
+
+/** 十字气浪/龙影外圈都罩住以本格为中心的 3×3：贴盘边的那一侧要裁掉，不许飘到棋盘外面 */
+function dragonCrossClipVars(cell: Position): CSSProperties {
+    return {
+        '--ao-clip-t': `${Math.max(0, 1 - cell[0])}`,
+        '--ao-clip-l': `${Math.max(0, 1 - cell[1])}`,
+        '--ao-clip-b': `${Math.max(0, cell[0] - (BOARD_SIZE - 2))}`,
+        '--ao-clip-r': `${Math.max(0, cell[1] - (BOARD_SIZE - 2))}`,
+    } as CSSProperties;
+}
+
+/** 游龙扫击（本体在敖渊脚下这一格）：龙首沿外圈顺时针爬半圈，身后拖出一道正在变长的水痕 */
+function DragonSweepFx({ event }: { event: SkillFxEvent }) {
+    if (event.dragonContactsOnly) return null;
+    return (
+        <span className="fx-anchor ao-sweep">
+            <i className="ao-ring" style={dragonSweepVars(event)}>
+                <svg className="ao-trace" viewBox="0 0 100 100" aria-hidden="true">
+                    <circle className="ao-trace-deep" cx="50" cy="50" r="50" pathLength={100} />
+                    <circle className="ao-trace-water" cx="50" cy="50" r="50" pathLength={100} />
+                    <circle className="ao-trace-foam" cx="50" cy="50" r="50" pathLength={100} />
+                </svg>
+                <i className="ao-orbit">
+                    <i className="ao-dragon ao-dragon-sweep">
+                        <DragonBodyRiding mode="sweep" bornAt={event.bornAt} />
+                        <DragonMist />
+                    </i>
+                </i>
+                <i className="ao-ring-bloom" />
+            </i>
+        </span>
+    );
+}
+
+/** 游龙扫到的一格：爪痕三道 + 水气迸开 + 爆闪，起播压在龙首抵达本格的时刻 */
+function DragonSweptCellFx() {
+    return (
+        <span className="fx-anchor ao-swept">
+            <i className="ao-swept-mark ao-swept-mark-1" />
+            <i className="ao-swept-mark ao-swept-mark-2" />
+            <i className="ao-swept-mark ao-swept-mark-3" />
+            <i className="ao-swept-spray" />
+            <i className="fxp-hitflash" />
+            <Sparks count={4} />
+        </span>
+    );
+}
+
+/** 唤龙·盘云（起手格）：敖渊脚下云气收拢，一缕龙气顺着"他→召唤格"飘过去 */
+function DragonCallCasterFx({ event }: { event: SkillFxEvent }) {
+    return (
+        <span className="fx-anchor ao-call-from" style={fxStyleVars(event)}>
+            <i className="ao-call-gather" />
+            <i className="ao-call-gather ao-call-gather-b" />
+            <i className="ao-call-stream" />
+            <Sparks count={3} />
+        </span>
+    );
+}
+
+/** 唤龙那一圈的巡行参数：圆心是玩家点中的召唤格，角度是完整一圈 */
+function dragonCallRingVars(): CSSProperties {
+    const geometry = dragonCallRingGeometry();
+    return {
+        '--ao-start': `${geometry.startDeg}deg`,
+        '--ao-sweep': `${geometry.sweepDeg}deg`,
+        '--ao-spin-ms': `${geometry.spinMs}ms`,
+        '--ao-lead-ms': `${DRAGON_CALL_LEAD_MS}ms`,
+        '--ao-arc-dash': String(geometry.arcPercent),
+        '--ao-arc-gap': '0',
+    } as CSSProperties;
+}
+
+/** 唤龙·盘云（召唤格）：龙以那一格为圆心转满一整圈，十字气浪顺着龙首爬过的方向一格格拍开 */
+function DragonCallTargetFx({ event }: { event: SkillFxEvent }) {
+    return (
+        <span className="fx-anchor ao-call" style={dragonCrossClipVars(event.targetPos)}>
+            <i className="ao-call-cloud" />
+            <i className="ao-call-cloud ao-call-cloud-b" />
+            <i className="ao-ring" style={dragonCallRingVars()}>
+                <svg className="ao-trace" viewBox="0 0 100 100" aria-hidden="true">
+                    <circle className="ao-trace-deep" cx="50" cy="50" r="50" pathLength={100} />
+                    <circle className="ao-trace-water" cx="50" cy="50" r="50" pathLength={100} />
+                    <circle className="ao-trace-foam" cx="50" cy="50" r="50" pathLength={100} />
+                </svg>
+                <i className="ao-orbit">
+                    <i className="ao-dragon">
+                        <DragonBodyRiding bornAt={event.bornAt} />
+                        <DragonMist />
+                    </i>
+                </i>
+                <i className="ao-ring-bloom" />
+            </i>
+            {/* 手臂的角度就是环上的方位：上=0格、右=2格、下=4格、左=6格，龙到哪儿哪儿才拍开 */}
+            <i className="ao-call-cross">
+                {[0, 90, 180, 270].map(angle => (
+                    <b
+                        key={angle}
+                        className="ao-call-arm"
+                        style={{
+                            '--ao-arm': `${angle}deg`,
+                            '--ao-arm-delay': `${dragonCallHitMs(angle / RING_STEP_DEG)}ms`,
+                        } as CSSProperties}
+                    />
+                ))}
+            </i>
+            <i className="ao-call-bloom" />
+            <DragonMist count={4} />
+        </span>
+    );
+}
+
+/** 乘龙·破浪（起手格）：龙身沿冲刺轴拉直，轨是一条越铺越亮的水线，龙首顶到落点才收 */
+function DragonDashFx({ event }: { event: SkillFxEvent }) {
+    // 冲刺是"一格一拍"，落点是路径的最后一格：龙跑到那里的时刻必须和落点爆点同一拍
+    const steps = Math.max(1, event.coveredPositions?.length ?? 1);
+    const timing = dragonDashTiming(steps);
+    return (
+        <span
+            className="fx-anchor ao-dash"
+            style={{ ...fxStyleVars(event), '--ao-dash-ms': `${timing.travelMs}ms`, '--ao-dash-launch': `${timing.launchMs}ms` } as CSSProperties}
+        >
+            {/* 轨道整组按攻击轴转一次，轨与龙都只沿 x 走，省得两处各算一遍角度 */}
+            <i className="ao-dash-track">
+                <i className="ao-dash-rail" />
+                <i className="ao-dash-rail ao-dash-rail-b" />
+                <i className="ao-dash-ride">
+                    <DragonBodyRiding mode="dash" bornAt={event.bornAt} />
+                </i>
+                <span className={`piece battle-board-piece ao-dash-companion piece-${event.owner === 'player1' ? 'p1' : 'p2'}`}>
+                    <HeroAvatar heroId={event.sourceHeroId ?? 'aoyuan'} size={56} eager className="hero-piece-avatar" />
+                </span>
+            </i>
+            <i className="fx-beam-muzzle fxp-muzzle" />
+            <DragonMist count={2} />
+        </span>
+    );
+}
+
+/** 破浪落点：龙尾一甩带起的水柱 + 双环 + 飞沫，同样等龙跑到才起 */
+function DragonDashLandingFx() {
+    return (
+        <span className="fx-anchor ao-dash-land">
+            <i className="ao-dash-column" />
+            <i className="fxp-ring" />
+            <i className="fxp-ring ao-dash-ring-b" />
+            <i className="fxp-hitflash" />
+            <Shards count={4} />
+        </span>
+    );
+}
+
+/** 被穿过的一格：纵向贯斩水爆 + 两侧飞沫 */
+function DragonDashCellFx() {
+    return (
+        <span className="fx-anchor ao-dash-cell">
+            <i className="ao-dash-slash" />
+            <i className="ao-dash-splash ao-dash-splash-a" />
+            <i className="ao-dash-splash ao-dash-splash-b" />
+            <i className="fxp-hitflash" />
+            <Sparks count={3} />
+        </span>
+    );
+}
+
+/** 扫过却没站到人的空格：只留一撮被龙身带起来的水雾，不抢真命中的戏 */
+function DragonMistTileFx() {
+    return (
+        <span className="fx-anchor ao-mist-tile">
+            <i className="ao-mist-tile-puff ao-mist-tile-puff-a" />
+            <i className="ao-mist-tile-puff ao-mist-tile-puff-b" />
+        </span>
+    );
+}
+
+/** 游龙三式：这三个 kind 的次要格都归龙自己画，不走通用受击印记 */
+const AO_DRAGON_KINDS: readonly SkillFxKind[] = ['aoyuan-dragon-call', 'aoyuan-dragon-sweep', 'aoyuan-dragon-dash'];
+
+/** 云岫三式：命中格一律"被雷劈到"的焦痕特写 */
+const YUNXIU_FX_KINDS: readonly SkillFxKind[] = ['yunxiu-cloud-call', 'yunxiu-rod-strike', 'yunxiu-cloud-bolt'];
+
+function isDragonFxKind(kind: SkillFxKind): boolean {
+    return AO_DRAGON_KINDS.includes(kind);
+}
+
+/* ============================================================
+   云岫·雷云与引雷针
+   雷云的整体云层与金色落雷分别由 ThunderCloudLayer / YunxiuCloudStrikeFx 绘制。
+   引雷针继续使用独立的单格表现。
+   ============================================================ */
+
+/** 一道锯齿电光：三段折线叠出"雷是折着下来的" */
+function YunxiuBoltGlyph({ className = '' }: { className?: string }) {
+    return (
+        <svg className={`yx-bolt-glyph ${className}`} viewBox="0 0 24 48" aria-hidden="true">
+            <path className="yx-bolt-shadow" d="M13 2 L6 20 L12 21 L5 46 L20 22 L13 21 L19 2 Z" />
+            <path className="yx-bolt-core" d="M13 3 L7 20 L12.6 21 L7 44 L19 22.5 L13.2 21.5 L18 3 Z" />
+        </svg>
+    );
+}
+
+/** 引雷·落针（起手格）：一道光顺着她到目标那条轴绷紧，读得出针是从她手里出去的 */
+function YunxiuRodCasterFx({ event }: { event: SkillFxEvent }) {
+    return (
+        <span className="fx-anchor yx-rod-from" style={fxStyleVars(event)}>
+            <i className="yx-rod-line" />
+            <i className="fx-beam-muzzle fxp-muzzle" />
+        </span>
+    );
+}
+
+/** 引雷·落针（目标格）：一光柱针自上而下钉进这格，针身爬满电花，外圈收一道麻痹环 */
+function YunxiuRodStrikeFx() {
+    return (
+        <span className="fx-anchor yx-rod">
+            <i className="yx-rod-streak" />
+            <i className="yx-rod-needle">
+                <svg viewBox="0 0 24 56" aria-hidden="true">
+                    <path className="yx-needle-body" d="M12 2 L15 40 L12 54 L9 40 Z" />
+                    <path className="yx-needle-edge" d="M12 3 L12 52" />
+                    <circle className="yx-needle-head" cx="12" cy="5" r="3.4" />
+                </svg>
+            </i>
+            <i className="yx-paralysis-ring" />
+            <i className="yx-paralysis-ring yx-paralysis-ring-b" />
+            <i className="fxp-hitflash" />
+            <Sparks count={4} className="fxp-spark-fast" />
+        </span>
+    );
+}
+
+/** 被雷劈中的一格：地面焦痕 + 一道短雷 + 火星 */
+function YunxiuBoltHitFx() {
+    return (
+        <span className="fx-anchor yx-bolt-cell">
+            <i className="yx-bolt-cell-strike"><YunxiuBoltGlyph /></i>
+            <i className="yx-bolt-cell-scorch" />
+            <i className="fxp-hitflash" />
+            <Sparks count={3} className="fxp-spark-fast" />
+        </span>
+    );
+}
+
+/** 着弹大闪核 + 双层冲击环 + 晶屑光尘（pierce 目标格） */
+function PierceImpactFx() {    return (
         <span className="fx-anchor">
             <i className="fxp-hitflash fxp-hitflash-big" />
             <i className="fxp-ring" />
@@ -1877,6 +2197,22 @@ function TargetFx({ event, atPos }: { event: SkillFxEvent; atPos?: Position }) {
             return <DuosuiReapFx />;
         case 'duosui-reckon':
             return <DuosuiTakeFx />;
+        case 'aoyuan-dragon-call':
+            // 唤龙·盘云（召唤格）：龙自盘中探起，翻身把十字气浪一拍扫开
+            return <DragonCallTargetFx event={event} />;
+        case 'aoyuan-dragon-sweep':
+            // 盘旋的龙首破开的那一格（路径起点），其余命中格由 impact 变体补
+            return <DragonSweptCellFx />;
+        case 'aoyuan-dragon-dash':
+            // 破浪落点：龙尾一甩带起水柱，等龙真跑到才起
+            return <DragonDashLandingFx />;
+        case 'yunxiu-cloud-call':
+            return <YunxiuCloudStrikeFx event={event} />;
+        case 'yunxiu-rod-strike':
+            // 引雷·落针（目标格）：针钉下去，外圈收一道麻痹环
+            return <YunxiuRodStrikeFx />;
+        case 'yunxiu-cloud-bolt':
+            return <YunxiuCloudStrikeFx event={event} />;
         case 'ink':
         default:
             // 默认兜底：双层墨韵涟漪
@@ -1934,6 +2270,24 @@ export const SkillFxVisual = memo(function SkillFxVisual({
     variant: 'caster' | 'target' | 'impact' | 'area' | 'splash' | 'chain';
     atPos?: Position;
 }) {
+    const [started, setStarted] = useState(() => Date.now() >= event.bornAt);
+    const clockRoot = useRef<HTMLSpanElement>(null);
+    useEffect(() => {
+        const delay = event.bornAt - Date.now();
+        if (delay <= 0) { setStarted(true); return; }
+        setStarted(false);
+        const timer = setTimeout(() => setStarted(true), delay);
+        return () => clearTimeout(timer);
+    }, [event.id, event.bornAt]);
+    useEffect(() => {
+        if ((!isDragonFxKind(event.profile.kind) && !isYunxiuCloudFx(event.profile.kind)) || !clockRoot.current) return;
+        // Mount cost must not let the arrival avatar appear before its moving copy lands.
+        const elapsed = Math.max(0, Date.now() - event.bornAt);
+        const startTime = performance.now() - elapsed;
+        for (const animation of clockRoot.current.getAnimations({ subtree: true })) animation.startTime = startTime;
+    }, [event.id, event.bornAt, event.profile.kind, started]);
+    if (!started && Date.now() < event.bornAt) return null;
+    if (isYunxiuCloudFx(event.profile.kind) && variant !== 'target') return null;
     const variantClass =
         variant === 'caster' ? 'skill-fx-caster' :
         variant === 'target' ? 'skill-fx-target' :
@@ -2073,13 +2427,19 @@ export const SkillFxVisual = memo(function SkillFxVisual({
                 // 低画质挂这个类：只藏"撒出去的散件"，主体轮廓照常播（见 quality-low.css）
                 isLowQuality() ? 'fx-lite' : '',
             ].join(' ')}
+            ref={clockRoot}
             style={style}
             aria-hidden="true"
         >
             {event.profile.moon ? <WangshuMoonFx event={event} variant={variant} /> : event.profile.crafted ? <CraftedSkillFx event={event} variant={variant} atPos={atPos} /> : event.profile.mechanism ? <MechanismSkillFx event={event} variant={variant} /> : event.profile.kind === 'coin-awaken' ? (variant === 'target' && <WangcaiAwakenFx />) : event.profile.spectral ? <SpectralSkillFx event={event} variant={variant} atPos={atPos} /> : <>
             {variant === 'caster' && <CasterFx event={event} />}
             {(variant === 'target' || perTargetMain) && <TargetFx event={event} atPos={atPos} />}
-            {variant === 'impact' && !perTargetMain && (event.profile.kind === 'lingxi-wave'
+            {variant === 'impact' && !perTargetMain && (isDragonFxKind(event.profile.kind)
+                ? (event.profile.kind === 'aoyuan-dragon-dash' ? <DragonDashCellFx /> : <DragonSweptCellFx />)
+                : YUNXIU_FX_KINDS.includes(event.profile.kind)
+                    // 被雷劈中的每一格各吃一道雷，不用通用受击印记糊过去
+                    ? <YunxiuBoltHitFx />
+                : event.profile.kind === 'lingxi-wave'
                 ? <LingxiWaterTouchFx event={event} atPos={atPos} />
                 : event.profile.kind === 'lingxi-fan'
                     ? <LingxiTideImpactFx event={event} atPos={atPos} />
@@ -2093,7 +2453,10 @@ export const SkillFxVisual = memo(function SkillFxVisual({
                         : event.profile.kind === 'heal-wave' && !event.profile.recovery
                             // 波扫过但没真的吃到恢复的格（例如只挂音符的友方格）：柱身收矮
                             ? <HealWaveCellFx dim />
-                            : <AreaTileFx />)}
+                            : isDragonFxKind(event.profile.kind)
+                                // 龙扫过/路过的空格只留一撮水雾：那格没人，不该有爆点
+                                ? <DragonMistTileFx />
+                                : <AreaTileFx />)}
             {variant === 'splash' && <SplashEmberFx />}
             {variant === 'chain' && <ChainBoltFx />}
             </>}

@@ -8,11 +8,14 @@ import { resolveSkillFx, computeFxAngleDeg, computeFxDirection, computeSkillArea
 import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
 import { setRenderQualityPreference, type QualityPreference } from '../core/render-quality';
 import { getSkill } from '../data/skills';
+import { yunxiuSkill1, yunxiuSkill2 } from '../data/extended-skills';
 import { buildSkillPreviewScene } from '../core/skill-fx-preview';
 import { audioManager } from '../audio/audio-manager';
 import { soundManager } from '../core/sound-manager';
 import { planSkillSoundCues, type SkillSoundCue } from '../core/skill-sound-cues';
 import { applyZhizhiForMode } from '../core/hero-zhizhi';
+import { attachDragon, gainScales } from '../core/dragon-orbit';
+import { placeCloud, placeRod, tickCloudsAtRoundStart } from '../core/thunder-cloud';
 
 interface E2EHeroSnapshot {
     id: string;
@@ -57,13 +60,19 @@ declare global {
             prepareWangshuDemo: (mode?: 'standard' | 'classic') => void;
             wangshuDemoStep: (action: 'attack' | 'heal' | 'kill' | 'self') => void;
             wangshuDemoSnapshot: () => unknown;
+            prepareAoyuanSequenceDemo: (skill: 'summon' | 'dash') => void;
+            castAoyuanSequenceDemo: () => unknown;
+            prepareYunxiuCloudDemo: (mode?: 'center' | 'edge' | 'empty' | 'dense') => void;
+            castYunxiuCloudDemo: () => unknown;
+            tickYunxiuCloudDemo: () => unknown;
             /** 直接切画质档位（A/B 帧耗时用）：走玩家同一个开关，不靠点按钮 */
             setQualityMode: (mode: QualityPreference) => string;
             mirrorBladeDemo: (count?: number) => boolean;
             snapshot: () => E2EGameSnapshot;
             prepareFinalStrike: () => boolean;
             /** 特效演示桥（视觉验收/特效开发用）：构建最小战斗舞台并触发指定特效 */
-            fxDemo: (scenario: 'stage' | 'chain' | 'splash' | 'aoe' | 'death' | 'death-pseudo' | 'status' | 'tick' | 'areagrid' | 'areafire' | 'areastorm' | 'areashock' | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade' | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce' | 'fxdragon' | 'fxdash' | 'fxwheel' | 'fxjinghua' | 'fxmarsh' | 'fxbinding' | 'fxzhiguang' | 'fxbeam' | 'fxyunying' | 'fxyunying2' | 'fxlibai' | 'daistasis' | 'fxheal' | 'fxhealwave' | 'fxregen' | 'fxrevive' | 'fxward' | 'fxreap' | 'fxreckon' | 'fxdragon') => boolean;
+            fxDemo: (scenario: 'stage' | 'chain' | 'splash' | 'aoe' | 'death' | 'death-pseudo' | 'status' | 'tick' | 'areagrid' | 'areafire' | 'areastorm' | 'areashock' | 'fxstaff' | 'fxsword' | 'fxice' | 'fxred' | 'fxblade' | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce' | 'fxdragon' | 'fxdash' | 'fxwheel' | 'fxjinghua' | 'fxmarsh' | 'fxbinding' | 'fxzhiguang' | 'fxbeam' | 'fxyunying' | 'fxyunying2' | 'fxlibai' | 'daistasis' | 'fxheal' | 'fxhealwave' | 'fxregen' | 'fxrevive' | 'fxward' | 'fxreap' | 'fxreckon' | 'fxyoulong'
+              | 'fxyunxiu') => boolean;
         };
     }
 }
@@ -301,6 +310,55 @@ function prepareTimingDemo(lethal = false): void {
         activeHero: null, skillFx: [], battleLog: [], skillFxExtras: undefined, actionsRequiredThisTurn: 8 });
 }
 
+function yunxiuCloudSnapshot() {
+    const state = useGameStore.getState();
+    return { clouds: state.boardEffects?.filter(effect => effect.type === 'thunder-cloud'),
+        events: state.skillFx.filter(event => event.skillId?.startsWith('yunxiu')).map(event => ({
+            id: event.id, skillId: event.skillId, targetPos: event.targetPos, impactPositions: event.impactPositions,
+            bornAt: event.bornAt, logIds: event.logIds, hitMs: event.profile.impactMs,
+        })), enemies: state.player2Heroes.map(hero => ({ hp: hero.currentHp, position: hero.position })) };
+}
+
+function prepareYunxiuCloudDemo(mode: 'center' | 'edge' | 'empty' | 'dense' = 'center'): void {
+    ensureFxDemoStage();
+    const edge = mode === 'edge';
+    const caster = createHero('yunxiu', 'player1', edge ? [0, 2] : [2, 0]);
+    const positions: Position[] = edge ? [[0, 0], [0, 1], [1, 1]] : mode === 'empty' ? [[5, 5]] : [[1, 2], [2, 3], [3, 3]];
+    const enemies = positions.map(position => {
+        const enemy = createHero('baize', 'player2', position);
+        enemy.currentHp = enemy.maxHp = 200; enemy.defense = 0; enemy.passiveId = ''; return enemy;
+    });
+    const board = Array.from({ length: 6 }, () => Array(6).fill(null));
+    for (const hero of [caster, ...enemies]) board[hero.position![0]][hero.position![1]] = hero;
+    useGameStore.setState({ board, player1Heroes: [caster], player2Heroes: enemies, boardEffects: [],
+        phase: 'battle', gameMode: 'standard', currentPlayer: 'player1', selectedHero: caster, activeHero: caster,
+        selectedSkill: getSkill('yunxiu_skill1')!, skillFx: [], battleLog: [], skillFxExtras: undefined,
+        actionsThisTurn: 0, actionsRequiredThisTurn: 8, roundNumber: 1, pendingBoardAction: undefined,
+        pendingExtraActionHeroIds: {}, performingExtraAction: false });
+    if (mode === 'dense') {
+        const state = useGameStore.getState();
+        for (const cell of [[1, 1], [2, 2], [3, 1]] as Position[]) placeCloud(state, caster, cell);
+        for (const cell of [[1, 4], [3, 4], [4, 3]] as Position[]) placeCloud(state, enemies[0], cell);
+        useGameStore.setState({ boardEffects: [...(state.boardEffects ?? [])] });
+    }
+}
+
+function prepareAoyuanSequenceDemo(skill: 'summon' | 'dash'): void {
+    ensureFxDemoStage();
+    const caster = createHero('aoyuan', 'player1', skill === 'summon' ? [2, 2] : [2, 1]);
+    if (skill === 'dash') attachDragon(caster, [1, 1]);
+    const target = createHero('baize', 'player2', skill === 'summon' ? [1, 3] : [2, 2]);
+    const other = createHero('moran', 'player2', [1, 4]);
+    for (const hero of [target, other]) { hero.maxHp = hero.currentHp = 200; hero.defense = 0; hero.passiveId = ''; }
+    const board = Array.from({ length: 6 }, () => Array(6).fill(null));
+    for (const hero of [caster, target, other]) board[hero.position![0]][hero.position![1]] = hero;
+    useGameStore.setState({ board, player1Heroes: [caster], player2Heroes: [target, other],
+        phase: 'battle', gameMode: 'standard', currentPlayer: 'player1', selectedHero: caster, activeHero: caster,
+        selectedSkill: getSkill(skill === 'summon' ? 'aoyuan_skill1' : 'aoyuan_skill2')!,
+        skillFx: [], battleLog: [], skillFxExtras: undefined, actionsThisTurn: 0, actionsRequiredThisTurn: 8,
+        roundNumber: 1, pendingBoardAction: undefined, pendingExtraActionHeroIds: {}, performingExtraAction: false });
+}
+
 function prepareWangshuDemo(mode: 'standard' | 'classic' = 'standard'): void {
     ensureFxDemoStage();
     const caster = applyZhizhiForMode(createHero('wangshu', 'player1', [2, 2]), mode);
@@ -398,6 +456,7 @@ function runFxDemo(
         | 'fxpearl' | 'fxwave' | 'fxfan' | 'fxclaw' | 'fxpounce' | 'fxdragon'
         | 'fxdash' | 'fxwheel' | 'fxjinghua' | 'fxmarsh' | 'fxbinding' | 'fxzhiguang' | 'fxbeam' | 'fxyunying' | 'fxyunying2' | 'fxlibai' | 'daistasis'
         | 'fxheal' | 'fxhealwave' | 'fxregen' | 'fxrevive' | 'fxward' | 'fxreap' | 'fxreckon'
+        | 'fxyoulong' | 'fxyunxiu'
 ): boolean {
     if (!ensureFxDemoStage()) return false;
     const state = useGameStore.getState();
@@ -407,6 +466,40 @@ function runFxDemo(
         );
 
     switch (scenario) {
+        case 'fxyoulong': {
+            // 常驻游龙：唤龙之后那尾龙停在机制算出的方位上，随本体移动、随盘旋转向
+            if (!runSkillFxDemo('aoyuan_skill1')) return false;
+            const caster = [...useGameStore.getState().player1Heroes]
+                .find(hero => hero.id.startsWith('aoyuan-'));
+            if (!caster?.position) return false;
+            attachDragon(caster, [caster.position[0] - 1, caster.position[1]]);
+            gainScales(caster, 3);
+            useGameStore.setState({ player1Heroes: [...useGameStore.getState().player1Heroes] });
+            return true;
+        }
+        case 'fxyunxiu': {
+            // 雷云与引雷针的常驻外观：走真实结算，棋盘上留下的就是玩家实战里看到的两件东西
+            if (!runSkillFxDemo('yunxiu_skill1')) return false;
+            const state = useGameStore.getState();
+            const caster = [...state.player1Heroes].find(hero => hero.id.startsWith('yunxiu-'));
+            const enemy = [...state.player2Heroes].find(hero => hero.position);
+            if (!caster?.position || !enemy?.position) return false;
+            const [row, col] = caster.position;
+            // 南北各布一团云，再往敌人脚下落一枚针
+            caster.counters['__extended_target'] = (row - 1) * 6 + col;
+            yunxiuSkill1.execute!(caster, [], state);
+            caster.counters['__extended_target'] = (row + 1) * 6 + col;
+            yunxiuSkill1.execute!(caster, [], state);
+            yunxiuSkill2.execute!(caster, [enemy], state);
+            useGameStore.setState({
+                board: state.board.map(boardRow => [...boardRow]),
+                player1Heroes: [...state.player1Heroes],
+                player2Heroes: [...state.player2Heroes],
+                boardEffects: [...(state.boardEffects ?? [])],
+                battleLog: [...state.battleLog],
+            });
+            return true;
+        }
         case 'chain':
             // 链式闪电：主目标格 storm-bolt + 两条链路段
             pushDemoSkillFx('zhenxiao', 'zhenxiao_skill1', [2, 1], [2, 3], {
@@ -791,6 +884,11 @@ function runFxDemo(
                     type: 'mark', name: '链式闪电', duration: 3,
                     sourceHeroId: heroOf('zhenxiao')?.id ?? 'demo', description: '演示',
                 });
+                // 霆渊的两枚印同屏：引雷印（雷金双纹）与链式闪电（青紫电环）要一眼分得开
+                EffectManager.addEffect(chain, {
+                    type: 'mark', name: '引雷印', duration: 3,
+                    sourceHeroId: heroOf('tingyuan')?.id ?? 'demo', description: '演示',
+                });
             }
             useGameStore.setState({
                 player1Heroes: [...useGameStore.getState().player1Heroes],
@@ -879,6 +977,29 @@ export function installE2EBridge(): void {
         prepareTimingDemo,
         castTimingDemo: () => useGameStore.getState().executeSkill([2, 3]),
         prepareWangshuDemo,
+        prepareYunxiuCloudDemo,
+        castYunxiuCloudDemo: () => {
+            const caster = useGameStore.getState().player1Heroes[0];
+            useGameStore.getState().executeSkill(caster.position?.[0] === 0 ? [0, 0] : [2, 2]);
+            return yunxiuCloudSnapshot();
+        },
+        tickYunxiuCloudDemo: () => {
+            const state = useGameStore.getState(), caster = state.player1Heroes[0];
+            placeRod(state, caster, [2, 4]);
+            const logs = tickCloudsAtRoundStart(state, caster);
+            useGameStore.setState({ boardEffects: [...(state.boardEffects ?? [])], battleLog: [...state.battleLog] });
+            for (const message of logs) useGameStore.getState().addLog({ type: 'passive', player: caster.owner, message });
+            return yunxiuCloudSnapshot();
+        },
+        prepareAoyuanSequenceDemo,
+        castAoyuanSequenceDemo: () => {
+            const skill = useGameStore.getState().selectedSkill;
+            useGameStore.getState().executeSkill(skill?.id === 'aoyuan_skill1' ? [1, 2] : [2, 4]);
+            return useGameStore.getState().skillFx.map(event => ({ id: event.id, skillId: event.skillId,
+                bornAt: event.bornAt, startDelayMs: event.startDelayMs, dragonContactsOnly: event.dragonContactsOnly,
+                dragonStartDeg: event.dragonStartDeg, fromPos: event.fromPos, targetPos: event.targetPos,
+                coveredPositions: event.coveredPositions }));
+        },
         wangshuDemoStep,
         wangshuDemoSnapshot: () => {
             const state = useGameStore.getState(), caster = state.player1Heroes.find(hero => hero.passiveId === 'wangshu_passive');

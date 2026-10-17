@@ -1,0 +1,90 @@
+/* One continuous 3×3 cloud. The frame stays fixed; only the broad cloud fronts drift. */
+.yx-cloud-layer {
+    position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 4;
+}
+.yx-cloud-field, .yx-cloud-discharge {
+    --yx-pitch: calc(var(--board-cell-size,76px) + 6px);
+    width: calc(var(--yx-pitch) * 3 - 6px);
+    height: calc(var(--yx-pitch) * 3 - 6px);
+    pointer-events: none;
+    clip-path: inset(calc(var(--yx-clip-t,0) * var(--yx-pitch)) calc(var(--yx-clip-r,0) * var(--yx-pitch)) calc(var(--yx-clip-b,0) * var(--yx-pitch)) calc(var(--yx-clip-l,0) * var(--yx-pitch)));
+}
+.yx-cloud-field {
+    position: absolute; left: 0; top: 0;
+    transform: translate(calc(var(--yx-cloud-col) * var(--yx-pitch)), calc(var(--yx-cloud-row) * var(--yx-pitch)));
+    transition: transform 240ms cubic-bezier(.2,.65,.3,1);
+    animation: yx-field-arrive 360ms ease-out both;
+}
+.yx-cloud-art { display: block; width: 100%; height: 100%; transform-origin: center; animation: yx-fronts-breathe 6s ease-in-out infinite alternate; }
+.yx-cloud-fronts {
+    opacity: .88;
+}
+.yx-cloud-seam { fill: none; stroke: #d6dbe0; stroke-width: 1; stroke-linecap: round; opacity: .2; }
+.yx-cloud-range {
+    position: absolute; inset: 2px; border: 1px solid #7b839a38;
+    border-radius: 12px; background: radial-gradient(ellipse at center, transparent 48%, #44516a0c);
+}
+.yx-cloud-count {
+    position: absolute;
+    top: calc(6px + var(--yx-clip-t,0) * var(--yx-pitch));
+    right: calc(7px + var(--yx-clip-r,0) * var(--yx-pitch));
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 5px; border: 1px solid #d5b36f40; border-radius: 4px;
+    background: #f7f2e7db; color: #61583c; font: 9px/1.3 var(--font-title,serif);
+}
+.yx-cloud-count i { width: 4px; height: 4px; border-radius: 50%; background: #4a638e; }
+.yx-cloud-field-p2 .yx-cloud-count i { background: #ac4e40; }
+@keyframes yx-field-arrive { from { opacity: 0; } to { opacity: 1; } }
+@keyframes yx-fronts-breathe { from { transform: translate(-2px,-1px) scale(.99); opacity: .82; } to { transform: translate(2px,1px) scale(1.01); opacity: 1; } }
+
+/* Leave portraits and labels readable over the shared cloud, without hiding the cloud between cells. */
+.battle-board-grid:has(> .yx-cloud-layer) .board-hero-content { position: relative; z-index: 6; }
+.skill-fx-stage-grid:has(> .yx-cloud-layer) .skill-fx-stage-piece { z-index: 6; }
+
+/* One SVG discharges across the field. All endpoints and numbers share the actual contact clock. */
+.yx-cloud-discharge {
+    position: absolute;
+    left: calc(var(--yx-pitch) * -1); top: calc(var(--yx-pitch) * -1);
+}
+.yx-cloud-charge { position: absolute; inset: 0; width: 100%; height: 100%; fill: #e8edee; opacity: 0; filter: blur(5px);
+    animation: yx-cloud-charge 420ms ease-out calc(var(--yx-hit-ms,320ms) - 180ms) both; }
+.yx-cloud-charge-thread { fill: none; stroke: #ffe79b; stroke-width: 1.2; stroke-linecap: round; }
+@keyframes yx-cloud-charge { 0% { opacity: 0; } 35% { opacity: .07; } 44% { opacity: .13; } 100% { opacity: 0; } }
+.yx-cloud-lightning {
+    position: absolute; left: -3px; top: -3px;
+    width: calc(100% + 6px); height: calc(100% + 6px); overflow: visible;
+    fill: none; stroke-linecap: round; stroke-linejoin: round;
+}
+.yx-gold-bolt { opacity: 0; animation: yx-gold-visibility 380ms linear calc(var(--yx-hit-ms,320ms) - 80ms) both; }
+.yx-gold-bolt path {
+    stroke-dasharray: 100; stroke-dashoffset: 100;
+    animation: yx-gold-draw 80ms linear calc(var(--yx-hit-ms,320ms) - 80ms) forwards;
+}
+.yx-gold-halo { stroke: #f4bb3c; stroke-width: 12; opacity: .22; }
+.yx-gold-branch { stroke: #ecc04f; stroke-width: 1.5; opacity: .85; }
+.yx-gold-edge { stroke: #ffc83e; stroke-width: 4.2; }
+.yx-gold-core { stroke: #fff6bd; stroke-width: 1.35; }
+@keyframes yx-gold-draw { to { stroke-dashoffset: 0; } }
+@keyframes yx-gold-visibility {
+    0% { opacity: 0; } 8% { opacity: 1; } 30% { opacity: 1; }
+    43% { opacity: .64; } 58% { opacity: .85; } 100% { opacity: 0; }
+}
+.yx-gold-contact { stroke: #edbc42; stroke-width: 1.25; opacity: 0;
+    animation: yx-gold-contact 480ms ease-out var(--yx-hit-ms,320ms) both; }
+.yx-gold-ground { fill: #edbc4214; stroke: #e4b039; }
+.yx-gold-hotspot { fill: #fff7ce; stroke: #ffdf7b; }
+@keyframes yx-gold-contact { 0% { opacity: 0; transform: scale(.45); } 12% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.5); } }
+
+[data-quality='low'] .yx-cloud-fronts { filter: none; }
+[data-quality='low'] .yx-cloud-art { animation-duration: 8s; }
+[data-quality='low'] .yx-cloud-texture { display: none; }
+[data-quality='low'] .yx-gold-halo { stroke-width: 8; opacity: .16; }
+@media (prefers-reduced-motion: reduce) {
+    .yx-cloud-field { animation: none; transition: none; }
+    .yx-cloud-art { animation: none; }
+    .yx-cloud-charge { animation: none; }
+    .yx-gold-bolt { animation: yx-still-strike 360ms linear var(--yx-hit-ms,320ms) forwards; }
+    .yx-gold-bolt path { animation: none; stroke-dashoffset: 0; }
+    .yx-gold-contact { animation: yx-still-strike 420ms linear var(--yx-hit-ms,320ms) forwards; }
+    @keyframes yx-still-strike { 0% { opacity: .8; } 100% { opacity: 0; } }
+}

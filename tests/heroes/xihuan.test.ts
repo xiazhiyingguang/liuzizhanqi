@@ -50,7 +50,7 @@ describe('羲和 · 面板', () => {
 });
 
 describe('羲和 · 技能一「均光」', () => {
-    it('把十字两格内友方的百分比血量拉平到同一档', () => {
+    it('把周围 3×3 内友方的百分比血量拉平到同一档', () => {
         const { state, xihuan } = scene();
         const rich = ally(state, [2, 2]);
         const hurt = ally(state, [1, 1]);
@@ -135,12 +135,34 @@ describe('羲和 · 技能一「均光」', () => {
         }
     });
 
-    it('十字两格内没有另一名友方时放不出来', () => {
+    it('周围 3×3 内没有另一名友方时放不出来', () => {
         const { state, xihuan } = scene();
         setRatio(xihuan, 0.4);
         const farAlly = ally(state, [0, 0]);   // 离她 (2,1) 太远，不在十字两格上
         void farAlly;
         expect(SkillSystem.executeSkill(xihuan, xihuanSkill1, [[2, 1]], state).success).toBe(false);
+    });
+
+    it('形状是 3×3：斜角上的友方也算进拉平（旧口径的十字够不到她）', () => {
+        const { state, xihuan } = scene();                          // 羲和在 (2,1)
+        const diagonal = ally(state, [1, 2]);                       // 唯一一个友方，在斜角
+        setRatio(xihuan, 1);
+        setRatio(diagonal, 0.25);
+        expect(SkillSystem.executeSkill(xihuan, xihuanSkill1, [[2, 1]], state).success).toBe(true);
+        // 平均线 = (100% + 12/46) / 2 ≈ 63%：羲和 56×0.63 → 35，斜角友方 46×0.63 → 29，
+        // 她低于自身 50%，拉平后再多吃 6 点 → 35
+        expect(xihuan.currentHp).toBe(35);
+        expect(diagonal.currentHp).toBe(35);
+    });
+
+    it('形状是 3×3：正方向两格外的友方不再参与（旧口径能扫到，现在够不到）', () => {
+        const { state, xihuan } = scene();
+        const far = ally(state, [0, 1]);                            // 正上方两格
+        setRatio(xihuan, 1);
+        setRatio(far, 0.25);
+        expect(SkillSystem.executeSkill(xihuan, xihuanSkill1, [[2, 1]], state).success).toBe(false);
+        expect(far.currentHp).toBe(12);                             // 原样没动
+        expect(xihuan.counters['盈光'] ?? 0).toBe(0);
     });
 
     it('敌人不参与拉平', () => {

@@ -47,6 +47,10 @@ export const WEAPON_IMAGE_FILES: Readonly<Record<string, string>> = {
     zhiyuan: 'zhiyuan.png',
     xihuan: 'xihuan.png',
     jiangtaigong: 'jiangtaigong.png',
+    tingyuan: 'tingyuan.png',
+    aoyuan: 'aoyuan.png',
+    yunxiu: 'yunxiu.png',
+    daizong: 'daizong.png',
     duosui: 'duosui.png',
 };
 

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { BattleGlossaryEntry } from '../../core/battle-glossary';
+import StatusGlyph from './StatusGlyph';
+import { resolveTermGlyphId, statusGlyphTone } from '../../core/hero-status-icons';
 
 interface BattleGlossaryTermProps {
     glossary: BattleGlossaryEntry;
@@ -105,6 +107,9 @@ export default function BattleGlossaryTerm({ glossary, children }: BattleGlossar
 
     useEffect(() => () => clearTimer(), [clearTimer]);
 
+    // 术语字形与状态卡同源：同一个词在战报里、在悬停释义里、在英雄状态卡上是同一枚图标
+    const glyph = resolveTermGlyphId(glossary.term);
+
     return (
         <>
             <span
@@ -137,6 +142,7 @@ export default function BattleGlossaryTerm({ glossary, children }: BattleGlossar
                     longPressTriggeredRef.current = false;
                 }}
             >
+                <StatusGlyph id={glyph} size={11} className="mr-[3px] inline-block align-[-1px]" />
                 {children}
             </span>
 
@@ -156,7 +162,12 @@ export default function BattleGlossaryTerm({ glossary, children }: BattleGlossar
                     }}
                 >
                     <div className="flex items-center justify-between gap-3 border-b border-gold/15 pb-2.5">
-                        <span className="font-title text-base text-ink">{glossary.title}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                            <StatusGlyph id={glyph} size={18} />
+                            <span className="truncate font-title text-base" style={{ color: statusGlyphTone(glyph) }}>
+                                {glossary.title}
+                            </span>
+                        </span>
                         <span className="flex-shrink-0 rounded-full border border-gold/20 bg-gold/5 px-2 py-0.5 text-[9px] text-gold-dark font-body">
                             {glossary.category}
                         </span>

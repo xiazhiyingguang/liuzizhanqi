@@ -16,6 +16,7 @@ import type { Player, Position } from '../types/game';
 import { getSkill } from '../data/skills';
 import { computeFxCoveredPositions } from './skill-fx-coverage';
 import { MovementSystem } from './movement-system';
+import { isYunxiuCloudFx } from './yunxiu-cloud-fx';
 import {
     computeFxAngleDeg,
     computeFxDirection,
@@ -68,6 +69,12 @@ export const DIRECTIONAL_FX_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKin
     'prism-beam',
     'ink-brush', 'ink-dash', 'ink-cut', 'feixue-bond', 'yang-link', 'yin-link',
     'starfire-lance', 'nightowl-strike', 'bone-slash', 'wind-line', 'wind-pressure',
+    // 乘龙破浪要沿 --fx-dist 拉轨，唤龙那一缕龙气要跨格飘向召唤格：同格都会塌成零长度
+    'aoyuan-dragon-dash',
+    'aoyuan-dragon-call',
+    // 引雷针要沿轴拖一道光、落雷要画"云从旧格飘到新格"，两者都靠 --fx-dist 撑长度
+    'yunxiu-rod-strike',
+    'yunxiu-cloud-bolt',
 ]);
 
 export function isDirectionalFxKind(kind: SkillFxKind): boolean {
@@ -102,6 +109,7 @@ export function previewCellVariants(
     row: number,
     col: number
 ): Array<'caster' | 'target' | 'impact' | 'area'> {
+    if (isYunxiuCloudFx(event.profile.kind)) return event.targetPos[0] === row && event.targetPos[1] === col ? ['target'] : [];
     const variants: Array<'caster' | 'target' | 'impact' | 'area'> = [];
     if (event.fromPos[0] === row && event.fromPos[1] === col) variants.push('caster');
     if (event.targetPos[0] === row && event.targetPos[1] === col) variants.push('target');
@@ -120,6 +128,58 @@ export function buildSkillPreviewScene(skillId: string) {
         const event: SkillFxEvent = { id: 0, skillId, profile, owner: 'player1', fromPos: [1, 1], targetPos: [3, 2],
             angleDeg: 0, direction: 'E', coveredPositions, damagePositions: [], impactPositions: [],
             areaBounds: computeSkillAreaBounds(skill!, coveredPositions) ?? undefined, bornAt: Date.now() };
+        return { event, cols: 6, rows: 6 };
+    }
+    // 唤龙·盘云：龙在**召唤格**外围转满一整圈，所以预览必须把召唤格摆在中场，
+    // 让八格环全部落在盘内——放在角落时整圈会被盘边裁到只剩一格，看着像特效坏了。
+    if (skillId === 'aoyuan_skill1') {
+        const fromPos: Position = [2, 2];
+        const targetPos: Position = [1, 3];
+        const angleDeg = computeFxAngleDeg(fromPos, targetPos);
+        const event: SkillFxEvent = {
+            id: 0, skillId, profile, owner: 'player1', fromPos, targetPos,
+            angleDeg, direction: computeFxDirection(angleDeg),
+            // 顺时针八格：上、右上、右、右下、下、左下、左、左上
+            coveredPositions: [[0, 3], [0, 4], [1, 4], [2, 4], [2, 3], [2, 2], [1, 2], [0, 2]],
+            // 十字才算伤害，抽上下两格演示"龙首爬到才炸"
+            impactPositions: [[0, 3], [2, 3]],
+            damagePositions: [[0, 3], [2, 3]],
+            bornAt: Date.now(),
+        };
+        return { event, cols: 6, rows: 6 };
+    }
+    // 游龙扫击不是技能（挂在行动结束的引擎钩子上），但它是敖渊的招牌画面，
+    // 所以图鉴的被动卡按战斗几何造一遍：本体在中，龙首从正上方起、顺时针爬过五格。
+    if (skillId === 'aoyuan_orbit') {
+        const fromPos: Position = [2, 2];
+        const leg: Position[] = [[1, 2], [1, 3], [2, 3], [3, 3], [3, 2]];
+        const targetPos = leg[0];
+        const angleDeg = computeFxAngleDeg(fromPos, targetPos);
+        const event: SkillFxEvent = {
+            id: 0, skillId, profile, owner: 'player1', fromPos, targetPos,
+            angleDeg, direction: computeFxDirection(angleDeg),
+            coveredPositions: leg,
+            // 抽两格当"被扫到的敌人"，其余三格演示空格的的处理
+            impactPositions: [[1, 3], [3, 3]],
+            damagePositions: [[1, 3], [3, 3]],
+            bornAt: Date.now(),
+        };
+        return { event, cols: 6, rows: 6 };
+    }
+    // 云中落雷也不是技能（挂在回合开始的钩子上），但它才是云岫每回合真正打人的那一下：
+    // 按战斗几何摆——云从西格挪到东格，落在东格的那一格里劈下雷，两名敌人各挨一道。
+    if (skillId === 'yunxiu_cloud' || skillId === 'yunxiu_skill1') {
+        const fromPos: Position = [2, 1];
+        const targetPos: Position = [2, 3];
+        const angleDeg = computeFxAngleDeg(fromPos, targetPos);
+        const event: SkillFxEvent = {
+            id: 0, skillId, profile, owner: 'player1', fromPos, targetPos,
+            angleDeg, direction: computeFxDirection(angleDeg),
+            coveredPositions: MovementSystem.getBoxPositions(targetPos, 3),
+            impactPositions: [[1, 2], targetPos, [3, 4]],
+            damagePositions: [[1, 2], targetPos, [3, 4]],
+            bornAt: Date.now(),
+        };
         return { event, cols: 6, rows: 6 };
     }
     // 鲸落落在水泽随机格，不一定在太公脚下：预览按战斗几何摆——太公在西、落点在东两格，
@@ -186,6 +246,9 @@ export function buildSkillPreviewScene(skillId: string) {
     if (skillId === 'lingxi_skill2') coveredPositions = MovementSystem.getLingxiFrontRect(fromPos, 3);
     if (profile.kind === 'prism-beam') coveredPositions = [[2, 2], [2, 3], [3, 3], [4, 3], [4, 4], [4, 5]];
     if (profile.kind === 'ink-dash') coveredPositions = [[2, 2], [2, 3], [2, 4]];
+    // 乘龙破浪的轴上格子由引擎自报（fxCoveredPositions），预览得照样摆一份，
+    // 否则龙不知道要跑几格、落点爆点也会和龙跑到的一刻脱拍
+    if (skillId === 'aoyuan_skill2') coveredPositions = [[2, 2], [2, 3]];
     if (skillId === 'yunying_skill1') coveredPositions = [[1, 0], [1, 1], [1, 2], [2, 0], [2, 1], [2, 2], [3, 0], [3, 1], [3, 2]];
     if (skillId === 'yunying_skill2') coveredPositions = [[1, 2], [2, 2], [3, 2]];
     if (skillId === 'huanongying_skill1') coveredPositions = [[1, 2], [2, 2], [3, 2]];

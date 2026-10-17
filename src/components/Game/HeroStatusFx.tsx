@@ -11,6 +11,9 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { Hero } from '../../types/game';
 import { resolveHeroStatusFx, type HeroStatusFxKind } from '../../core/hero-status-fx';
+import { dragonOrbitIndex, scaleLayers } from '../../core/dragon-orbit';
+import { dragonCoilBearingDeg } from '../../core/dragon-sweep-fx';
+import { DragonArt } from './AoyuanDragonArt';
 import { HeroMechanismState } from './HeroMechanismState';
 
 /** 环绕点：n 粒沿圆环均分布点并整体旋转 */
@@ -149,6 +152,60 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                 <>
                     <i className="sfx-ring" />
                     <Blink count={1} />
+                </>
+            );
+        case 'bulwark':
+            // 镇守：一圈立起的盾墙 + 两道上升的山影，读得出"这一侧被他护住了"
+            return (
+                <>
+                    <i className="sfx-ring sfx-bulwark-ring" />
+                    <Rise count={2} />
+                </>
+            );
+        case 'pressure':
+            // 岳势：压落的印 + 直接把池子数字写在棋子上——玩家要靠这个数决定什么时候砸技能二
+            return (
+                <>
+                    <i className="sfx-ring sfx-pressure-ring" />
+                    <Blink count={1} />
+                    <b className="sfx-pressure-count">{hero?.counters['岳势'] ?? 0}</b>
+                </>
+            );
+        case 'dragon':
+            // 游龙：一整尾小龙绕身巡行。龙头停在机制算出的那一格方位上，
+            // 所以扫完半圈它会跟着转到对面那一侧——玩家据此就能预判下一拍扫哪边。
+            return (
+                <>
+                    <i
+                        className="ao-coil"
+                        style={{ '--ao-start': `${dragonCoilBearingDeg(dragonOrbitIndex(hero!))}deg` } as CSSProperties}
+                    >
+                        <i className="ao-coil-dragon"><DragonArt mode="idle" /></i>
+                    </i>
+                    <i className="sfx-ring sfx-dragon-ring" />
+                </>
+            );
+        case 'scales': {
+            // 龙鳞：环绕的鳞光数=当前层数（每层各活两回合，会一层层少下去）
+            const layers = Math.max(1, Math.min(6, scaleLayers(hero!)));
+            return <Orbit count={layers} className="sfx-orbit-scales" />;
+        }
+        case 'tingxi': {
+            // 霆息：绕身雷纹数=当前层数（永久累加，封顶 5 层）
+            const layers = Math.max(1, Math.min(5, hero!.counters['霆息'] ?? 0));
+            return (
+                <>
+                    <Orbit count={layers} className="sfx-orbit-tingxi" />
+                    <i className="sfx-ring sfx-tingxi-ring" />
+                </>
+            );
+        }
+        case 'thundermark':            // 引雷印：两道错开的雷纹压在印环上，读得出"这人身上有靶子"
+            return (
+                <>
+                    <i className="sfx-bolt sfx-bolt-thunder"><BoltGlyph /></i>
+                    <i className="sfx-bolt sfx-bolt-thunder-alt"><BoltGlyph /></i>
+                    <i className="sfx-ring sfx-thunder-ring" />
                 </>
             );
         case 'chainmark':

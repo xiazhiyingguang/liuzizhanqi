@@ -2,12 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameStore } from '../../src/store/game-store';
 import { SkillSystem } from '../../src/core/skill-system';
 import { GameEngine } from '../../src/core/game-engine';
+import { DamageCalculator } from '../../src/core/damage-calculator';
+import { EffectManager } from '../../src/core/effect-manager';
+import { grantZhizhi } from '../../src/core/hero-zhizhi';
 import {
     findBrushAt,
+    gainShangguanMoyi,
     performShangguanDashSegment,
     hasShangguanDashOption,
     scanShangguanDashDirection,
     shangguanSkill1,
+    shangguanSkillDamage,
 } from '../../src/data/extended-skills';
 import { addHero, makeGameState } from '../helpers/game-state';
 import { BoardEffect, GameState } from '../../src/types/game';
@@ -258,5 +263,90 @@ describe('上官婉儿笔走龙蛇：撞碎毛笔回收并刷新冲刺', () => {
         GameEngine.endHeroAction(shangguan, state);
         expect(brush.position).toEqual([3, 1]);
         expect(enemy.currentHp).toBe(enemy.maxHp - 9);
+    });
+});
+
+describe('上官婉儿 · 墨意 / 天威 / 致知', () => {
+    beforeEach(() => vi.spyOn(Math, 'random').mockReturnValue(0.99));
+    afterEach(() => {
+        vi.restoreAllMocks();
+        useGameStore.getState().resetGame();
+    });
+
+    /** 婉儿一刀打死残血敌人，用于验证击杀型天威 */
+    function killEnemy(shangguan: ReturnType<typeof addHero>, victim: ReturnType<typeof addHero>, state: GameState) {
+        const hit = DamageCalculator.calculate(shangguan, victim, 30, false, false, { canCrit: false });
+        DamageCalculator.applyDamage(victim, hit, shangguan, state);
+    }
+
+    it('天威·泼墨：击杀敌人立即得3层墨意，并当场凝成1次闪避', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+        const victim = addHero(state, 'baize', 'player2', [3, 5]);
+        victim.currentHp = 1;
+
+        killEnemy(shangguan, victim, state);
+
+        expect(victim.state).not.toBe('alive');
+        // 这一击本身 1 层 + 天威 3 层 = 4 层 → 满3凝1次闪避，余下1层不清零
+        expect(EffectManager.getCounter(shangguan, '闪避')).toBe(1);
+        expect(EffectManager.getCounter(shangguan, '墨意')).toBe(1);
+        expect(state.battleLog.some(entry => String(entry.message).includes('天威·泼墨'))).toBe(true);
+    });
+
+    it('闪避已满2次时墨意继续累积，天威不会白放', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+        EffectManager.setCounter(shangguan, '闪避', 2);
+        const victim = addHero(state, 'baize', 'player2', [3, 5]);
+        victim.currentHp = 1;
+
+        killEnemy(shangguan, victim, state);
+
+        expect(EffectManager.getCounter(shangguan, '闪避')).toBe(2);
+        expect(EffectManager.getCounter(shangguan, '墨意')).toBe(4);
+    });
+
+    it('墨意换算保留余数：一次+4层 = 1次闪避 + 剩1层', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+
+        const { moyi, gainedDodges } = gainShangguanMoyi(shangguan, 4);
+
+        expect(gainedDodges).toBe(1);
+        expect(moyi).toBe(1);
+        expect(EffectManager.getCounter(shangguan, '闪避')).toBe(1);
+    });
+
+    it('致知3：每层墨意为技能伤害提升5%，6层吃满30%', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+        grantZhizhi(shangguan, 3);
+        EffectManager.setCounter(shangguan, '墨意', 6);
+
+        expect(shangguanSkillDamage(shangguan, 9)).toBe(11);      // 9×1.30 = 11.7 → 11
+        expect(shangguanSkillDamage(shangguan, 8)).toBe(10);      // 冲刺（致知2 后）8×1.30 → 10
+        EffectManager.setCounter(shangguan, '墨意', 9);            // 超过6层仍按封顶算
+        expect(shangguanSkillDamage(shangguan, 9)).toBe(11);
+    });
+
+    it('致知3 的加成会真的作用到毛笔掠过的那一击上', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+        grantZhizhi(shangguan, 3);
+        EffectManager.setCounter(shangguan, '墨意', 6);
+        makeBrush(state, [3, 0], 'player1', shangguan.id, 'brush-zz3');
+        const enemy = addHero(state, 'baize', 'player2', [3, 1]);
+
+        GameEngine.endHeroAction(shangguan, state);
+
+        expect(enemy.currentHp).toBe(enemy.maxHp - 11);
+    });
+
+    it('没有致知3 时墨意不放大伤害', () => {
+        const state = makeGameState();
+        const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
+        EffectManager.setCounter(shangguan, '墨意', 6);
+        expect(shangguanSkillDamage(shangguan, 9)).toBe(9);
     });
 });

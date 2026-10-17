@@ -19,6 +19,8 @@ import {
 import { computeFxTailMs, SKILL_FX_KIND_LABELS, resolveSkillFx } from '../../core/skill-fx';
 import { SkillAreaFx, SkillFxVisual } from '../Game/SkillFxLayer';
 import { MOBILE_LAYOUT_QUERY } from '../../hooks/useMobileLayout';
+import { ThunderCloudLayer } from '../Game/ThunderCloudField';
+import { isYunxiuCloudFx } from '../../core/yunxiu-cloud-fx';
 
 /** 一轮特效播完后到下一轮的静默间隔 */
 const LOOP_GAP_MS = 500;
@@ -36,9 +38,10 @@ const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 /** 特效舞台本体：演示棋盘 + 档案行 + 重播（图鉴卡内不直接展示，只在浮层里出现） */
 export function SkillFxStage({ skillId, accent }: { skillId: string; accent: string }) {
     const profile = resolveSkillFx(skillId);
-    const { event, cols, rows } = useMemo(() => buildSkillPreviewScene(skillId), [skillId]);
+    const { event: templateEvent, cols, rows } = useMemo(() => buildSkillPreviewScene(skillId), [skillId]);
     const cells = useMemo(() => Array.from({ length: cols * rows }, (_, index) => [Math.floor(index / cols), index % cols] as const), [cols, rows]);
     const [cycle, setCycle] = useState(0);
+    const event = useMemo(() => ({ ...templateEvent, id: templateEvent.id + cycle, bornAt: Date.now() }), [templateEvent, cycle]);
     const [reducedMotion, setReducedMotion] = useState(false);
     const [tabHidden, setTabHidden] = useState(false);
 
@@ -97,6 +100,10 @@ export function SkillFxStage({ skillId, accent }: { skillId: string; accent: str
                             </div>
                         );
                     })}
+                    {isYunxiuCloudFx(event.profile.kind) && <ThunderCloudLayer effects={[{
+                        id: 'preview-cloud', type: 'thunder-cloud', position: event.targetPos,
+                        owner: event.owner, duration: 3, sourceHeroId: 'yunxiu-preview',
+                    }]} />}
                     <SkillAreaFx key={`area-${cycle}`} event={event} />
                 </div>
             )}

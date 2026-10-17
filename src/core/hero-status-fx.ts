@@ -20,7 +20,8 @@ export type HeroStatusFxKind =
     | 'bounty-crit'     // 悬赏·永久暴击（绯红暴击刻）
     | 'bounty-vampire'  // 悬赏·永久吸血（暗紫汲取环）
     | 'deathmark'    // 猎杀标记（夜枭死契之瞳）
-    | 'chainmark'    // 链式闪电标记（震霄）
+    | 'thundermark'  // 引雷印（霆渊给雷点的靶）
+    | 'chainmark'    // 链式闪电标记（霆渊的传导跳板）
     | 'fear'         // 恐惧
     | 'wither'       // 凋零
     | 'burn'         // 灼烧（火系持续伤害）
@@ -39,7 +40,7 @@ export type HeroStatusFxKind =
     | 'vampire'      // 亡灵吸血（杰茨米强化）
     | 'edge'         // 锋鸣（回锋追猎标记）
     | 'combo'        // 连破/啸刃（回锋的永久标记，二者互斥故共用外观）
-    | 'particle'     // 粒子标记（费曼）
+    | 'particle'     // 粒子标记（逐光）
     | 'observe-hit'  // 观测坍缩受伤（薛定谔）
     | 'observe-miss' // 观测坍缩未受伤（薛定谔）
     | 'entangle'     // 量子纠缠（薛定谔）
@@ -50,7 +51,12 @@ export type HeroStatusFxKind =
     | 'drunk'        // 醉意层数（太白/醉枕刀）
     | 'jingying'     // 镜影层数（镜花·水月：环绕碎镜数=层数）
     | 'imprint'      // 印月（镜花候补登场的攻防增益）
-    | 'xubai-orbs';  // 黑白球余量（叙白，环绕珠数=剩余颗数）
+    | 'xubai-orbs'   // 黑白球余量（叙白，环绕珠数=剩余颗数）
+    | 'bulwark'      // 镇守（岱宗面朝一侧立起的盾墙）
+    | 'pressure'     // 岳势（岱宗镇守期间挡下来的伤害池，数字即池深）
+    | 'dragon'       // 游龙（敖渊绕身盘旋的龙影）
+    | 'scales'      // 龙鳞层数（敖渊，环绕鳞光数=层数）
+    | 'tingxi';     // 霆息层数（云岫，每层 +1 移动力与 5% 防御）
 
 /** 同时渲染的状态特效上限（棋子很小，多了会糊） */
 export const MAX_HERO_STATUS_FX = 2;
@@ -67,6 +73,7 @@ const STATUS_FX_PRIORITY: Array<{ kind: HeroStatusFxKind; effectNames?: string[]
     { kind: 'bounty-crit', effectNames: ['悬赏·永久暴击'] },
     { kind: 'bounty-vampire', effectNames: ['悬赏·永久吸血'] },
     { kind: 'deathmark', effectNames: ['猎杀标记'] },
+    { kind: 'thundermark', effectNames: ['引雷印'] },
     { kind: 'chainmark', effectNames: ['链式闪电'] },
     { kind: 'fear', effectNames: ['恐惧'] },
     { kind: 'rage', effectNames: ['愤怒'] },
@@ -82,6 +89,11 @@ const STATUS_FX_PRIORITY: Array<{ kind: HeroStatusFxKind; effectNames?: string[]
     { kind: 'duanxue', effectNames: ['断雪'] },
     { kind: 'guard', effectNames: ['援护'] },
     { kind: 'ice-armor', effectNames: ['冰甲'] },
+    { kind: 'bulwark', effectNames: ['镇守'] },
+    { kind: 'pressure', counter: '岳势' },
+    { kind: 'dragon', effectNames: ['游龙'] },
+    { kind: 'scales', effectNames: ['龙鳞'] },
+    { kind: 'tingxi', counter: '霆息' },
     { kind: 'harmony', effectNames: ['和声'] },
     { kind: 'note', effectNames: ['音符'] },
     { kind: 'vampire', effectNames: ['亡灵吸血'] },
@@ -114,4 +126,26 @@ export function resolveHeroStatusFx(hero: Hero): HeroStatusFxKind[] {
         }
     }
     return active;
+}
+
+/**
+ * 全部已登记的状态外观。取自优先级表本身而不是另抄一份清单，
+ * 这样新增状态只改 STATUS_FX_PRIORITY 一处，图标层的完整性校验（Record 覆盖全部 kind）会跟着生效。
+ */
+export const ALL_HERO_STATUS_FX_KINDS: HeroStatusFxKind[] = STATUS_FX_PRIORITY.map(entry => entry.kind);
+
+/** 反查：效果名 → 状态外观；未登记的名字返回 null，由调用方兜底 */
+export function statusFxKindByEffectName(name: string): HeroStatusFxKind | null {
+    for (const entry of STATUS_FX_PRIORITY) {
+        if (entry.effectNames?.includes(name)) return entry.kind;
+    }
+    return null;
+}
+
+/** 反查：玩家向计数器标签（破镜之刃 / 增势 / 醉意…）→ 状态外观 */
+export function statusFxKindByCounter(label: string): HeroStatusFxKind | null {
+    for (const entry of STATUS_FX_PRIORITY) {
+        if (entry.counter === label) return entry.kind;
+    }
+    return null;
 }

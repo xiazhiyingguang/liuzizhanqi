@@ -17,8 +17,11 @@ describe('英雄图鉴数据', () => {
             expect(hero.moveRange).toBeGreaterThan(0);
             expect(hero.skills).toHaveLength(2);
             expect(hero.skills.every(skill => skill.name && skill.description)).toBe(true);
-            expect(hero.passive.name).not.toMatch(/_passive$/);
-            expect(hero.passive.description.length).toBeGreaterThan(8);
+            // 设计稿写「暂无」的英雄（如霆渊）合法地没有被动；有被动的仍须写全
+            if (hero.passive) {
+                expect(hero.passive.name).not.toMatch(/_passive$/);
+                expect(hero.passive.description.length).toBeGreaterThan(8);
+            }
             expect(hero.tags.length).toBeGreaterThanOrEqual(3);
             expect(hero.tips.length).toBeGreaterThanOrEqual(2);
         }

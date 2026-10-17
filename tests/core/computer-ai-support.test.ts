@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { chooseComputerSkillPlan, chooseJinghuaSwapTarget, setComputerAiDifficulty } from '../../src/core/computer-ai';
+import { chooseComputerMove, chooseComputerSkillPlan, chooseJinghuaSwapTarget, planJointMoveForHero, setComputerAiDifficulty } from '../../src/core/computer-ai';
+import { setStance } from '../../src/core/mountain-stance';
 import { addHero, makeGameState } from '../helpers/game-state';
 
 /**
@@ -115,5 +116,32 @@ describe('两步方向技与换身技的 AI 判据', () => {
         addHero(state, 'nightowl', 'player2', [3, 2]);   // 只有一名敌人贴着队友
 
         expect(chooseJinghuaSwapTarget(state, jinghua)).toBeNull();
+    });
+});
+
+describe('岱宗：摆开镇守就钉在原地', () => {
+    it('姿态在线时不再规划移动，也不参与联合换位（移动会散姿态、断岳势记账）', () => {
+        const state = battleSetup();
+        const daizong = addHero(state, 'daizong', 'player1', [2, 0]);
+        addHero(state, 'yunying', 'player1', [2, 2]);
+        addHero(state, 'yunying', 'player2', [2, 4]);
+        // 先确认"没摆姿态时他确实想挪"，否则这条断言等于什么都没测
+        expect(chooseComputerMove(state, daizong)).not.toBeNull();
+
+        setStance(daizong, 1);                       // 面朝右：护住第 1~3 列
+        expect(chooseComputerMove(state, daizong)).toBeNull();
+        expect(planJointMoveForHero(state, daizong)).toBeNull();
+    });
+
+    it('池子够肥却没人可砸时放行这一步：移动和岳倾都会散姿态，不亏', () => {
+        const state = battleSetup();
+        const daizong = addHero(state, 'daizong', 'player1', [2, 0]);
+        addHero(state, 'yunying', 'player2', [2, 4]);   // 隔着四列，3×3 砸不到
+        setStance(daizong, 1);
+
+        daizong.counters['岳势'] = 4;                    // 池子还薄：继续钉着攒
+        expect(chooseComputerMove(state, daizong)).toBeNull();
+        daizong.counters['岳势'] = 30;                   // 肥到该出货了
+        expect(chooseComputerMove(state, daizong)).not.toBeNull();
     });
 });

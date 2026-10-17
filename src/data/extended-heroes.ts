@@ -63,6 +63,11 @@ export const EXTENDED_HERO_IDS = [
     'xihuan',
     'duosui',
     'jiangtaigong',
+    'tingyuan',
+    'aoyuan',
+    'daizong',
+    'yunxiu',
+    'xuanyuan',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -179,7 +184,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         tianweiId: 't_painting_tianwei',
     },
     feynman: {
-        name: '粒子加速者·费曼',
+        name: '逐光',
         class: '化识',
         maxHp: 40,
         moveRange: 2,
@@ -212,7 +217,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         tianweiId: 'schrodinger_tianwei',
     },
     lilith: {
-        name: '恐惧编织者·莉莉丝',
+        name: '莉莉丝',
         class: '化识',
         maxHp: 38,
         moveRange: 3,
@@ -297,7 +302,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'shangguan_skill1',
         skill2Id: 'shangguan_skill2',
         passiveId: 'shangguan_passive',
-        // 天威暂未设计，留空
+        tianweiId: 'shangguan_tianwei',
     },
     youjun: {
         name: '游隼',
@@ -452,6 +457,48 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'duosui_passive',
         tianweiId: 'duosui_tianwei',
     },
+    daizong: {
+        name: '岱宗',
+        class: '霸魁',
+        maxHp: 58,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'daizong_skill1',
+        skill2Id: 'daizong_skill2',
+        passiveId: 'daizong_passive',
+        tianweiId: 'daizong_tianwei',
+    },
+    aoyuan: {
+        name: '游龙·敖渊',
+        class: '武曲',
+        maxHp: 46,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'aoyuan_skill1',
+        skill2Id: 'aoyuan_skill2',
+        passiveId: 'aoyuan_passive',
+        tianweiId: 'aoyuan_tianwei',
+    },
+    yunxiu: {
+        name: '云岫',
+        class: '天师',
+        maxHp: 50,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'yunxiu_skill1',
+        skill2Id: 'yunxiu_skill2',
+        passiveId: 'yunxiu_passive',
+    },
+    tingyuan: {
+        name: '霆渊',
+        class: '天师',
+        maxHp: 45,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'tingyuan_skill1',
+        skill2Id: 'tingyuan_skill2',
+        passiveId: 'tingyuan_passive',
+    },
     jiangtaigong: {
         name: '姜太公',
         class: '天师',
@@ -462,6 +509,18 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill2Id: 'jiangtaigong_skill2',
         passiveId: 'jiangtaigong_passive',
         tianweiId: 'jiangtaigong_tianwei',
+    },
+    // 轩辕神君（金行）：移动不走常规移动力，普通态象走田、昭神态 G 型外圈（见 core/xuanyuan-form）；
+    // 昭神顶替天威，没有 tianweiId，也没有独立被动（昭神触发挂在 DamageCalculator）
+    xuanyuan: {
+        name: '轩辕神君',
+        class: '霸魁',
+        maxHp: 56,
+        moveRange: 1,
+        baseAttack: 0,
+        skill1Id: 'xuanyuan_skill1',
+        skill2Id: 'xuanyuan_skill2',
+        passiveId: 'xuanyuan_passive',
     },
 };
 
@@ -477,10 +536,10 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     bard: { name: '吟游诗人', class: '素问', description: '和声、激情与群体恢复。生命55，移动力3' },
     wither_lord: { name: '凋零之主', class: '化识', description: '凋零层数与多条生命。生命20，移动力2' },
     t_painting: { name: 'T型帛画', class: '化识', description: '召唤金乌与玄龟。生命45，移动力2' },
-    feynman: { name: '粒子加速者·费曼', class: '化识', description: '粒子标记与范围爆发。生命40，移动力2' },
+    feynman: { name: '逐光', class: '化识', description: '以粒子标记锁定双点，矩形整片引爆。生命40，移动力2' },
     wangcai: { name: '旺财', class: '通灵', description: '财气积累并通灵财神。生命42，移动力2' },
     schrodinger: { name: '量子观测者·薛定谔', class: '化识', description: '概率坍缩与量子纠缠。生命43，移动力2' },
-    lilith: { name: '恐惧编织者·莉莉丝', class: '化识', description: '恐惧控制与情绪能量。生命38，移动力3' },
+    lilith: { name: '莉莉丝', class: '化识', description: '恐惧控制与情绪能量。生命38，移动力3' },
     libai: { name: '李太白', class: '武曲', description: '醉意累积与脚印瞬移连击。生命40，移动力2' },
     zuizhendao: { name: '醉枕刀', class: '武曲', description: '醉掷寒锋、闪避反击。生命46，移动力2' },
     feixue: { name: '绯雪', class: '武曲', description: '破冰爆发、寒天收割。生命45，移动力2' },
@@ -502,7 +561,12 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     zhiyuan: { name: '纸鸢', class: '武曲', description: '牵线轴、乘队友攻击追击、攒线换连击。生命45，移动力3' },
     xihuan: { name: '羲和', class: '素问', description: '拉平一片友方的血量、把抽走的部分存成盈光再照回去。生命56，移动力3' },
     duosui: { name: '夺岁', class: '武曲', description: '砍走当前生命、留下血偿；禁血封治疗。生命45，移动力2' },
+    tingyuan: { name: '霆渊', class: '天师', description: '随机落雷攒引雷印，一声令下万雷朝宗、雷链在带链者之间互跳。生命45，移动力2' },
+    daizong: { name: '岱宗', class: '霸魁', description: '面朝一侧镇守，替这半区的队友挨下所有攻击，挡下的份额攒成岳势再一次性砸回去；站着不动就越站越硬。生命58，移动力2' },
+    aoyuan: { name: '游龙·敖渊', class: '武曲', description: '唤一尾游龙绕身盘旋，每次行动结束扫过半圈；越扫越多的龙鳞把他推成攻守一体的滚雪球。生命46，移动力3' },
+    yunxiu: { name: '云岫', class: '天师', description: '在两格外布一团会自己挪窝的雷云，每回合开始先走一格再落一次雷；一针钉下去把整片云往人堆里拽，越打越厚的霆息让她又肉又能贴。生命50，移动力2' },
     jiangtaigong: { name: '姜太公', class: '天师', description: '下钩等人自己踩、把上钩的人丢到任意空格，一片5×5水泽养满家闪避。生命52，移动力2' },
+    xuanyuan: { name: '轩辕神君', class: '霸魁', description: '象走田踏阵、命中落剑；收剑成御剑之盾，金痕盖满在场敌人即入昭神，移动与技能全面升华。生命56，移动为对角跳两格（昭神后周身G型）' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {

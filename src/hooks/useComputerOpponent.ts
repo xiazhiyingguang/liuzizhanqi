@@ -31,7 +31,9 @@ import { useGameStore } from '../store/game-store';
 import { getSkill } from '../data/skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
-import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection } from '../data/extended-skills';
+import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection, scanXuanyuanLeapValue } from '../data/extended-skills';
+import { getLeapsUsed, isXuanyuan } from '../core/xuanyuan-form';
+import { getXuanyuanLeapCells } from '../core/flying-sword';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
 import { heroXRedirectCost } from '../core/hero-zhizhi';
 import { MovementSystem } from '../core/movement-system';
@@ -254,7 +256,8 @@ function nextPlannedTarget(
     // 游隼疾掠：落点必须是"真能穿到人"的那条直线。
     // 走位后重新规划常与方案错位，旧逻辑这时会退回 fallbackTargetPosition，
     // 在合法落点里随便挑一格空冲（实测每局约 1.3 次空放），把冲刺当成免费位移。
-    if (skill.id === 'youjun_skill1') {
+    // 敖渊的破浪同理：空冲一趟等于把冲刺当成免费位移，只认"真能穿到人"的落点
+    if (skill.id === 'youjun_skill1' || skill.id === 'aoyuan_skill2') {
         const fromPlan = plan?.targetPositions.find(position =>
             isAllowed(position) && !pending.some(candidate => samePosition(candidate, position)));
         if (fromPlan) return fromPlan;
@@ -479,6 +482,25 @@ function executeSelectedSkillStep(
         }
         if (bestDirPos) {
             store.executeSkill(bestDirPos);
+        } else {
+            store.endHeroAction();
+        }
+        return;
+    }
+
+    if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && getLeapsUsed(caster) > 0) {
+        // 御剑连破（跳后挂起）：哪把剑落点咬人就继续跳，谁都咬不到就收剑结束行动
+        let bestCell: Position | null = null;
+        let bestScore = 0;
+        for (const cell of getXuanyuanLeapCells(caster, state)) {
+            const score = scanXuanyuanLeapValue(caster, cell, state);
+            if (score > bestScore) {
+                bestScore = score;
+                bestCell = cell;
+            }
+        }
+        if (bestCell) {
+            store.executeSkill(bestCell);
         } else {
             store.endHeroAction();
         }
@@ -930,11 +952,16 @@ function executeBattleStep(
     const castInPlace = !walkForAnchor && !!skillPlan && (
         skillPlan.score >= planScoreBar || isSelfPropellingSkill(skillPlan.skillId)
     );
-    const canReposition = !caster.hasMovedThisTurn && !!move && !isSelfPropellingSkill(skillPlan?.skillId);
+    // 旧口径还要求 chooseComputerMove 先认可"有一格站位分更高"，才肯去问联合规划——
+    // 于是站位分不认可的格子，哪怕挪过去能打出更好的技能也永远不会被评估（实测移动占比
+    // 死死卡在三分之一，改任何站位罚值都推不动，就是这个闸门）。这里放开给联合规划自己判。
+    const canReposition = !caster.hasMovedThisTurn && !isSelfPropellingSkill(skillPlan?.skillId);
     // 联合规划返回非 null，即代表"先移动再释放"的总分显著高于原地方案（门槛在规划器内）
     const joint = canReposition ? rememberJointMovePlan(state, caster, skillPlan) : null;
 
-    if (canReposition && (joint || !castInPlace)) {
+    // joint 非 null 代表规划器已经缓存好"挪过去再打"的那一格；
+    // 没有 move 也不能走 showMoveRange——下一拍会因为没有落点直接结束行动，把技能一起吞掉。
+    if ((joint || (canReposition && !!move && !castInPlace))) {
         store.showMoveRange();
         return;
     }

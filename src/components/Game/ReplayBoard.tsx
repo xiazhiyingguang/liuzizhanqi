@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import HeroAvatar from '../ui/HeroAvatar';
 import { HeroStatusFx } from './HeroStatusFx';
 import { WindBladeGlyph } from './WindBladeGlyph';
+import { ThunderCloudField } from './ThunderCloudField';
 import type { ReplayArea, ReplayFrame, ReplayStatic, ReplayUnit } from '../../core/battle-replay';
 import type { BoardEffect, Hero } from '../../types/game';
 
@@ -25,7 +26,7 @@ export default function ReplayBoard({ frame, statics, deltas, cellSize }: Replay
     const unitsAt = (row: number, col: number): ReplayUnit | undefined =>
         frame.units.find(unit => unit.r === row && unit.c === col);
     const areasAt = (row: number, col: number): ReplayArea[] =>
-        frame.areas.filter(area => area.r === row && area.c === col);
+        frame.areas.filter(area => area.type !== 'thunder-cloud' && area.r === row && area.c === col);
 
     return (
         <div
@@ -62,6 +63,10 @@ export default function ReplayBoard({ frame, statics, deltas, cellSize }: Replay
                             );
                         })
                     )}
+                    {frame.areas.some(area => area.type === 'thunder-cloud') && <div className="yx-cloud-layer" aria-hidden="true">
+                        {frame.areas.filter(area => area.type === 'thunder-cloud').map((area, index) =>
+                            <ThunderCloudField key={`cloud-${index}`} position={[area.r, area.c]} owner={area.owner} duration={area.duration} />)}
+                    </div>}
                 </div>
             </div>
         </div>
@@ -92,7 +97,7 @@ function ReplayPiece({
     } as unknown as Hero;
 
     return (
-        <div className="flex flex-col items-center gap-0.5 outline-none">
+        <div className="board-hero-content flex flex-col items-center gap-0.5 outline-none">
             <div className="piece-shell">
                 <div className={`piece battle-board-piece ${staticDef.owner === 'player1' ? 'piece-p1' : 'piece-p2'}${isActor ? ' piece-selected' : ''}`}>
                     <HeroAvatar
@@ -143,6 +148,9 @@ const AREA_TITLES: Record<BoardEffect['type'], string> = {
     'light-prism': '光棱',
     'water-marsh': '水泽',
     'fish-hook': '鱼钩',
+    'thunder-cloud': '雷云',
+    'lightning-rod': '引雷针',
+    'flying-sword': '飞剑',
     brush: '毛笔',
 };
 
@@ -161,6 +169,17 @@ function ReplayAreaOverlay({ area }: { area: ReplayArea }) {
             return (
                 <div title={AREA_TITLES['wind-blade']} className={`bf-wind-blade bf-wind-blade-${side} bf-wind-blade-${area.direction ?? 'up'} pointer-events-none`}>
                     <WindBladeGlyph />
+                </div>
+            );
+        case 'flying-sword':
+            return (
+                <div title={AREA_TITLES['flying-sword']} className={`bf-flying-sword bf-flying-sword-${side} pointer-events-none`}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
+                        <path d="m13 19 6-6" />
+                        <path d="m16 16 4 4" />
+                        <path d="m19 14 2 2" />
+                    </svg>
                 </div>
             );
         case 'ice-crystal':

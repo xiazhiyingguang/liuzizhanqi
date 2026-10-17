@@ -1,0 +1,336 @@
+/**
+ * 激战入场横幅（TurnActionBanner 的 battlePhase 展示位）。
+ *
+ * 与击杀横幅共用同一条 60px 展示条，所以时间线、层级、字号都跟着 .kill-announcement 那一族走，
+ * 只在配色（金→朱）与右端的"档位印记"上拉开区别：第一层 1 枚、第二层 2 枚。
+ * 只做 transform/opacity 动画，避免在棋盘同一帧里触发重排。
+ */
+
+.phase-announcement {
+    --phase-accent: #b0632a;
+    --phase-glow: rgba(200, 108, 42, 0.3);
+    position: absolute;
+    inset: 0;
+    isolation: isolate;
+    display: flex;
+    align-items: center;
+    padding: 6px 16px;
+    background:
+        linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.7) 22%, rgba(255, 246, 232, 0.94) 50%, rgba(255, 255, 255, 0.7) 78%, transparent 100%),
+        radial-gradient(circle at 50% 50%, var(--phase-glow), transparent 68%);
+    animation: phase-lifetime 3.6s cubic-bezier(0.22, 0.72, 0.16, 1) both;
+}
+
+.phase-announcement--2 {
+    --phase-accent: #93231f;
+    --phase-glow: rgba(170, 40, 36, 0.44);
+}
+
+.phase-announcement__content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    animation: phase-content-in 560ms cubic-bezier(0.16, 1.15, 0.3, 1) both;
+}
+
+/* 印章：激战的"激"取水旁，第二层翻成"战"字双刀 */
+.phase-announcement__seal {
+    position: relative;
+    display: flex;
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid color-mix(in srgb, var(--phase-accent) 78%, #f7ecd6);
+    border-radius: 8px;
+    background: linear-gradient(150deg, rgba(255, 252, 240, 0.95), color-mix(in srgb, var(--phase-glow) 42%, #fdf3e2));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--phase-accent) 45%, transparent), 0 0 16px var(--phase-glow);
+    transform: rotate(-4deg);
+}
+
+.phase-announcement__seal-glyph {
+    color: var(--phase-accent);
+    font-family: var(--font-title, ui-serif), serif;
+    font-size: 22px;
+    line-height: 1;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+    animation: phase-seal-stamp 480ms 120ms cubic-bezier(0.2, 1.5, 0.35, 1) both;
+}
+
+.phase-announcement__seal-ring {
+    position: absolute;
+    inset: -7px;
+    border: 1px solid color-mix(in srgb, var(--phase-accent) 70%, transparent);
+    border-radius: 11px;
+    transform: rotate(-4deg);
+    animation: phase-ring 1.4s ease-out infinite;
+}
+
+.phase-announcement__text {
+    min-width: 0;
+    flex: 1;
+    text-align: center;
+}
+
+.phase-announcement__eyebrow {
+    height: 11px;
+    color: color-mix(in srgb, var(--phase-accent) 86%, #3a2614);
+    font-family: ui-serif, Georgia, serif;
+    font-size: 7px;
+    line-height: 11px;
+    letter-spacing: 0.3em;
+}
+
+.phase-announcement__title {
+    height: 25px;
+    color: var(--phase-accent);
+    font-family: var(--font-title, ui-serif), serif;
+    font-size: 20px;
+    line-height: 25px;
+    letter-spacing: 0.2em;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.82), 0 0 14px var(--phase-glow);
+}
+
+.phase-announcement--2 .phase-announcement__title {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+}
+
+.phase-announcement__note {
+    height: 12px;
+    overflow: hidden;
+    color: rgba(66, 50, 34, 0.72);
+    font-size: 9px;
+    line-height: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 右端档位印记：点亮数量 = 激战层数，与击杀战功同形但只有两枚 */
+.phase-announcement__marks {
+    display: flex;
+    width: 24px;
+    flex: 0 0 24px;
+    justify-content: center;
+    gap: 6px;
+}
+
+.phase-announcement__marks span {
+    width: 8px;
+    height: 8px;
+    transform: rotate(45deg);
+    border: 1px solid rgba(96, 66, 34, 0.22);
+    background: rgba(96, 66, 34, 0.06);
+}
+
+.phase-announcement__marks span.is-lit {
+    border-color: color-mix(in srgb, var(--phase-accent) 76%, white);
+    background: var(--phase-accent);
+    box-shadow: 0 0 8px var(--phase-glow);
+    animation: phase-mark 420ms cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+.phase-announcement__marks span:nth-child(2) {
+    animation-delay: 110ms;
+}
+
+.phase-announcement__flare {
+    position: absolute;
+    z-index: 0;
+    top: 50%;
+    left: 50%;
+    width: 300px;
+    height: 300px;
+    opacity: 0.4;
+    transform: translate(-50%, -50%);
+    background: repeating-conic-gradient(from 0deg, transparent 0deg 19deg, var(--phase-glow) 20deg 22deg, transparent 23deg 40deg);
+    mask-image: radial-gradient(circle, black 0 14%, transparent 60%);
+    animation: phase-flare 3.6s linear both;
+}
+
+/* 双刀斜劈：第二层多一道反向刀光，让"升档"比"入场"更响 */
+.phase-announcement__slash {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 50%;
+    width: 320px;
+    height: 1px;
+    transform: translate(-50%, -50%) rotate(-9deg);
+    transform-origin: center;
+    background: linear-gradient(90deg, transparent, var(--phase-accent) 40%, #fff2d2 50%, var(--phase-accent) 60%, transparent);
+    box-shadow: 0 0 8px var(--phase-glow);
+    animation: phase-slash 680ms 90ms ease-out both;
+}
+
+.phase-announcement__slash--two {
+    transform: translate(-50%, -50%) rotate(11deg);
+    animation-delay: 210ms;
+}
+
+.phase-announcement--2 .phase-announcement__flare {
+    opacity: 0.55;
+}
+
+@keyframes phase-lifetime {
+    0% { opacity: 0; filter: saturate(0.72) blur(3px); }
+    7%, 86% { opacity: 1; filter: saturate(1) blur(0); }
+    100% { opacity: 0; filter: saturate(0.85) blur(2px); }
+}
+
+@keyframes phase-content-in {
+    0% { opacity: 0; transform: scale(0.82) translateY(4px); }
+    60% { opacity: 1; transform: scale(1.05) translateY(0); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes phase-seal-stamp {
+    0% { opacity: 0; transform: scale(1.9); }
+    55% { opacity: 1; transform: scale(0.94); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes phase-ring {
+    0% { opacity: 0.75; transform: rotate(-4deg) scale(0.88); }
+    70%, 100% { opacity: 0; transform: rotate(-4deg) scale(1.24); }
+}
+
+@keyframes phase-mark {
+    0% { opacity: 0; transform: rotate(45deg) scale(0); }
+    100% { opacity: 1; transform: rotate(45deg) scale(1); }
+}
+
+@keyframes phase-flare {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(-16deg) scale(0.46); }
+    16% { opacity: 0.48; }
+    100% { opacity: 0; transform: translate(-50%, -50%) rotate(26deg) scale(1.18); }
+}
+
+@keyframes phase-slash {
+    0% { opacity: 0; clip-path: inset(0 50% 0 50%); }
+    34% { opacity: 0.95; clip-path: inset(0 0 0 0); }
+    100% { opacity: 0; clip-path: inset(0 0 0 0); }
+}
+
+/* 常驻角标（BattleScene 的"激战 ×1.2"）：压在回合数旁边，只静态描色不动画 */
+.fierce-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    border: 1px solid rgba(176, 99, 42, 0.42);
+    border-radius: 999px;
+    background: rgba(200, 108, 42, 0.12);
+    color: #a2571f;
+    font-family: var(--font-title, ui-serif), serif;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.fierce-badge--2 {
+    border-color: rgba(147, 35, 31, 0.5);
+    background: rgba(170, 40, 36, 0.16);
+    color: #8d201d;
+}
+
+.fierce-badge__pip {
+    width: 5px;
+    height: 5px;
+    transform: rotate(45deg);
+    background: currentColor;
+    opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .phase-announcement,
+    .phase-announcement__content,
+    .phase-announcement__seal-glyph,
+    .phase-announcement__seal-ring,
+    .phase-announcement__marks span.is-lit,
+    .phase-announcement__flare,
+    .phase-announcement__slash {
+        animation: none;
+    }
+}
+
+/*
+ * 触屏：展示条被 mobile-layout.css 压到 38px（横屏 30px），
+ * 桌面那套 11/25/12 的三行排版会被裁掉上下两行，所以整族缩一号、只留标题与说明。
+ * 角标同步省掉"激战"两字——竖屏顶栏是 flex-wrap 的，多 40px 就会把整行挤到第二行、白吃掉 32px 棋盘高度。
+ */
+@media (pointer: coarse) and (max-width: 1023px) {
+    .phase-announcement {
+        padding: 1px 10px;
+    }
+
+    .phase-announcement__content {
+        gap: 7px;
+    }
+
+    .phase-announcement__seal {
+        width: 22px;
+        height: 22px;
+        flex: 0 0 22px;
+        border-radius: 5px;
+    }
+
+    .phase-announcement__seal-glyph {
+        font-size: 13px;
+    }
+
+    .phase-announcement__seal-ring {
+        inset: -4px;
+        border-radius: 8px;
+    }
+
+    .phase-announcement__eyebrow {
+        display: none;
+    }
+
+    .phase-announcement__title {
+        height: 15px;
+        font-size: 14px;
+        line-height: 15px;
+        letter-spacing: 0.1em;
+    }
+
+    .phase-announcement__note {
+        height: 10px;
+        font-size: 8px;
+        line-height: 10px;
+    }
+
+    .phase-announcement__marks {
+        width: 14px;
+        flex: 0 0 14px;
+        gap: 4px;
+    }
+
+    .phase-announcement__marks span {
+        width: 6px;
+        height: 6px;
+    }
+
+    .phase-announcement__flare {
+        width: 180px;
+        height: 180px;
+    }
+
+    .phase-announcement__slash {
+        width: 240px;
+    }
+
+    .fierce-badge__label {
+        display: none;
+    }
+}
+
+html[data-quality='low'] .phase-announcement__seal-ring,
+html[data-quality='low'] .phase-announcement__flare {
+    animation: none;
+}

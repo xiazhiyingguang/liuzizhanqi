@@ -42,12 +42,14 @@ describe('致知登记表', () => {
         expect(zhizhiTierLabel(2)).toBe('致知二');
     });
 
-    it('设计稿留白的条目只有上官婉儿致知三', () => {
+    it('设计稿留白的条目只剩霆渊与云岫的致知三', () => {
         const blanks = Object.entries(HERO_ZHIZHI)
             .flatMap(([heroId, entries]) => entries
                 .filter(entry => entry.text === null)
                 .map(entry => `${heroId}:${entry.tier}`));
-        expect(blanks).toEqual(['shangguan:3']);
+        // 上官婉儿致知三已在 2026-10 补齐（每层墨意+5%技能伤害，封顶30%）；
+        // 霆渊与云岫的策划案第三条写着「暂无」，登记留白而不是偷偷补一条自拟增益
+        expect(blanks).toEqual(['tingyuan:3', 'yunxiu:3']);
     });
 });
 

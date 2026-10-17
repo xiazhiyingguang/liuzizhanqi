@@ -8,11 +8,15 @@ import { applyWeaponOnFormShift } from './weapon-effects';
 import { hasZhizhi, zhizhiValue } from './hero-zhizhi';
 import { enterNightowlStealth } from './nightowl-stealth';
 import { findSoulLampBeneficiary, isJinghongCharging, placeBounties, purgeYinyangLinksOf, syncPositionAnchoredEffects } from '../data/extended-heroes';
-import { resolveHnyReplay, resolveLingxiEcho1, settleJinghuaSeatReturn, settleXuechangAtTurnStart, SHANGGUAN_BRUSH_DAMAGE, placeZhiguangPassivePrism, tickJinghuaMoonSeats, requestSkillFx } from '../data/extended-skills';
+import { resolveHnyReplay, resolveLingxiEcho1, settleJinghuaSeatReturn, settleXuechangAtTurnStart, SHANGGUAN_BRUSH_DAMAGE, shangguanSkillDamage, placeZhiguangPassivePrism, tickJinghuaMoonSeats, requestSkillFx } from '../data/extended-skills';
 import { consumeZhiyuanTianweiLead } from './kite-spool';
 import { resolveXihuanBlessing } from '../data/extended-skills';
 import { isRealCharacterHero, recordBattleHealing } from './battle-statistics';
 import { lanesAtPosition, windLaneNextCell } from './wind-lane';
+import { applyStillnessReward, consumeDaizongLamp } from './mountain-stance';
+import { advanceDragon, sustainDragonAtRoundStart } from './dragon-orbit';
+import { tickCloudsAtRoundStart } from './thunder-cloud';
+import { fierceAnnouncement } from './battle-tempo';
 
 /**
  * 对局回合上限：打满即强制结算，按场上存活人数判定胜负；
@@ -177,6 +181,11 @@ export class GameEngine {
      * 开始新回合
      */
     static startNewTurn(gameState: GameState): void {
+        // 激战：倍率是 `DamageCalculator.calculate` 在结算时读的，而回合开始的持续伤害（灼烧/雷云等）
+        // 也在本回合内结算，所以进函数第一件事就把回合号同步进去。
+        // 每一轮都调一次，新开对局从第 1 回合起自然把上一局的档位清零。
+        DamageCalculator.setBattleRound(gameState.roundNumber);
+
         const scheduledRevives = [...gameState.player1Heroes, ...gameState.player2Heroes]
             .filter(hero =>
                 hero.state === HeroState.TEMP_DEAD &&
@@ -305,7 +314,7 @@ export class GameEngine {
         // 镜花·水月的月座三回合将满仍无人踏响：在通用衰减抹掉它之前自动归位登场
         tickJinghuaMoonSeats(gameState);
         gameState.boardEffects = (gameState.boardEffects ?? [])
-            .map(effect => effect.type === 'brush' || effect.type === 'wind-lane'
+            .map(effect => effect.type === 'brush' || effect.type === 'wind-lane' || effect.type === 'thunder-cloud'
                 ? effect
                 : { ...effect, duration: effect.duration - 1 })
             .filter(effect => effect.duration > 0 || effect.type === 'wind-lane');
@@ -319,6 +328,16 @@ export class GameEngine {
             player: 'player1',
             message: `第${gameState.roundNumber}轮开始`
         });
+
+        // 激战入场：第 20 / 25 回合各播报一次（倍率已在函数开头同步进 DamageCalculator）
+        const fierce = fierceAnnouncement(gameState.roundNumber);
+        if (fierce) {
+            this.addLog(gameState, {
+                type: 'system',
+                player: 'player1',
+                message: `${fierce.title}：${fierce.note}（固定伤害与真实伤害不涨，治疗不受影响）`,
+            });
+        }
 
         // 回合开始兑底：自动跳过全员无法行动的一方（全员眩晕/冰冻/已行动）。
         // 双方都无法行动时推进回合，让控制效果递减；长时间未解除则强制清除控制。
@@ -927,6 +946,23 @@ export class GameEngine {
                 }
             }
 
+            // 敖渊「龙鳞游息」：游龙只剩最后一回合还没散时，花 3 层龙鳞给它续上一回合
+            if (hero.passiveId === 'aoyuan_passive' && hero.state === HeroState.ALIVE) {
+                sustainDragonAtRoundStart(gameState, hero);
+            }
+
+            // 云岫「雷云」：每回合开始先挪一格、再落一次雷，落完这一拍她埋的引雷针就作废。
+            // 挂在回合开始而不是她的行动结束，所以"这一轮她只走了位"也照样打雷。
+            if (hero.passiveId === 'yunxiu_passive' && hero.position) {
+                for (const message of tickCloudsAtRoundStart(gameState, hero)) {
+                    this.addLog(gameState, {
+                        type: 'passive',
+                        player: hero.owner,
+                        message,
+                    });
+                }
+            }
+
             // 折光「拾光」：每轮开始在场上一处随机空格撒一枚光棱，给她这一轮的光束留下折射点。
             // 棋盘效果的回合递减发生在本函数之前，所以第 N 轮撒下的棱能活过 N、N+1、N+2 三轮
             if (
@@ -985,6 +1021,29 @@ export class GameEngine {
             gameState.activeHero?.id === hero.id
         ) {
             delete hero.counters['youjun_extra_move_only'];
+        }
+
+        // 敖渊「游龙」：每次行动结束，绕身的龙影顺时针扫过半圈（含起点共 5 格）落一轮伤害。
+        // 收口在引擎的行动结束里，所以"只走位没出手"那一拍也推得动；技能二自己带过一圈的本回合会跳过。
+        if (hero.passiveId === 'aoyuan_passive' && hero.position) {
+            const trail: string[] = [];
+            advanceDragon(gameState, hero, trail);
+            for (const message of trail) {
+                this.addLog(gameState, { type: 'passive', player: hero.owner, message });
+            }
+        }
+
+        // 岱宗「不动如山」：本回合没迈过步子就叠一层减伤，叠满 50% 之后改为每回合回血
+        if (hero.passiveId === 'daizong_passive') {
+            const stillness = applyStillnessReward(gameState, hero);
+            if (stillness) {
+                this.addLog(gameState, { type: 'passive', player: hero.owner, message: stillness });
+            }
+        }
+
+        // 岱宗天威「传灯」：下一个出手的友方接过这盏灯——拿到两回合 20% 防御，并当场触发他自己的天威
+        if (consumeDaizongLamp(gameState, hero) && hero.tianweiId) {
+            DamageCalculator.triggerTianwei(hero, gameState);
         }
 
         // 风道：敌方英雄在自己行动结束时，被所处风道顺风吹偏1格
@@ -1063,7 +1122,7 @@ export class GameEngine {
 
             const occupant = gameState.board[nr][nc];
             if (occupant && occupant.owner !== hero.owner && occupant.state === HeroState.ALIVE) {
-                const dmg = DamageCalculator.calculate(hero, occupant, SHANGGUAN_BRUSH_DAMAGE, false, false, { fixedDamage: true, canCrit: false });
+                const dmg = DamageCalculator.calculate(hero, occupant, shangguanSkillDamage(hero, SHANGGUAN_BRUSH_DAMAGE), false, false, { fixedDamage: true, canCrit: false });
                 DamageCalculator.applyDamage(occupant, dmg, hero, gameState);
                 this.addLog(gameState, {
                     type: 'passive',
@@ -1159,8 +1218,8 @@ export class GameEngine {
             if (hero.passiveId === 'skeletonking_passive') {
                 const dead = allHeroes.filter(item => item.state !== HeroState.ALIVE).length;
                 if (dead > 0) {
-                    // 叠加式护盾：每名阵亡单位提供3点，没有致知时上限为10（致知2提高到15）
-                    const shieldCap = zhizhiValue(hero, 2, 10, 15);
+                    // 叠加式护盾：每名阵亡单位提供3点，没有致知时上限为6（致知2提高到10）
+                    const shieldCap = zhizhiValue(hero, 2, 6, 10);
                     const gained = Math.min(shieldCap, hero.shield + dead * 3) - hero.shield;
                     hero.shield = Math.min(shieldCap, hero.shield + dead * 3);
                     if (gained > 0) {

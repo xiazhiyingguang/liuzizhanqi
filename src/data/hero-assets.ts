@@ -55,7 +55,11 @@ export const HERO_ASSET_IDS = [
     'zhiyuan',
     'jiangtaigong',
     'duosui',
+    'tingyuan',
     'xihuan',
+    'yunxiu',
+    'aoyuan',
+    'xuanyuan',
 ] as const;
 
 export type HeroAssetId = typeof HERO_ASSET_IDS[number];

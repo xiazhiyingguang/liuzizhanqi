@@ -106,6 +106,10 @@ const WEAPON_DRAFTS: Record<string, WeaponDraft> = {
     ] },
     youjun: { name: '掠风翎' },
     jiangtaigong: { name: '飞熊竿' },
+    tingyuan: { name: '九霄引' },
+    yunxiu: { name: '悬针' },
+    aoyuan: { name: '逆鳞' },
+    daizong: { name: '无字碑' },
 
     // ===== 霸魁：重器镇岳 =====
     liuli: { name: '净琉璃', implemented: true, effects: [
@@ -114,6 +118,7 @@ const WEAPON_DRAFTS: Record<string, WeaponDraft> = {
     hero_x: { name: '震怒' },
     chenyuan: { name: '镇岳' },
     xueqi: { name: '赤枷' },
+    xuanyuan: { name: '轩辕剑' },
 
     // ===== 素问：仁心济世 =====
     baize: { name: '天禄书' },
