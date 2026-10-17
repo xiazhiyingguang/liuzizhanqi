@@ -44,7 +44,7 @@ export const SUMMON_IMAGE_MANIFEST: Record<string, string> = {
   "/hero-images/full-body/莉莉丝.png": "/hero-images/summon/c64d6d926c005a3d.webp",
   "/hero-images/full-body/血契.png": "/hero-images/summon/415bc7f80ad50df1.webp",
   "/hero-images/full-body/赏金猎人.png": "/hero-images/summon/45032c2d9bfa7a91.webp",
-  "/hero-images/full-body/轩辕神君.png": "/hero-images/summon/0b49d64760c9b4f8.webp",
+  "/hero-images/full-body/轩辕神君.png": "/hero-images/summon/7beba80d3f98bc80.webp",
   "/hero-images/full-body/逐光.png": "/hero-images/summon/ee373205721b41dc.webp",
   "/hero-images/full-body/醉枕刀.png": "/hero-images/summon/88a3e9caa687aaae.webp",
   "/hero-images/full-body/镜.png": "/hero-images/summon/1a8532a52503ca22.webp",
