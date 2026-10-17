@@ -3,7 +3,9 @@
  *
  * 这个角色的移动不走棋盘常规的"曼哈顿距离逐格走"，而是两种象棋式跳法：
  * - 普通态：象走田——沿对角线跳两格（策划裁定**不塞象眼、不过河**，只要落点在盘内且可站即可）；
- * - 昭神态：G 型——以自身为中心的 3×3 里一笔描个 G，绕外圈走，可停在途中任意一格。
+ * - 昭神态：G 型——以自身为中心的 3×3 里描个 G：起笔必在正四方向之一（上/右/下/左），
+ *   沿外圈逆时针绕 7 格（起笔旁的斜格是 G 的开口），描到途中哪格就停在哪格。
+ *   昭神态技能一由玩家先点起笔格、再点落点，两段式定住这一笔的旋向。
  * 因此这里返回的不是"格子集合"而是「落点 + 沿途经过的格」：技能一的伤害要按沿途格结算，
  * 光给落点会把"路径上的目标"这半句实现掉。
  *
@@ -72,28 +74,78 @@ export function getXiangMovePlans(from: Position): MovePlan[] {
 }
 
 /**
- * G 的笔顺：右上起 → 沿顶边向左 → 下左竖 → 沿底边向右 → 上右竖收成一横内钩。
- * 顺序即优先级，改走向只改这张表。
+ * G 不是固定一笔：它可以以周身止四方向（上右下左）之一为起笔，绕 3×3 外圈逆时针描一笔。
+ * 手写 G 就是这个笔顺：从正方向起笔 → 逆时针绕外圈 → 90° 顺时针方向的止四方向收笔，
+ * 起笔与收笔之间斜对的那格就是 G 的「开口」，那一格不在笔画上。
+ * 下标 0-3 即 counters 里的方向码：上、右、下、左。
  */
-const G_ROUTE_OFFSETS: Position[] = [
-    [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1],
+export const G_START_OFFSETS: Position[] = [[-1, 0], [0, 1], [1, 0], [0, -1]];
+/** 外圈逆时针环序（从正上方起）：起笔方向在环上的下标：上=0、右=6、下=4、左=2 */
+const G_RING_CCW: Position[] = [
+    [-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1],
 ];
+const G_RING_START_INDEX = [0, 6, 4, 2];
+/** 起笔方向的暂存计数器：第一步点定起笔、第二步点落点（随快照同步，联机天然一致） */
+export const G_START_COUNTER = '__xuanyuan_leap_start';
+
+/** 把一次点击换算成起笔方向码；不是周身正四方向邻格则返回 null */
+export function gStartCodeFromCell(from: Position, cell: Position): number | null {
+    for (let dir = 0; dir < 4; dir++) {
+        if (cell[0] === from[0] + G_START_OFFSETS[dir][0] && cell[1] === from[1] + G_START_OFFSETS[dir][1]) return dir;
+    }
+    return null;
+}
+
+/** 某一起笔方向的起笔格；起笔格出界则这一笔不成立（返回 null） */
+export function getGStartCell(from: Position, dir: number): Position | null {
+    const offset = G_START_OFFSETS[dir];
+    if (!offset) return null;
+    const cell: Position = [from[0] + offset[0], from[1] + offset[1]];
+    return inBounds(cell) ? cell : null;
+}
+
+export function getStagedGStart(hero: Hero): number | null {
+    const code = hero.counters?.[G_START_COUNTER];
+    return typeof code === 'number' && code >= 0 && code < 4 ? code : null;
+}
+
+export function setStagedGStart(hero: Hero, dir: number): void {
+    hero.counters[G_START_COUNTER] = dir;
+}
+
+export function clearStagedGStart(hero: Hero): void {
+    delete hero.counters[G_START_COUNTER];
+}
 
 /**
- * G 型路线：绕 3×3 外圈一笔写成，可以停在途中任意一格；
- * 走过的每一格都算路径（描到第几步，就结算第几步之前的所有格）。
- * 出界的格直接跳过，所以贴边时这一笔只是少几格，不会断在棋盘外。
+ * G 型路线：指定起笔方向时，沿外圈逆时针描 7 格（收笔在起笔 90° 顺时针一侧，
+ * 起笔旁的斜格是 G 的开口不算笔画），描到的每一格都是可停落点，路径＝起笔到停点的笔画前缀。
+ * 不指定方向时取「自动笔顺」：每个邻格用四种起笔里最短的那段弧——普通移动只需要可达与一段示意路线。
  */
-export function getGMovePlans(from: Position): MovePlan[] {
-    const plans: MovePlan[] = [];
-    const walked: Position[] = [];
-    for (const [dr, dc] of G_ROUTE_OFFSETS) {
-        const cell = [from[0] + dr, from[1] + dc] as Position;
-        if (!inBounds(cell)) continue;
-        walked.push(cell);
-        plans.push({ to: cell, path: [...walked] });
+export function getGMovePlans(from: Position, dir?: number): MovePlan[] {
+    if (dir !== undefined) {
+        const base = G_RING_START_INDEX[dir];
+        if (base === undefined || !getGStartCell(from, dir)) return [];
+        const plans: MovePlan[] = [];
+        const walked: Position[] = [];
+        for (let step = 0; step < 7; step++) {
+            const [dr, dc] = G_RING_CCW[(base + step) % 8];
+            const cell: Position = [from[0] + dr, from[1] + dc];
+            if (!inBounds(cell)) continue;
+            walked.push(cell);
+            plans.push({ to: cell, path: [...walked] });
+        }
+        return plans;
     }
-    return plans;
+    const shortest = new Map<string, MovePlan>();
+    for (let rotation = 0; rotation < 4; rotation++) {
+        for (const plan of getGMovePlans(from, rotation)) {
+            const key = plan.to.join(',');
+            const kept = shortest.get(key);
+            if (!kept || plan.path.length < kept.path.length) shortest.set(key, plan);
+        }
+    }
+    return [...shortest.values()];
 }
 
 /** 落点能不能站人：棋盘上只允许停在空格（沿用现有走格口径，站人/出界都不可达） */

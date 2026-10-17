@@ -32,8 +32,8 @@ import { getSkill } from '../data/skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
 import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection, scanXuanyuanLeapValue } from '../data/extended-skills';
-import { getLeapsUsed, isXuanyuan } from '../core/xuanyuan-form';
-import { getXuanyuanLeapCells } from '../core/flying-sword';
+import { getGMovePlans, getGStartCell, getLeapsUsed, isXuanyuan } from '../core/xuanyuan-form';
+import { findFlyingSwordAt } from '../core/flying-sword';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
 import { heroXRedirectCost } from '../core/hero-zhizhi';
 import { MovementSystem } from '../core/movement-system';
@@ -249,6 +249,13 @@ function nextPlannedTarget(
     // 南风引风成道：两步点击，风向计数器是否已写入决定这一步点方向格还是点行列格
     if (skill.id === 'nanfeng_skill2' && plan && plan.targetPositions.length >= 2) {
         const step = caster.counters['__nanfeng_skill2_dir'] === undefined ? 0 : 1;
+        const fromPlan = plan.targetPositions[step];
+        if (isAllowed(fromPlan)) return fromPlan;
+    }
+
+    // 轩辕神君御剑连破：两段式点击，起笔计数器是否已写入决定这一步点起笔格还是点落点
+    if (skill.id === 'xuanyuan_skill1' && plan && plan.targetPositions.length >= 2) {
+        const step = caster.counters['__xuanyuan_leap_start'] === undefined ? 0 : 1;
         const fromPlan = plan.targetPositions[step];
         if (isAllowed(fromPlan)) return fromPlan;
     }
@@ -489,18 +496,25 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && getLeapsUsed(caster) > 0) {
-        // 御剑连破（跳后挂起）：哪把剑落点咬人就继续跳，谁都咬不到就收剑结束行动
-        let bestCell: Position | null = null;
-        let bestScore = 0;
-        for (const cell of getXuanyuanLeapCells(caster, state)) {
-            const score = scanXuanyuanLeapValue(caster, cell, state);
-            if (score > bestScore) {
-                bestScore = score;
-                bestCell = cell;
+        // 御剑连破（跳后挂起）：挑「起笔+落点」咬得住人的组合继续跳，谁都咬不到就收剑结束行动
+        let best: { start: Position; cell: Position; score: number } | null = null;
+        if (caster.position) {
+            for (let dir = 0; dir < 4; dir++) {
+                const startCell = getGStartCell(caster.position, dir);
+                if (!startCell) continue;
+                for (const plan of getGMovePlans(caster.position, dir)) {
+                    const cell = plan.to;
+                    if (state.board[cell[0]][cell[1]] !== null) continue;
+                    if (!findFlyingSwordAt(state, cell, caster.id)) continue;
+                    const score = scanXuanyuanLeapValue(caster, cell, state, dir);
+                    if (!best || score > best.score) best = { start: startCell, cell, score };
+                }
             }
         }
-        if (bestCell) {
-            store.executeSkill(bestCell);
+        if (best && best.score > 0) {
+            // 第一段点起笔（store 的两段式拦截只定笔、不放技能），第二段沿那一笔跃向飞剑
+            store.executeSkill(best.start);
+            store.executeSkill(best.cell);
         } else {
             store.endHeroAction();
         }

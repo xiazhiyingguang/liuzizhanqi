@@ -1364,6 +1364,9 @@ export class DamageCalculator {
                     player: attacker.owner,
                     message: `${attacker.name}金痕盖满在场之敌，昭神降世：移动改为 G 型，御剑全面升华`,
                 });
+                requestMechanismFx(attacker, 'xuanyuan_zhaoshen', gameState, {
+                    logId: gameState.battleLog[gameState.battleLog.length - 1]?.id,
+                });
             }
         }
 

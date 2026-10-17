@@ -251,6 +251,7 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     zhenxiao_counter: 'thunder',
     zhenxiao_laststand: 'buff',
     moran_extra_action: 'buff',
+    xuanyuan_zhaoshen: 'metal',
 };
 
 /** 取技能对应音效，未登记的技能回落到通用打击音效。 */

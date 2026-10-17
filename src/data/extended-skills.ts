@@ -78,9 +78,11 @@ import {
 import {
     getGMovePlans,
     getLeapsUsed,
+    getStagedGStart,
     getXiangMovePlans,
     isZhaoShen,
     setLeapsUsed,
+    clearStagedGStart,
     XUANYUAN_LEAP_MAX,
     type MovePlan,
 } from '../core/xuanyuan-form';
@@ -6305,7 +6307,7 @@ export const xuanyuanSkill1: Skill = {
     id: 'xuanyuan_skill1',
     name: '御剑·贯阵',
     type: 'damage',
-    description: '普通形态：象走田斜跳两格（象眼有人也照跳），对沿途敌人造成5点伤害，落点后对周围一圈敌人造成6点伤害，每个命中目标所在格留下一把【飞剑】。昭神形态：沿G型跃向一把自己的飞剑所在格（那把剑消失），沿途造成4点、落点周围8点伤害并照样留剑，一次行动内至多连跳3次（可中途停下）',
+    description: '普通形态：象走田斜跳两格（象眼有人也照跳），对沿途敌人造成5点伤害，落点后对周围一圈敌人造成6点伤害，每个命中目标所在格留下一把【飞剑】。昭神形态：先点周身正方向的一格定下G的起笔，沿外圈跃向踩得到自己飞剑的格（那把剑消失，G的开口一格描不到），沿途造成4点、落点周围8点伤害并照样留剑，一次行动内至多连跳3次（可中途停下）',
     rangeType: 'single',
     range: 2,
     targetType: 'any',
@@ -6321,13 +6323,17 @@ export const xuanyuanSkill1: Skill = {
         if (zhaoShen) {
             const used = getLeapsUsed(caster);
             if (used >= leapMax) return fail(`御剑连破一次行动至多连跳${leapMax}次`);
-            const plan = getGMovePlans(start).find(item => item.to[0] === clicked[0] && item.to[1] === clicked[1]);
-            if (!plan) return fail('御剑跃只能落在 G 型外圈的格子上');
+            // G 的旋向由玩家选：第一步已把起笔方向暂存在计数器里，这一跳沿那笔描
+            const dir = getStagedGStart(caster);
+            if (dir === null) return fail('请先点击周身正方向的一格，定下这一笔G从哪里起笔');
+            const plan = getGMovePlans(start, dir).find(item => item.to[0] === clicked[0] && item.to[1] === clicked[1]);
+            if (!plan) return fail('这一笔G描不到那一格（注意起笔旁的斜格是G的开口）');
             if (gameState.board[clicked[0]][clicked[1]] !== null) return fail('跃击落点必须是空格');
             const endpointSword = findFlyingSwordAt(gameState, clicked, caster.id);
             if (!endpointSword) return fail('只能跃向站着自己【飞剑】的格子');
             removeFlyingSword(gameState, endpointSword.id);
             setLeapsUsed(caster, used + 1);
+            clearStagedGStart(caster);
             const output = xuanyuanLeapStrike(
                 caster,
                 plan,
@@ -6419,12 +6425,12 @@ export const xuanyuanSkill2: Skill = {
 };
 
 /**
- * AI 御剑连跳的直估：这一跳能挨多少点伤害（只数人头不跑结算），
+ * AI 御剑连跳的直估：指定起笔方向时按那一笔的笔画算，不指定则取四种起笔里最便宜的那段弧。
  * 0 分代表这一跳空转，电脑不该为此再跳。
  */
-export function scanXuanyuanLeapValue(caster: Hero, cell: Position, gameState: GameState): number {
+export function scanXuanyuanLeapValue(caster: Hero, cell: Position, gameState: GameState, dir?: number): number {
     if (!caster.position) return 0;
-    const plan = getGMovePlans(caster.position).find(item => item.to[0] === cell[0] && item.to[1] === cell[1]);
+    const plan = getGMovePlans(caster.position, dir).find(item => item.to[0] === cell[0] && item.to[1] === cell[1]);
     if (!plan) return 0;
     const pathDamage = zhizhiValue(caster, 1, 4, 5);
     const ringDamage = zhizhiValue(caster, 1, 8, 9);

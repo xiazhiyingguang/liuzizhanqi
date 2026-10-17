@@ -15,7 +15,7 @@ import { BOARD_SIZE, HeroState, type BoardEffect, type GameState, type Hero, typ
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
 import { nextBattleLogId } from './battle-log-id';
-import { getGMovePlans } from './xuanyuan-form';
+import { getGMovePlans, getGStartCell, getStagedGStart } from './xuanyuan-form';
 
 export const FLYING_SWORD_DURATION = 3;
 /** 同屏至多 6 把：铺满后最老的一把先散，避免棋盘被剑糊死 */
@@ -139,9 +139,30 @@ export function attachSwordToAlly(ally: Hero, stacks: number): void {
 }
 
 /** 昭神态技能一「御剑连破」的跳跃候选：G 型外圈落点中、站着他那把飞剑且格上无人的格子 */
+/** 盘上是否存在可被跃向的飞剑：站着自己的剑、且落点无人 */
+export function hasXuanyuanLeapTarget(hero: Hero, gameState: GameState): boolean {
+    return getFlyingSwords(gameState, hero.id).some(
+        sword => !gameState.board[sword.position[0]]?.[sword.position[1]]
+    );
+}
+
+/**
+ * 「御剑连破」此刻该高亮的格：G 是旋向可选的——未定起笔时亮周身正四方向
+ * （点哪格就从哪格起笔）；定笔后只亮那一笔描得到的、空着且踩着自己飞剑的格。
+ */
 export function getXuanyuanLeapCells(hero: Hero, gameState: GameState): Position[] {
     if (!hero.position) return [];
-    return getGMovePlans(hero.position)
+    if (!hasXuanyuanLeapTarget(hero, gameState)) return [];
+    const staged = getStagedGStart(hero);
+    if (staged === null) {
+        const starts: Position[] = [];
+        for (let dir = 0; dir < 4; dir++) {
+            const cell = getGStartCell(hero.position, dir);
+            if (cell) starts.push(cell);
+        }
+        return starts;
+    }
+    return getGMovePlans(hero.position, staged)
         .map(plan => plan.to)
         .filter(cell =>
             !gameState.board[cell[0]]?.[cell[1]] &&

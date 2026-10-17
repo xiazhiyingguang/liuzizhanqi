@@ -10,6 +10,7 @@ const MECHANISM_MESSAGES = {
     zhenxiao_counter: '金银错回击',
     zhenxiao_laststand: '龙势护身，抵住致命伤害',
     moran_extra_action: '为道触发再动',
+    xuanyuan_zhaoshen: '昭神降世',
 } as const;
 
 

@@ -126,7 +126,139 @@ function conversion(ctx: CanvasRenderingContext2D, ms: number, incoming: [number
     glow(ctx, 0, 25, 24, '#89d6b1', .34); ctx.restore();
 }
 
-function counter(ctx: CanvasRenderingContext2D, ms: number, to: [number, number], recover: boolean) {
+function zhaoshen(ctx: CanvasRenderingContext2D, ms: number): void {
+    const gold = metal(ctx, 'gold');
+    // ① 八方向飞剑从外围收拢归鞘，逐把延迟
+    for (let i = 0; i < 8; i++) {
+        const angle = (-90 + i * 45) * Math.PI / 180;
+        const t = clamp((ms - 60 - i * 45) / 480);
+        const arrive = smooth(t);
+        const r = 80 - arrive * 62;
+        const x = Math.cos(angle) * r;
+        const y = Math.sin(angle) * r * 0.78 - 4;
+        const alpha = windowAt(ms, 60 + i * 45, 140 + i * 45, 150 + i * 45, 620 + i * 45) * 0.9;
+        if (alpha > 0.01) {
+            // 剑身拖尾：沿来路的一条渐隐金线
+            ctx.save();
+            ctx.globalAlpha = alpha * 0.4;
+            ctx.strokeStyle = '#f5d78e';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(angle) * (80 - 16 * (1 - arrive * 0.4)), Math.sin(angle) * (62 - 13 * (1 - arrive * 0.4)));
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.restore();
+            ctx.save();
+            ctx.translate(x, y);
+            // 剑尖指向本体
+            ctx.rotate(angle + Math.PI / 2);
+            ctx.globalAlpha = alpha;
+            ctx.shadowColor = 'rgba(231,194,112,0.85)';
+            ctx.shadowBlur = 7;
+            shape(ctx, 'M 0 -15 L 3 -5 L 3 8 L 0 12 L -3 8 L -3 -5 Z', '#eef4f8', gold, 0.9);
+            ctx.fillRect(-0.7, -15, 1.4, 16);
+            ctx.restore();
+        }
+    }
+    // ② 核心金光闪烁 + 天光柱贯体
+    const flash = windowAt(ms, 380, 470, 150, 980);
+    if (flash > 0.01) {
+        ctx.save();
+        ctx.globalAlpha = flash;
+        glow(ctx, 0, -6, 55 * (0.7 + flash * 0.3), '#fff2c0');
+        ctx.restore();
+    }
+    const pillar = windowAt(ms, 420, 560, 250, 1250);
+    if (pillar > 0.01) {
+        const pw = 15 * (0.5 + pillar * 0.5);
+        const gradient = ctx.createLinearGradient(0, -86, 0, 42);
+        gradient.addColorStop(0, 'rgba(255,242,192,0)');
+        gradient.addColorStop(0.38, 'rgba(255,242,192,0.5)');
+        gradient.addColorStop(0.75, 'rgba(214,169,83,0.24)');
+        gradient.addColorStop(1, 'rgba(214,169,83,0)');
+        ctx.save();
+        ctx.globalAlpha = pillar * 0.75;
+        ctx.beginPath();
+        ctx.moveTo(-pw * 0.45, -86);
+        ctx.lineTo(pw * 0.45, -86);
+        ctx.lineTo(pw, 42);
+        ctx.lineTo(-pw, 42);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
+        ctx.restore();
+    }
+    // ③ 脚下双环法阵缓缓旋开（G型外圈的八个刻度逐一点亮）
+    const ring = windowAt(ms, 460, 620, 420, 1550);
+    if (ring > 0.01) {
+        ctx.save();
+        ctx.translate(0, 26);
+        ctx.scale(1, 0.37);
+        ctx.globalAlpha = ring * 0.88;
+        ctx.strokeStyle = '#d6a953';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, 56, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = ring * 0.52;
+        ctx.beginPath();
+        ctx.arc(0, 0, 48, 0, Math.PI * 2);
+        ctx.stroke();
+        const sweep = smooth(clamp((ms - 460) / 560)) * Math.PI * 1.5;
+        ctx.globalAlpha = ring * 0.85;
+        ctx.strokeStyle = '#ffe9b0';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(0, 0, 56, -Math.PI / 2, -Math.PI / 2 + sweep);
+        ctx.stroke();
+        // 八个刻度 = G型外圈的八格，按起笔顺时针依次点亮
+        for (let i = 0; i < 8; i++) {
+            const on = smooth(clamp((ms - 620 - i * 55) / 200));
+            if (on <= 0) continue;
+            const tick = (-90 + i * 45) * Math.PI / 180;
+            const cos = Math.cos(tick);
+            const sin = Math.sin(tick);
+            ctx.strokeStyle = i % 2 === 0 ? '#fff2c0' : '#d6a953';
+            ctx.lineWidth = i % 2 === 0 ? 3 : 2;
+            ctx.globalAlpha = ring * (0.3 + on * 0.7);
+            ctx.beginPath();
+            ctx.moveTo(cos * 45, sin * 45);
+            ctx.lineTo(cos * 56, sin * 56);
+            ctx.stroke();
+            if (on > 0.6) glow(ctx, cos * 60, sin * 60, 9 * on, '#ffe9b0', 0.55);
+        }
+        ctx.restore();
+    }
+    // ④ 头顶金印名牌「昭神」缓缓浮现
+    const plate = windowAt(ms, 560, 720, 360, 1720);
+    if (plate > 0.01) {
+        const rise = (1 - smooth(clamp((ms - 560) / 480))) * 14;
+        ctx.save();
+        ctx.translate(0, -72 + rise);
+        ctx.globalAlpha = plate;
+        shape(ctx, 'M -19 -11 L 19 -11 L 19 11 L -19 11 Z', '#2c2415', gold, 1);
+        ctx.globalAlpha = plate * 0.4;
+        shape(ctx, 'M -16 -8 L 16 -8 L 16 8 L -16 8 Z', 'rgba(0,0,0,0)', 'rgba(247,210,142,0.72)', 0.6);
+        ctx.globalAlpha = plate;
+        ctx.font = '600 15px "KaiTi","STKaiti",serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#f1dfae';
+        ctx.shadowColor = 'rgba(231,194,112,0.7)';
+        ctx.shadowBlur = 6;
+        ctx.fillText('昭神', 0, 4);
+        ctx.restore();
+    }
+    // ⑤ 零星金芒
+    for (let i = 0; i < 4; i++) {
+        const sparkle = windowAt(ms, 860 + i * 140, 960 + i * 140, 140 + i * 40, 1520);
+        if (sparkle <= 0.01) continue;
+        const angle = (40 + i * 95) * Math.PI / 180;
+        const r = 34 + i * 7;
+        star(ctx, Math.cos(angle) * r, -12 + Math.sin(angle) * r * 0.55, 4.5 + (i % 2) * 1.5, '#ffe9b0');
+    }
+}
+
+function counter(ctx: CanvasRenderingContext2D, ms: number, to: [number, number], recover: boolean): void {
     const p = smooth((ms - 70) / 270);
     const intensity = windowAt(ms, 10, 100, 410, 660);
     const length = Math.hypot(...to), dx = length ? to[0] / length : 1, dy = length ? to[1] / length : 0;
@@ -434,9 +566,10 @@ function extraAction(ctx: CanvasRenderingContext2D, ms: number) {
 export function drawMechanismFrame(ctx: CanvasRenderingContext2D, theme: MechanismFxTheme, ms: number,
     to: [number, number] = [0, 0], incoming: [number, number] = [-1, -.6], recover = false) {
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    if (ms >= 0 && ms < 1650) {
+    if (ms >= 0 && ms < (theme === 'zhaoshen' ? 1780 : 1650)) {
         switch (theme) {
             case 'rebirth': rebirth(ctx, ms); break;
+            case 'zhaoshen': zhaoshen(ctx, ms); break;
             case 'king-shift': crownShift(ctx, ms, true); break;
             case 'lord-shift': crownShift(ctx, ms, false); break;
             case 'conversion': conversion(ctx, ms, incoming); break;

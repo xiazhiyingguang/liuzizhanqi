@@ -12,7 +12,7 @@ import {
     getXuanyuanLeapCells,
     placeFlyingSword,
 } from '../../src/core/flying-sword';
-import { getLeapsUsed, markZhaoShenHit, setLeapsUsed, tryEnterZhaoShen } from '../../src/core/xuanyuan-form';
+import { getLeapsUsed, getStagedGStart, markZhaoShenHit, setLeapsUsed, setStagedGStart, tryEnterZhaoShen } from '../../src/core/xuanyuan-form';
 import { addHero, makeGameState } from '../helpers/game-state';
 
 const SKILL1 = SKILLS['xuanyuan_skill1'];
@@ -96,14 +96,15 @@ describe('轩辕神君 · 御剑·贯阵（基础形态：象走田跳斩）', (
 });
 
 describe('轩辕神君 · 御剑·贯阵（昭神形态：G型踩剑跃击）', () => {
-    it('踩毁终点的飞剑，路径 4 点 + 周圈 8 点，连跳次数 +1', () => {
+    it('踩毁终点的飞剑，路径 4 点 + 周圈 8 点，连跳次数 +1，起笔计数随之清空', () => {
         const state = makeState();
-        // G 型从 [0,0] 只能踩到相邻终点；盘内行走顺序为 [1,0]→[1,1]→[0,1]
+        // G 从正下起笔：描 [下(1,0)→右下(1,1)→右(0,1)]，落点选踩剑的 (1,1)
         const caster = makeXuanyuan(state, [0, 0], true);
         placeFlyingSword(state, caster, [1, 1]);
         const pathTarget = makeDummy(state, 'player2', [1, 0]); // 沿途格
         const ringTarget = makeDummy(state, 'player2', [1, 2]); // 仅落点周圈
 
+        setStagedGStart(caster, 2); // 下
         click(caster, [1, 1]);
         const result = SKILL1.execute!(caster, 0, state);
         expect(result.success).toBe(true);
@@ -113,25 +114,66 @@ describe('轩辕神君 · 御剑·贯阵（昭神形态：G型踩剑跃击）', 
 
         // 终点飞剑被踩毁，命中处留下新飞剑
         expect(swordCells(state)).toEqual(['1,0', '1,2']);
-        // 连跳计数 +1
+        // 连跳计数 +1，起笔计数已随起跳清空
         expect(getLeapsUsed(caster)).toBe(1);
+        expect(getStagedGStart(caster)).toBeNull();
     });
 
-    it('昭神跃击的可选格 = G 型终点中踩得到飞剑的空格', () => {
+    it('未点起笔时无法出手', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [0, 0], true);
+        placeFlyingSword(state, caster, [1, 1]);
+
+        click(caster, [1, 1]);
+        const result = SKILL1.execute!(caster, 0, state);
+        expect(result.success).toBe(false);
+        expect(caster.position).toEqual([0, 0]);
+        expect(getLeapsUsed(caster)).toBe(0);
+        expect(swordCells(state)).toEqual(['1,1']);
+    });
+
+    it('起笔旁的斜格是 G 的开口，那一格描不到', () => {
         const state = makeState();
         const caster = makeXuanyuan(state, [2, 2], true);
-        placeFlyingSword(state, caster, [3, 3]); // 相邻终点、空格 → 可选
-        placeFlyingSword(state, caster, [0, 4]); // 距离过远，不是 G 型终点 → 不可选
-        placeFlyingSword(state, caster, [1, 2]); // 终点但被占据 → 不可选
-        makeDummy(state, 'player2', [1, 2]);
+        // 唯一的剑在右上 (1,3)；正上起笔的开口正好在右上
+        placeFlyingSword(state, caster, [1, 3]);
+        setStagedGStart(caster, 0); // 上：笔画绕左半圈，收笔在正右，右上是开口
 
+        click(caster, [1, 3]);
+        const result = SKILL1.execute!(caster, 0, state);
+        expect(result.success).toBe(false);
+        expect(caster.position).toEqual([2, 2]);
+        expect(swordCells(state)).toEqual(['1,3']);
+    });
+
+    it('昭神跃击的高亮：未定起笔亮正四方向，定笔后只亮笔画内踩得到剑的空格', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+        placeFlyingSword(state, caster, [3, 3]); // 右下：正上/下/左起笔都描得到，正右起笔正好卡在开口
+        placeFlyingSword(state, caster, [0, 4]); // 远处：不是任何一笔的外圈格
+
+        // 未定笔：亮四个起笔格（上、右、下、左）
+        expect(getXuanyuanLeapCells(caster, state).map(position => position.join(',')))
+            .toEqual(['1,2', '2,3', '3,2', '2,1']);
+
+        setStagedGStart(caster, 0); // 上：笔画描到 (3,3)
         expect(getXuanyuanLeapCells(caster, state)).toEqual([[3, 3]]);
+
+        setStagedGStart(caster, 1); // 右：开口在右下，这一笔够不到剑
+        expect(getXuanyuanLeapCells(caster, state)).toEqual([]);
+    });
+
+    it('场上没有可跃的飞剑时连起笔都不亮', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+        expect(getXuanyuanLeapCells(caster, state)).toEqual([]);
     });
 
     it('目标格没有飞剑时跃击失败', () => {
         const state = makeState();
         const caster = makeXuanyuan(state, [2, 2], true);
 
+        setStagedGStart(caster, 2); // 下：笔画经过 (3,3)
         click(caster, [3, 3]);
         expect(SKILL1.execute!(caster, 0, state).success).toBe(false);
         expect(caster.position).toEqual([2, 2]);
@@ -142,6 +184,7 @@ describe('轩辕神君 · 御剑·贯阵（昭神形态：G型踩剑跃击）', 
         const caster = makeXuanyuan(state, [2, 2], true);
         placeFlyingSword(state, caster, [3, 3]);
 
+        setStagedGStart(caster, 2);
         setLeapsUsed(caster, 3);
         click(caster, [3, 3]);
         const result = SKILL1.execute!(caster, 0, state);

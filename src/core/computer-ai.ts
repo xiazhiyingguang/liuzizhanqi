@@ -27,7 +27,8 @@ import {
 } from './thunder-cloud';
 import { MOUNTAIN_COUNTER, directionFromCell, guardsCell, hasStance, mountainPressure, stanceDirection, threatensFrom } from './mountain-stance';
 import { isJinghongReleaseWindow, findHnyShadow, findWaterMoon, findMoonSeat } from '../data/extended-heroes';
-import { isZhaoShen } from './xuanyuan-form';
+import { getGMovePlans, getGStartCell, gStartCodeFromCell, isXuanyuan, isZhaoShen } from './xuanyuan-form';
+import { findFlyingSwordAt } from './flying-sword';
 import { getHnyReplayForm, getJinghuaSwapDestinations, pickYunyingTianweiLanding, pickZhiguangTianweiLanding, runWithoutSkillFx, traceZhiguangBeam, XUBAI_ORB_HEAL, XUBAI_ORB_MAX, ZHIGUANG_DIRECTION_DELTAS } from '../data/extended-skills';
 
 export interface ComputerDeployment {
@@ -1017,6 +1018,23 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
     }
 
+    // 轩辕神君・昭神「御剑连破」：两段式点击——第一步点周身正方向一格定 G 的起笔（旋向），
+    // 第二步点那一笔描得到、踩着自己飞剑的空格。枚举所有 (起笔, 落点) 配对。
+    if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && isZhaoShen(caster)) {
+        const sets: Position[][] = [];
+        for (let dir = 0; dir < 4; dir++) {
+            const startCell = getGStartCell(caster.position, dir);
+            if (!startCell) continue;
+            for (const plan of getGMovePlans(caster.position, dir)) {
+                const landing = plan.to;
+                if (state.board[landing[0]][landing[1]] !== null) continue;
+                if (!findFlyingSwordAt(state, landing, caster.id)) continue;
+                sets.push([startCell, landing]);
+            }
+        }
+        return sets;
+    }
+
     // 折光「棱光千折」：周身八格都是方向标（含斜向），每个方向各成一个方案
     if (skill.id === 'zhiguang_skill2') {
         const [row, col] = caster.position;
@@ -1232,6 +1250,11 @@ function configureSimulationChoices(
         const direction = MovementSystem.getDirection(caster.position, targetPositions[0]);
         caster.counters['__nanfeng_skill2_dir'] =
             direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
+    }
+    if (skill.id === 'xuanyuan_skill1' && caster.position && targetPositions.length >= 2) {
+        // 两段式点击：第一步的 G 起笔格换算成旋向编码，供技能结算沿那一笔描
+        const dirCode = gStartCodeFromCell(caster.position, targetPositions[0]);
+        if (dirCode !== null) caster.counters['__xuanyuan_leap_start'] = dirCode;
     }
     if (skill.id === 'baize_skill2') {
         const dead = heroesFor(state, caster.owner)

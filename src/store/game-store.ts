@@ -65,13 +65,17 @@ import { hookThrowLandings, hookThrowLocked, releaseHookThrowLock, resolveHookTh
 import { clearStance, hasStance, setStance, stanceDirection } from '../core/mountain-stance';
 import {
     clearLeapsUsed,
+    clearStagedGStart,
     getLeapsUsed,
+    gStartCodeFromCell,
     isXuanyuan,
     isZhaoShen,
+    setStagedGStart,
     XUANYUAN_LEAP_MAX,
     XUANYUAN_SKILL1_ID,
+    G_START_COUNTER,
 } from '../core/xuanyuan-form';
-import { fireAttachedSwords, getXuanyuanLeapCells, hasAttachedSwords } from '../core/flying-sword';
+import { fireAttachedSwords, getXuanyuanLeapCells, hasAttachedSwords, hasXuanyuanLeapTarget } from '../core/flying-sword';
 
 /** 技能特效事件的自增序号（仅本地视觉层使用） */
 let skillFxSeq = 0;
@@ -2010,6 +2014,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         delete hero.counters['__nanfeng_skill2_dir'];
         delete hero.counters['__libai_skill2_dir'];
         delete hero.counters['__lingxi_skill2_dir'];
+        delete hero.counters[G_START_COUNTER];
         delete hero.counters['__hny_dir'];
 
         // 游隼：回退这次移动计入的路径位移；移动途中若收回过风刃，
@@ -2112,6 +2117,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 message: `${hero.name}御剑连破进行中，只能继续跃向飞剑或结束行动`
             });
             return;
+        }
+
+        // 重新进入御剑·贯阵时从选起笔开始：上一次中断留下的起笔计数器不能残留
+        if (skillId === XUANYUAN_SKILL1_ID) {
+            delete hero.counters[G_START_COUNTER];
         }
 
         if (skillId === 'mowen_skill1') {
@@ -3468,6 +3478,40 @@ export const useGameStore = create<GameStore>((set, get) => ({
             get().addLog({ type: 'system', player: hero.owner, message: '醉掷寒锋方向已确定，正在醉掷寒锋' });
         }
 
+        // 轩辕神君・昭神「御剑连破」第一步：G 的旋向由玩家定——点周身正方向一格做起笔，
+        // 同一次点击只定笔不释放；高亮随即收窄成那一笔描得到、踩着自己飞剑的落点。
+        if (skill.id === XUANYUAN_SKILL1_ID && isXuanyuan(hero) && isZhaoShen(hero)
+            && hero.counters[G_START_COUNTER] === undefined) {
+            if (!hero.position) return;
+            const dirCode = gStartCodeFromCell(hero.position, targetPos);
+            if (dirCode === null) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '请先点击周身正方向的一格，定下这一笔G从哪里起笔',
+                });
+                return;
+            }
+            setStagedGStart(hero, dirCode);
+            const strokeCells = getXuanyuanLeapCells(hero, get());
+            if (strokeCells.length === 0) {
+                clearStagedGStart(hero);
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '这个起笔方向的笔画够不到任何飞剑，换个方向起笔',
+                });
+                return;
+            }
+            set({ highlightedPositions: strokeCells, skillRange: strokeCells, moveRange: [] });
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: '起笔已定，点选这一笔描得到的高亮飞剑跃击',
+            });
+            return;
+        }
+
         // 通用多目标选择：依次点击；可选目标技能再次点击已选目标即可提前释放。
         let targetPositions: Position[] = [targetPos];
         if (typeof skill.targetCount === 'number' && skill.targetCount > 1) {
@@ -3614,7 +3658,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (skill.id === XUANYUAN_SKILL1_ID && hero.position && isZhaoShen(hero)) {
             const leaps = getLeapsUsed(hero);
             if (leaps > 0) {
-                const nextCells = leaps < XUANYUAN_LEAP_MAX ? getXuanyuanLeapCells(hero, state) : [];
+                const nextCells = leaps < XUANYUAN_LEAP_MAX && hasXuanyuanLeapTarget(hero, state)
+                    ? getXuanyuanLeapCells(hero, state)
+                    : [];
                 if (nextCells.length > 0) {
                     set({
                         selectedHero: hero,
@@ -3631,7 +3677,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     get().addLog({
                         type: 'system',
                         player: hero.owner,
-                        message: `可跃向高亮飞剑继续连破（已跳${leaps}/${XUANYUAN_LEAP_MAX}次），也可结束行动收剑`
+                        message: `可重新起笔续跳：点正方向格定G的起笔（已跳${leaps}/${XUANYUAN_LEAP_MAX}次），也可结束行动收剑`
                     });
                     sendOnlineStateIfNeeded(get());
                     return;
@@ -4398,9 +4444,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             set({ shangguanDashState: undefined });
         }
 
-        // 轩辕神君御剑连破挂起时结束行动：收起连跳次数，正常走结束流程（已落场的飞剑留在盘上）
+        // 轩辕神君御剑连破挂起时结束行动：收起连跳次数与未走完的起笔，正常走结束流程（已落场的飞剑留在盘上）
         if (isXuanyuan(hero)) {
             clearLeapsUsed(hero);
+            clearStagedGStart(hero);
         }
 
         // 李太白链状态：结束行动 = 归位并结束

@@ -223,7 +223,7 @@ export interface SkillFxProfile {
     /** 冥魂材质与动作；仍沿用原技能的范围、命中和联机事件。 */
     spectral?: 'soul-gather' | 'wither-bloom' | 'wither-scatter';
     /** 被动触发的独立演出，复用真实事件队列，不铺技能范围底光。 */
-    mechanism?: 'rebirth' | 'king-shift' | 'lord-shift' | 'conversion' | 'counter' | 'laststand' | 'extra-action';
+    mechanism?: 'rebirth' | 'king-shift' | 'lord-shift' | 'conversion' | 'counter' | 'laststand' | 'extra-action' | 'zhaoshen';
     /** 区域底光的覆盖形状。缺省时由技能自身的 rangeType/areaSize/range/targetCount
      *  推导（见 skill-fx-coverage.ts）；引擎里带特判展开的技能需在此显式声明，
      *  'none' 表示不铺底光（全场技等只需命中格反馈） */
@@ -416,6 +416,7 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     zhenxiao_counter: { kind: 'ink', mechanism: 'counter', durationMs: 1050, impactMs: 340, fxArea: 'none' },
     zhenxiao_laststand: { kind: 'ink', mechanism: 'laststand', durationMs: 1200, impactMs: 240, fxArea: 'none' },
     moran_extra_action: { kind: 'ink', mechanism: 'extra-action', durationMs: 1250, impactMs: 360, fxArea: 'none' },
+    xuanyuan_zhaoshen: { kind: 'ink', mechanism: 'zhaoshen', durationMs: 1900, impactMs: 520, fxArea: 'none' },
     painting_attack: { kind: 'pierce', durationMs: 1100, c1: '#66533c', c2: '#e8c58a', fxArea: 'none' },
     feixue_followup: { kind: 'feixue-blade', durationMs: 980, c1: '#65a7ca', c2: '#eaf7ff' },
     dai_revive: { kind: 'revive-rise', recovery: 'time-gate', durationMs: 1650, impactMs: 420, c1: '#665394', c2: '#d7c9ff', fxArea: 'none' },

@@ -443,6 +443,7 @@ function runMechanismTriggerDemo(skillId: string): boolean {
         case 'counter': buff('金银错'); apply(8); break;
         case 'laststand': buff('龙势'); hero.currentHp = 8; apply(1000); break;
         case 'extra-action': buff('为道'); hero.counters['为道受击'] = 1; apply(2); break;
+        case 'zhaoshen': apply(5); break;   // 唯一敌人被盖金痕 → 真实结算里直接触发昭神
     }
     useGameStore.setState({ board: board.map(row => [...row]), player1Heroes: [hero], player2Heroes: [enemy], battleLog: [...state.battleLog] });
     return true;
