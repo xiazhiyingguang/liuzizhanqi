@@ -2,6 +2,7 @@ import { DamageCalculator } from './damage-calculator';
 import { requestSkillFx } from '../data/extended-skills';
 import { EffectManager } from './effect-manager';
 import { zhizhiValue } from './hero-zhizhi';
+import { enemiesOnCells } from './lamp-shadow';
 import { BOARD_SIZE, GameState, Hero, HeroState, Position } from '../types/game';
 import { DRAGON_CALL_LEAD_MS, DRAGON_SWEEP_LEAD_MS } from './dragon-sweep-fx';
 
@@ -196,19 +197,14 @@ export function dragonDashPath(caster: Hero, landing: Position): Position[] {
     return cells;
 }
 
-/** 给出格子里站着的敌方存活单位（去重，同一人踩两格只算一次） */
+/**
+ * 给出格子里站着的敌方存活单位（去重，同一人踩两格只算一次），
+ * 外加影子落在这些格子里的敌人——后者由 enemiesOnCells 挂上"只挨半刀"的标记。
+ */
 export function dragonVictimsOnCells(state: GameState, caster: Hero, cells: Position[]): Hero[] {
-    const seen = new Set<Hero>();
-    const victims: Hero[] = [];
-    for (const cell of cells) {
-        if (!inBounds(cell)) continue;
-        const occupant = state.board[cell[0]][cell[1]];
-        if (!occupant || occupant.owner === caster.owner || occupant.state !== HeroState.ALIVE) continue;
-        if (seen.has(occupant)) continue;
-        seen.add(occupant);
-        victims.push(occupant);
-    }
-    return victims;
+    const found = enemiesOnCells(state, caster, cells);
+    // 这团的口径一直是"同一人踩两格只算一次"，按格索敌本身不合并，这里替它守住
+    return found.filter((hero, index) => found.indexOf(hero) === index);
 }
 
 /** 游龙这一击：伤害走常规结算（吃减伤与闪避），打痛了就叠一层龙鳞 */

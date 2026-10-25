@@ -65,17 +65,25 @@ import { hookThrowLandings, hookThrowLocked, releaseHookThrowLock, resolveHookTh
 import { clearStance, hasStance, setStance, stanceDirection } from '../core/mountain-stance';
 import {
     clearLeapsUsed,
-    clearStagedGStart,
     getLeapsUsed,
-    gStartCodeFromCell,
     isXuanyuan,
     isZhaoShen,
-    setStagedGStart,
     XUANYUAN_LEAP_MAX,
     XUANYUAN_SKILL1_ID,
-    G_START_COUNTER,
 } from '../core/xuanyuan-form';
-import { fireAttachedSwords, getXuanyuanLeapCells, hasAttachedSwords, hasXuanyuanLeapTarget } from '../core/flying-sword';
+import {
+    WENREN_SKILL1_ID,
+    WENREN_SKILL2_ID,
+    clearWenrenWaypoint,
+    findWenrenLeapPlan,
+    getWenrenLandingPlans,
+    getWenrenPos,
+    getWenrenWaypoint,
+    getWenrenWaypointCells,
+    sameWenrenPosition,
+    setWenrenWaypoint,
+} from '../core/wenren-form';
+import { driftFlyingSwords, fireAttachedSwords, getXuanyuanLeapCells, hasAttachedSwords, hasXuanyuanLeapTarget, restoreDriftedSwords } from '../core/flying-sword';
 
 /** 技能特效事件的自增序号（仅本地视觉层使用） */
 let skillFxSeq = 0;
@@ -1780,6 +1788,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
         // 重新抬脚走路就重新拿到"撤回这一步"的权利；若这一步又踩响鱼钩，抛掷会重新上锁
         releaseHookThrowLock(hero);
+        // 轩辕神君被动「剑随气走」：这一步走完，场上属于他的飞剑各随机挪一格
+        if (success && hero.passiveId === 'xuanyuan_passive') {
+            const drifted = driftFlyingSwords(state, hero);
+            if (drifted > 0) {
+                get().addLog({
+                    type: 'passive',
+                    player: hero.owner,
+                    message: `${hero.name}的${drifted}把飞剑随气而动`
+                });
+            }
+        }
         // 岱宗「镇守」：脚一挪，这一侧的护持就散了。方向先存一份，撤回这一步时原样还给他
         if (success && hero.passiveId === 'daizong_passive' && hasStance(hero)) {
             hero.counters['__daizong_stance_undo'] = stanceDirection(hero) ?? -1;
@@ -1983,6 +2002,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         hero.position = from;
         delete hero.counters['__move_from'];
         hero.hasMovedThisTurn = false;
+        // 撤回 = 这步没走过：轩辕神君被这一步吹动的飞剑也要放回原处
+        restoreDriftedSwords(state, hero);
         // 撤回 = 这步没走过：岱宗被移动打断的镇守原样恢复（岳势不清，那是他已经挨过的打）
         const restoredStance = hero.counters['__daizong_stance_undo'];
         if (hero.passiveId === 'daizong_passive' && typeof restoredStance === 'number' && restoredStance >= 0) {
@@ -2014,8 +2035,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         delete hero.counters['__nanfeng_skill2_dir'];
         delete hero.counters['__libai_skill2_dir'];
         delete hero.counters['__lingxi_skill2_dir'];
-        delete hero.counters[G_START_COUNTER];
         delete hero.counters['__hny_dir'];
+        clearWenrenWaypoint(hero);
 
         // 游隼：回退这次移动计入的路径位移；移动途中若收回过风刃，
         // 对应的疾掠刷新一并撤销（风刃本身不恢复，刷新次数保留已消耗状态）
@@ -2109,19 +2130,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
-        // 轩辕神君御剑连破进行中：只能继续点高亮飞剑续跳或结束行动，不许换技能
+        // 轩辕神君御剑连破进行中：只能继续点高亮格续跳或结束行动，不许换技能
         if (isXuanyuan(hero) && getLeapsUsed(hero) > 0 && skillId !== XUANYUAN_SKILL1_ID) {
             get().addLog({
                 type: 'system',
                 player: hero.owner,
-                message: `${hero.name}御剑连破进行中，只能继续跃向飞剑或结束行动`
+                message: `${hero.name}御剑连破进行中，只能继续跃向高亮格或结束行动`
             });
             return;
         }
 
-        // 重新进入御剑·贯阵时从选起笔开始：上一次中断留下的起笔计数器不能残留
-        if (skillId === XUANYUAN_SKILL1_ID) {
-            delete hero.counters[G_START_COUNTER];
+        // 御剑·贯阵本身就是一跳位移：本回合已经走过一步就不许再用它，
+        // 否则一次行动能叠两段位移（先普通移动再技能一跳出去），与"技能一即移动"冲突。
+        if (skillId === XUANYUAN_SKILL1_ID && isXuanyuan(hero) && hero.hasMovedThisTurn) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}御剑·贯阵自带位移，本回合移动过就无法使用`
+            });
+            return;
         }
 
         if (skillId === 'mowen_skill1') {
@@ -2326,6 +2353,38 @@ export const useGameStore = create<GameStore>((set, get) => ({
                         : skill.id === 'yunying_skill2'
                             ? '请选择踏火长驱的方向（上下左右）'
                             : '请选择风压横扫的方向（上下左右）',
+            });
+            return;
+        }
+
+        // 闻人翊悬技能一「蹈火·跃阵」：两段式选点。重新进入技能即清掉未完成的中途点，
+        // 第一步只高亮可当中途点的友军；点中友军后由 executeSkillBase 展开身后的落点。
+        if (skill.id === WENREN_SKILL1_ID) {
+            clearWenrenWaypoint(hero);
+            const waypoints = getWenrenWaypointCells(hero, state);
+            set({
+                selectedSkill: skill,
+                highlightedPositions: waypoints,
+                skillRange: waypoints,
+                moveRange: [],
+                activeHero: hero
+            });
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: waypoints.length > 0
+                    ? '请选择一名友军作为飞跃的中途点'
+                    : '没有可当中途点的友军：需要一名与自己同处八方向直线上的队友'
+            });
+            return;
+        }
+
+        // 闻人翊悬技能二「破妄·燎原」：没有破妄时提前拦下，别让玩家白点一次
+        if (skill.id === WENREN_SKILL2_ID && getWenrenPos(hero) <= 0) {
+            get().addLog({
+                type: 'system',
+                player: hero.owner,
+                message: `${hero.name}身上没有【破妄】，破妄·燎原需要至少1层`
             });
             return;
         }
@@ -3188,6 +3247,55 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 闻人翊悬技能一「蹈火·跃阵」：两段式选点。第一段点友军只记中途点、不消耗行动；
+        // 第二段点他身后同方向的空落点才真正结算。中途点由本地暂存，联机时随动作一并下发。
+        if (skill.id === WENREN_SKILL1_ID) {
+            const waypoint = getWenrenWaypoint(hero);
+            if (!waypoint) {
+                const waypointCells = getWenrenWaypointCells(hero, state);
+                if (!waypointCells.some(cell => sameWenrenPosition(cell, targetPos))) {
+                    get().addLog({
+                        type: 'system',
+                        player: hero.owner,
+                        message: '请选择一名高亮友军作为跃阵的中途点'
+                    });
+                    return;
+                }
+                const landings = getWenrenLandingPlans(hero, state, targetPos).map(plan => plan.to);
+                if (landings.length === 0) {
+                    get().addLog({
+                        type: 'system',
+                        player: hero.owner,
+                        message: '这名友军身后没有同方向的空落点'
+                    });
+                    return;
+                }
+                setWenrenWaypoint(hero, targetPos);
+                set({
+                    selectedSkill: skill,
+                    selectedHero: hero,
+                    activeHero: hero,
+                    highlightedPositions: landings,
+                    skillRange: landings,
+                    moveRange: []
+                });
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: `已选定${state.board[targetPos[0]][targetPos[1]]?.name ?? '友军'}为中途点，请点击他身后高亮的空落点`
+                });
+                return;
+            }
+            if (!findWenrenLeapPlan(hero, state, waypoint, targetPos)) {
+                get().addLog({
+                    type: 'system',
+                    player: hero.owner,
+                    message: '落点必须在这名友军身后、与起跳方向相同的直线上'
+                });
+                return;
+            }
+        }
+
         // 上官婉儿技能2：多段笔走龙蛇。每段点击相邻方向格冲刺；命中敌人/毛笔后停下，
         // 若仍有可命中的目标则等待玩家选新方向继续，否则正常结束行动。
         // （全程快照同步，不走 action 回放，避免接收端重放结算）
@@ -3478,40 +3586,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             get().addLog({ type: 'system', player: hero.owner, message: '醉掷寒锋方向已确定，正在醉掷寒锋' });
         }
 
-        // 轩辕神君・昭神「御剑连破」第一步：G 的旋向由玩家定——点周身正方向一格做起笔，
-        // 同一次点击只定笔不释放；高亮随即收窄成那一笔描得到、踩着自己飞剑的落点。
-        if (skill.id === XUANYUAN_SKILL1_ID && isXuanyuan(hero) && isZhaoShen(hero)
-            && hero.counters[G_START_COUNTER] === undefined) {
-            if (!hero.position) return;
-            const dirCode = gStartCodeFromCell(hero.position, targetPos);
-            if (dirCode === null) {
-                get().addLog({
-                    type: 'system',
-                    player: hero.owner,
-                    message: '请先点击周身正方向的一格，定下这一笔G从哪里起笔',
-                });
-                return;
-            }
-            setStagedGStart(hero, dirCode);
-            const strokeCells = getXuanyuanLeapCells(hero, get());
-            if (strokeCells.length === 0) {
-                clearStagedGStart(hero);
-                get().addLog({
-                    type: 'system',
-                    player: hero.owner,
-                    message: '这个起笔方向的笔画够不到任何飞剑，换个方向起笔',
-                });
-                return;
-            }
-            set({ highlightedPositions: strokeCells, skillRange: strokeCells, moveRange: [] });
-            get().addLog({
-                type: 'system',
-                player: hero.owner,
-                message: '起笔已定，点选这一笔描得到的高亮飞剑跃击',
-            });
-            return;
-        }
-
         // 通用多目标选择：依次点击；可选目标技能再次点击已选目标即可提前释放。
         let targetPositions: Position[] = [targetPos];
         if (typeof skill.targetCount === 'number' && skill.targetCount > 1) {
@@ -3596,6 +3670,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             });
         }
 
+        // 跃阵的中途点会被技能结算清掉，联机下发要在执行前抓住它，
+        // 否则对端只能按落点猜一条路线，飞跃距离与伤害可能和主机不同
+        const wenrenWaypointUsed = skill.id === WENREN_SKILL1_ID ? getWenrenWaypoint(hero) : null;
         const result = SkillSystem.executeSkill(hero, skill, targetPositions, state);
         delete hero.counters['__jetzmi_enhanced'];
 
@@ -3653,7 +3730,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             delete hero.counters['__zhiguang_skill2_dir'];
         }
 
-        // 轩辕神君・昭神「御剑连破」：这一跳落地后若还有可跳的剑，扣住控制权等玩家点下一把
+        // 轩辕神君・昭神「御剑连破」：这一跳落地后若还有可对角的空落点，扣住控制权等玩家点下一格
         // （至多 3 跳；也可点「结束行动」收剑）。全程快照同步，不走 action 回放。
         if (skill.id === XUANYUAN_SKILL1_ID && hero.position && isZhaoShen(hero)) {
             const leaps = getLeapsUsed(hero);
@@ -3677,7 +3754,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                     get().addLog({
                         type: 'system',
                         player: hero.owner,
-                        message: `可重新起笔续跳：点正方向格定G的起笔（已跳${leaps}/${XUANYUAN_LEAP_MAX}次），也可结束行动收剑`
+                        message: `可继续连跳：点周身对角一格或两格的高亮空格（已跳${leaps}/${XUANYUAN_LEAP_MAX}次），也可结束行动收剑`
                     });
                     sendOnlineStateIfNeeded(get());
                     return;
@@ -3822,7 +3899,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 heroId: hero.id,
                 skillId: skill.id,
                 targetPos,
-                jetzmiEnhanced: skill.id === 'jetzmi_skill1' && state.jetzmiSkill1Enhanced
+                jetzmiEnhanced: skill.id === 'jetzmi_skill1' && state.jetzmiSkill1Enhanced,
+                wenrenWaypoint: wenrenWaypointUsed ?? undefined
             },
             meta: { beforePlayer, afterPlayer: after.currentPlayer, afterPhase: after.phase }
         });
@@ -4444,10 +4522,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             set({ shangguanDashState: undefined });
         }
 
-        // 轩辕神君御剑连破挂起时结束行动：收起连跳次数与未走完的起笔，正常走结束流程（已落场的飞剑留在盘上）
+        // 轩辕神君御剑连破挂起时结束行动：收起连跳次数，正常走结束流程（已落场的飞剑留在盘上）
         if (isXuanyuan(hero)) {
             clearLeapsUsed(hero);
-            clearStagedGStart(hero);
         }
 
         // 李太白链状态：结束行动 = 归位并结束

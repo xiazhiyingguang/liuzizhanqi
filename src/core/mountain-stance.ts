@@ -1,5 +1,6 @@
 import { EffectManager } from './effect-manager';
 import { zhizhiValue } from './hero-zhizhi';
+import { enemiesOnCells } from './lamp-shadow';
 import { BOARD_SIZE, GameState, Hero, HeroState, Position } from '../types/game';
 
 /**
@@ -184,16 +185,10 @@ export function mountainPressure(hero: Hero): number {
 export function releaseMountainPressure(state: GameState, caster: Hero, cells: Position[]): Hero[] {
     const stored = mountainPressure(caster);
     caster.counters[MOUNTAIN_COUNTER] = 0;
-    const victims: Hero[] = [];
-    const seen = new Set<Hero>();
-    for (const [row, col] of cells) {
-        if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) continue;
-        const occupant = state.board[row][col];
-        if (!occupant || occupant.owner === caster.owner || occupant.state !== HeroState.ALIVE) continue;
-        if (seen.has(occupant)) continue;
-        seen.add(occupant);
-        victims.push(occupant);
-    }
+    // 影格也在这一压的面上：走按格索敌的统一口径，影子进名单的人只挨半刀
+    const found = enemiesOnCells(state, caster, cells);
+    // 岳压按人记账，同一人踩两格只挂一层，守住原来的去重口径
+    const victims = found.filter((hero, index) => found.indexOf(hero) === index);
     if (stored > 0) {
         for (const victim of victims) {
             EffectManager.removeEffectByName(victim, PRESSURE_EFFECT);

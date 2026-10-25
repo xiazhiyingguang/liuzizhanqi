@@ -238,6 +238,8 @@ export interface BattleLogEntry {
     player: Player;
     message: string;
     details?: Record<string, unknown>;
+    /** 选将/武装/布阵阶段的系统提示：只给现场战报看，不进对局回放 */
+    setup?: boolean;
 }
 
 /** 全局死亡事件与复活计数器（当前阵亡人数应从 HeroState 实时计算） */
@@ -252,7 +254,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook' | 'thunder-cloud' | 'lightning-rod' | 'flying-sword';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook' | 'thunder-cloud' | 'lightning-rod' | 'flying-sword' | 'boomerang' | 'lit-lamp' | 'wake-lamp';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -267,6 +269,12 @@ export interface BoardEffect {
     expireAtActionSerial?: number;
     /** 毛笔专用：落笔时的回合号——当回合（婉儿行动末）不推进，下一回合起才朝婉儿移动 */
     placedAtRound?: number;
+    /** 轩辕神君被动「剑随气走」漂移前的坐标：撤销这一步移动时原样放回 */
+    prevPosition?: Position;
+    /** 双飞燕的回旋镖槽位（0/1）：两把镖各自独立计时，回手后可再次掷出 */
+    boomerangSlot?: number;
+    /** 双飞燕：她第几次成功出手结束时触发返航（按她的出手序号计数） */
+    returnAtSkillSerial?: number;
 }
 
 /** 单位在回合开始时的状态快照（时空旅者·戴尔的「时空回溯」用） */

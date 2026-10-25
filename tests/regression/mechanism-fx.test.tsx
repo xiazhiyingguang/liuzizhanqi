@@ -191,7 +191,8 @@ describe('高优先级机制的真实触发', () => {
 
 describe('机制演出与静态标识', () => {
     it.each(['changli_rebirth', 'jetzmi_king_shift', 'jetzmi_lord_shift', 'xuanxiao_conversion',
-        'zhenxiao_counter', 'zhenxiao_laststand', 'moran_extra_action', 'xuanyuan_zhaoshen'])('%s 每次只有一个主体，不铺范围底光', skillId => {
+        'zhenxiao_counter', 'zhenxiao_laststand', 'moran_extra_action', 'xuanyuan_zhaoshen',
+        'wenren_zhaoshen'])('%s 每次只有一个主体，不铺范围底光', skillId => {
         const html = renderToStaticMarkup(<SkillFxStage skillId={skillId} accent="#967340" />);
         expect(html.match(/data-mechanism=/g)).toHaveLength(1);
         expect(html).not.toContain('skill-area-fx');

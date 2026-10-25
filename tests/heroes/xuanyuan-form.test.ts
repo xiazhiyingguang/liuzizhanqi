@@ -2,16 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { createHero } from '../../src/data/heroes';
 import { HeroState, type GameState, type Hero, type Position } from '../../src/types/game';
 import {
-    clearStagedGStart,
-    getGMovePlans,
-    getStagedGStart,
     getXiangMovePlans,
+    getXiangStepMovePlans,
     getXuanyuanMovePlans,
     getZhaoShenProgress,
-    G_START_COUNTER,
     isZhaoShen,
     markZhaoShenHit,
-    setStagedGStart,
     tryEnterZhaoShen,
     XUANYUAN_SKILL1_ID,
     ZHAOSHEN_COUNTER,
@@ -75,39 +71,19 @@ describe('轩辕神君 · 移动形状', () => {
         expect(corner[0].path.map(key)).toEqual(['1,1', '2,2']);
     });
 
-    it('昭神态 G 型以正四方向起笔，逆时针绕外圈七格，开口在起笔旁的斜格', () => {
-        // 从正上方起笔：绕开右上（开口），收笔在正右——起笔 90° 顺时针一侧的对应位置
-        const up = getGMovePlans([3, 3], 0);
-        expect(up.map(plan => key(plan.to))).toEqual(['2,3', '2,2', '3,2', '4,2', '4,3', '4,4', '3,4']);
-        // 停在第 3 格时，前面描过的 3 格都算路径（技能一靠它结算"路径上的目标"）
-        expect(up[2].path.map(key)).toEqual(['2,3', '2,2', '3,2']);
-        expect(up[6].to).toEqual([3, 4]);
-        // 开口：起笔旁的斜格 (2,4) 不在这一笔上
-        expect(up.some(plan => key(plan.to) === '2,4')).toBe(false);
-        // 从正右起笔：整笔顺时针转 90°，开口换到右下，收笔在正下
-        const right = getGMovePlans([3, 3], 1);
-        expect(right.map(plan => key(plan.to))).toEqual(['3,4', '2,4', '2,3', '2,2', '3,2', '4,2', '4,3']);
-        expect(right.some(plan => key(plan.to) === '4,4')).toBe(false);
-        expect(right[6].to).toEqual([4, 3]);
+    it('昭神态走「相」：对角一格与两格都是落点，一格的路径就是落点本身', () => {
+        const plans = getXiangStepMovePlans([3, 3]);
+        expect(plans.map(plan => key(plan.to)).sort())
+            .toEqual(['1,1', '1,5', '2,2', '2,4', '4,2', '4,4', '5,1', '5,5'].sort());
+        const oneStep = plans.find(plan => key(plan.to) === '2,2')!;
+        expect(oneStep.path.map(key)).toEqual(['2,2']);
+        const twoStep = plans.find(plan => key(plan.to) === '1,1')!;
+        expect(twoStep.path.map(key)).toEqual(['2,2', '1,1']);
     });
 
-    it('普通移动的自动笔顺：每格取最短弧，八邻格照样描得全', () => {
-        const auto = getGMovePlans([3, 3]);
-        expect(auto.map(plan => key(plan.to)).sort())
-            .toEqual(['2,2', '2,3', '2,4', '3,2', '3,4', '4,2', '4,3', '4,4'].sort());
-        // 斜格从紧邻的正方向起笔弧最短；正方向格起笔即落点
-        const diagonal = auto.find(plan => key(plan.to) === '2,4')!;
-        expect(diagonal.path.map(key)).toEqual(['3,4', '2,4']);
-        const straight = auto.find(plan => key(plan.to) === '2,3')!;
-        expect(straight.path.map(key)).toEqual(['2,3']);
-    });
-
-    it('起笔格出界的方向不成立；贴角时自动笔顺照样覆盖盘内邻格', () => {
-        // 左上角：正上/正左起笔出界，这一笔直接不成立；正下起笔描三格
-        expect(getGMovePlans([0, 0], 0)).toEqual([]);
-        expect(getGMovePlans([0, 0], 3)).toEqual([]);
-        expect(getGMovePlans([0, 0], 2).map(plan => key(plan.to))).toEqual(['1,0', '1,1', '0,1']);
-        expect(getGMovePlans([0, 0]).map(plan => key(plan.to)).sort()).toEqual(['0,1', '1,0', '1,1']);
+    it('昭神态的相步只留盘内落点：贴角只剩对角一格与两格', () => {
+        expect(getXiangStepMovePlans([0, 0]).map(plan => key(plan.to)).sort()).toEqual(['1,1', '2,2']);
+        expect(getXiangStepMovePlans([5, 0]).map(plan => key(plan.to)).sort()).toEqual(['3,2', '4,1']);
     });
 
     it('落点被占就不给走，形态决定用哪套走法', () => {
@@ -116,23 +92,12 @@ describe('轩辕神君 · 移动形状', () => {
         const blocker = makeEnemy('blocker', [2, 4]);
         const state = stateWith(boardWith([normal, blocker]), [normal], [blocker]);
 
-        expect(getXuanyuanMovePlans(zhaoShen, state).some(plan => key(plan.to) === '2,4')).toBe(false);
-        // 田字落点 (1,1) 空着，所以普通态仍能跳过去
+        // 昭神态：对角一格的 (2,4) 被占，其余对角照给
+        expect(getXuanyuanMovePlans(zhaoShen, state).map(plan => key(plan.to)).sort())
+            .toEqual(['1,1', '1,5', '2,2', '4,2', '4,4', '5,1', '5,5'].sort());
+        // 普通态：只有对角两格，一格的邻点本来就不在走法里
         expect(getXuanyuanMovePlans(normal, state).map(plan => key(plan.to)).sort())
             .toEqual(['1,1', '1,5', '5,1', '5,5'].sort());
-    });
-});
-
-describe('轩辕神君 · G 起笔暂存', () => {
-    it('两段式点击之间起笔方向可存取，脏编码按未定笔处理', () => {
-        const hero = makeXuanyuan([3, 3], true);
-        expect(getStagedGStart(hero)).toBeNull();
-        setStagedGStart(hero, 2);
-        expect(getStagedGStart(hero)).toBe(2);
-        hero.counters[G_START_COUNTER] = 7;
-        expect(getStagedGStart(hero)).toBeNull();
-        clearStagedGStart(hero);
-        expect(getStagedGStart(hero)).toBeNull();
     });
 });
 

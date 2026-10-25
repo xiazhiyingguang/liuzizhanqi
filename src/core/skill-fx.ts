@@ -59,12 +59,16 @@ export type SkillFxKind =
     | 'zhiyuan-reel'    // 纸鸢·断线冲天：线轴烧断时的左右来回乱剪，角度与错位都打散
     | 'xihuan-level'   // 羲和·均光：一圈曦光扫过所有友方，把血量抹平到同一档
     | 'jiangtaigong-cast'      // 姜太公·垂钩：钓线自上方垂落，钩尖触水荡开涟漪
+    | 'moonlight-sweep'  // 夕月辞·辞光散影：一圈月光贴着地面旋开，扫到的人各自被掀一下
+    | 'lamp-lighting'    // 夕月辞·明灯照影：灯落在格上，光晕推开、周围一圈影子被拉长
     | 'jiangtaigong-throw'     // 姜太公·抛掷：钓线沿攻击轴绷紧甩过去，落点炸开水花
     | 'jiangtaigong-whalefall' // 姜太公·鲸落：鲸影压进水里，尾鳍一挑后两圈浪环荡开
     | 'ground-zone'     // 领域：贴地波纹扩散 + 地面辉光
     | 'cage-bind'       // 束缚：收拢笼环 + 交叉锁光
     | 'crystal-shatter' // 晶碎：闪核 + 晶屑迸溅 + 玻璃环
     | 'ember-flare'     // 焰浪：火热闪焰 + 上升余烬
+    | 'wenren-leap'     // 闻人翊悬·蹈火跃阵：烬步断痕 + 落点裂火环
+    | 'wenren-reap'     // 闻人翊悬·破妄燎原：内收余烬 + 环身裂焰
     | 'storm-bolt'      // 雷霆：锯齿电光闪击 + 震环
     | 'gale-vortex'     // 旋风：对旋涡环 + 风纹
     | 'wind-blade-volley' // 四向风刃：四弯风刃自施法者向上下左右射出
@@ -155,6 +159,8 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'cage-bind': '束缚',
     'crystal-shatter': '晶碎',
     'ember-flare': '焰浪',
+    'wenren-leap': '烬步火环',
+    'wenren-reap': '裂焰燎原',
     'storm-bolt': '雷霆',
     'gale-vortex': '旋风',
     'wind-blade-volley': '四向风刃',
@@ -195,6 +201,8 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'shield-ward': '护盾援护',
     'ink': '墨韵波纹',
     'jiangtaigong-cast': '垂钩点水',
+    'moonlight-sweep': '环身月光',
+    'lamp-lighting': '点灯照影',
     'jiangtaigong-throw': '甩竿抛人',
     'jiangtaigong-whalefall': '鲸落浪环',
 };
@@ -223,7 +231,7 @@ export interface SkillFxProfile {
     /** 冥魂材质与动作；仍沿用原技能的范围、命中和联机事件。 */
     spectral?: 'soul-gather' | 'wither-bloom' | 'wither-scatter';
     /** 被动触发的独立演出，复用真实事件队列，不铺技能范围底光。 */
-    mechanism?: 'rebirth' | 'king-shift' | 'lord-shift' | 'conversion' | 'counter' | 'laststand' | 'extra-action' | 'zhaoshen';
+    mechanism?: 'rebirth' | 'king-shift' | 'lord-shift' | 'conversion' | 'counter' | 'laststand' | 'extra-action' | 'zhaoshen' | 'ember-ascend';
     /** 区域底光的覆盖形状。缺省时由技能自身的 rangeType/areaSize/range/targetCount
      *  推导（见 skill-fx-coverage.ts）；引擎里带特判展开的技能需在此显式声明，
      *  'none' 表示不铺底光（全场技等只需命中格反馈） */
@@ -477,6 +485,10 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     youjun_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#8fd8ff', c2: '#e0f6ff' },    // 疾掠
     youjun_skill2: { kind: 'wind-blade-volley', durationMs: 1000, c1: '#5cc8f0', c2: '#eafaff' },   // 四向风刃：四弯风刃射向周身四格
 
+    // ===== 双飞燕：回旋镖几何（墨青）=====
+    shuangfeiyan_skill1: { kind: 'pierce', durationMs: 900, c1: '#5f8f86', c2: '#e8f2e8' },   // 双飞剪：掷镖/三角
+    shuangfeiyan_skill2: { kind: 'phase-swap', durationMs: 1000, c1: '#5f8f86', c2: '#e8f2e8' }, // 燕归巢：跃向镖位
+
     // ===== 轩辕神君：金行御剑（鎏金）=====
     xuanyuan_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#d4a843', c2: '#fff2c0' },   // 御剑·贯阵：沿跳击轨迹鎏金一闪
     xuanyuan_skill2: { kind: 'aura-buff', durationMs: 950, c1: '#d4a843', c2: '#fff6d8' },     // 御剑·归元：飞剑化盾归身
@@ -576,6 +588,11 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     tingyuan_skill1: { kind: 'storm-bolt', durationMs: 1150, impactMs: 320, c1: '#6f5bd0', c2: '#efe9ff', fxArea: 'none' },
     tingyuan_skill2: { kind: 'storm-bolt', durationMs: 1450, impactMs: 260, c1: '#4f3bb0', c2: '#d9ceff', fxArea: 'none' },
     jiangtaigong_skill1: { kind: 'jiangtaigong-cast', durationMs: 980, impactMs: 340, c1: '#3f9c93', c2: '#eaf7f2', fxArea: 'none' },
+    // 夕月辞：一圈月光是实打实的八格命中，底光要铺开才读得出范围；灯那一记是"放下东西"，不震屏。
+    xiyueci_skill1: { kind: 'moonlight-sweep', durationMs: 1020, impactMs: 320, c1: '#5b4a9e', c2: '#efe6ff' },
+    xiyueci_skill2: { kind: 'lamp-lighting', durationMs: 1120, impactMs: 360, c1: '#c4761a', c2: '#ffe6bd', fxArea: 'none' },
+    // 身后留灯（奥义）：同一门灯的语言，光色换月青，表示这一盏是留下来照人的。
+    xiyueci_tianwei: { kind: 'lamp-lighting', durationMs: 1180, impactMs: 380, c1: '#2f6f8f', c2: '#dff0f7', fxArea: 'none' },
     // 渭水垂竿：把人沿射线拖回自己身边，落点脚下漫开一片水泽。
     jiangtaigong_skill2: { kind: 'pierce', durationMs: 1040, impactMs: 300, c1: '#2f7f86', c2: '#dff2f0' },
     // 上钩那一下：同一套垂钩语言，涟漪更重，表示"钩子咬住了"。
@@ -586,6 +603,17 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     jiangtaigong_whalefall: { kind: 'jiangtaigong-whalefall', durationMs: 1260, impactMs: 470, c1: '#2b6f7c', c2: '#e7f8f4' },
     // 太公逐泽（天威）：全场水泽一起向外扩一圈，贴地波纹最合适。
     jiangtaigong_tianwei: { kind: 'ground-zone', durationMs: 1180, impactMs: 320, c1: '#3f9c93', c2: '#eaf7f2' },
+
+    // ===== 闻人翊悬：蹈火飞跃与破妄燎原（焰橙 / 鎏金）=====
+    // 跃阵：起跳炸开炭烬，飞跃轴拖一串断续烬迹，落点是一圈带断口的手绘火环。
+    wenren_skill1: { kind: 'wenren-leap', crafted: 'wenren-leap', durationMs: 1080, impactMs: 260, c1: '#b23a20', c2: '#ffd98a' },
+    // 燎原：施法者脚下先向内收余烬，再以自身为心炸开一圈不等长的火舌与焦痕。
+    wenren_skill2: { kind: 'wenren-reap', crafted: 'wenren-reap', durationMs: 1180, impactMs: 260, c1: '#a52e1a', c2: '#ffce6e', fxArea: 'self-box' },
+    // 昭神降临：破妄火纹从脚下盘上全身，金白焰包裹后炸开一圈带断口的火环。
+    wenren_zhaoshen: { kind: 'aura-buff', durationMs: 1600, impactMs: 240, c1: '#e07920', c2: '#fff3c4', fxArea: 'none', mechanism: 'ember-ascend' },
+    // 昭神态的两种条件形态：同一套手绘火语言，金白高光更亮、环外再收一道闭环细环。
+    wenren_skill1_zhaoshen: { kind: 'wenren-leap', crafted: 'wenren-leap-zhaoshen', durationMs: 1160, impactMs: 280, c1: '#d4551f', c2: '#fff0b0', fxArea: 'none' },
+    wenren_skill2_zhaoshen: { kind: 'wenren-reap', crafted: 'wenren-reap-zhaoshen', durationMs: 1280, impactMs: 280, c1: '#c94819', c2: '#fff2b8', fxArea: 'self-box' },
 };
 
 /** 英雄级兜底档案（该英雄的技能未逐一定制时，取其技能一档案） */
@@ -674,6 +702,8 @@ const SKILL_FX_IMPACT_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>([
     'ink-brush', 'ink-dash', 'ink-cut', 'coin-strike', 'chord-break',
     'nightowl-strike', 'wind-line', 'wind-pressure', 'bone-slash',
     'decay-field', 'decay-bloom', 'starfire-lance', 'yin-link',
+    // 辞光·散影：一圈里每一格都是实打实的一刀，命中格照常给震屏与闪白
+    'moonlight-sweep',
 ]);
 
 export function isImpactFxKind(kind: SkillFxKind): boolean {

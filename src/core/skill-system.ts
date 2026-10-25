@@ -14,6 +14,23 @@ import { dragonDashDistance, dragonSummonCells } from './dragon-orbit';
 import { cloudAnchorCells } from './thunder-cloud';
 import { isZhaoShen, getXuanyuanMovePlans, XUANYUAN_SKILL1_ID } from './xuanyuan-form';
 import { getXuanyuanLeapCells } from './flying-sword';
+import {
+    WENREN_SKILL1_ID,
+    WENREN_SKILL2_ID,
+    getWenrenLandingPlans,
+    getWenrenPos,
+    getWenrenWaypoint,
+    getWenrenWaypointCells,
+} from './wenren-form';
+import {
+    SHUANGFEIYAN_SKILL1_ID,
+    SHUANGFEIYAN_SKILL2_ID,
+    getShuangfeiyanBoomerangs,
+    getShuangfeiyanPickupCells,
+    getShuangfeiyanThrowCells,
+} from './boomerang';
+import { advanceShuangfeiyanAfterSkill, queueShuangfeiyanSecondAction } from './shuangfeiyan';
+import { SHADOW_TRANSFER_KEY, clearShadowTransfers, lampPlaceCells, shadowTargetsFor } from './lamp-shadow';
 
 /**
  * 技能系统
@@ -52,6 +69,19 @@ export class SkillSystem {
     ): Position[] {
         if (!caster.position) return [];
 
+        // 双飞燕技能一：手里有镖时点八方向3格内的落点；两把镖都在外时只剩“点自己”结算三角
+        if (skill.id === SHUANGFEIYAN_SKILL1_ID) {
+            const out = gameState ? getShuangfeiyanBoomerangs(gameState, caster) : [];
+            return out.length >= 2
+                ? [[...caster.position] as Position]
+                : getShuangfeiyanThrowCells(caster.position);
+        }
+
+        // 双飞燕技能二：只亮场上自己的、且所在格为空的回旋镖
+        if (skill.id === SHUANGFEIYAN_SKILL2_ID) {
+            return gameState ? getShuangfeiyanPickupCells(gameState, caster) : [];
+        }
+
         // 惊鸿·止水技能2：决渊段要放开 5×5 外环让玩家看清这一圈打到谁，
         // 因此必须抢在 targetType==='self' 的统一收口之前——蓄力段仍走自指。
         if (skill.id === 'jinghong_skill2' && gameState && isJinghongReleaseWindow(caster, gameState)) {
@@ -74,6 +104,12 @@ export class SkillSystem {
 
         if (skill.targetType === 'self') {
             return caster.position ? [caster.position] : [];
+        }
+
+        // 夕月辞「明灯·照影」：灯不占棋盘格，通用 empty 口径会把"已立着灯"的格子也亮出来，
+        // 所以落点几何由 lamp-shadow 统一给（没站人 + 没立灯 + 自身两格内）
+        if (skill.id === 'xiyueci_skill2' && gameState) {
+            return lampPlaceCells(gameState, caster);
         }
 
         // 姜太公·钓雪：5×5 内挑一格空水下钩；姜太公·渭水垂竿：八条射线各两格
@@ -116,11 +152,20 @@ export class SkillSystem {
         }
 
         // 轩辕神君技能一「御剑·贯阵」：普通态高亮象走田的空落点；
-        // 昭神后只能跳到站着自己飞剑的格（G 型外圈），落地即抽走那把剑
+        // 昭神态高亮可跃的对角空格——第一跳不限，续跳只亮站着自己飞剑的那几格
         if (skill.id === XUANYUAN_SKILL1_ID && gameState) {
             return isZhaoShen(caster)
                 ? getXuanyuanLeapCells(caster, gameState as GameState)
                 : getXuanyuanMovePlans(caster, gameState as GameState).map(plan => plan.to);
+        }
+
+        // 闻人翊悬「蹈火·跃阵」：第一步只亮可当中途点的友军，
+        // 点完中途点后第二步只亮这名友军身后同方向的空落点
+        if (skill.id === WENREN_SKILL1_ID && gameState) {
+            const waypoint = getWenrenWaypoint(caster);
+            return waypoint
+                ? getWenrenLandingPlans(caster, gameState as GameState, waypoint).map(plan => plan.to)
+                : getWenrenWaypointCells(caster, gameState as GameState);
         }
 
         // 游隼疾掠：四方向冲刺落点；起点处于同轴友方风道时该方向可冲刺整行/整列。
@@ -223,12 +268,19 @@ export class SkillSystem {
 
     /**
      * 获取位置上的英雄（过滤目标类型）
+     *
+     * 夕月辞的灯影也算"站在这一格上的敌人"：影子不占格，但打中影子就是把伤害照到本体身上。
+     * 放大只给 targetType==='enemy' 的口径（见 shadowTargetsFor），ignoreLampShadows 供
+     * 调用方把"纯靠影子进名单的人"单独挑出来播报。
+     * 折半标记只在真正出手时挂（markShadows）：canUseSkill 与界面高亮同样走这条路，
+     * 在那儿挂上标记会把"半刀"漏给一次根本没有发生的攻击。
      */
     static getHeroesAtPositions(
         positions: Position[],
         caster: Hero,
         targetType: Skill['targetType'],
-        gameState: GameState
+        gameState: GameState,
+        options?: { ignoreLampShadows?: boolean; markShadows?: boolean }
     ): Hero[] {
         const heroes: Hero[] = [];
 
@@ -265,7 +317,37 @@ export class SkillSystem {
             }
         }
 
+        if (!options?.ignoreLampShadows) {
+            for (const body of shadowTargetsFor(gameState, caster, positions, targetType)) {
+                if (heroes.includes(body)) continue;      // 本体就在面上：直接命中，不折半
+                if (options?.markShadows) {
+                    // 纯靠影子进名单＝这一刀打在影子上，本体只吃半数
+                    body.counters[SHADOW_TRANSFER_KEY] = 1;
+                }
+                heroes.push(body);
+            }
+        }
+
         return heroes;
+    }
+
+    /** 这一击里"脚下没人、纯靠灯影才被够到"的人：单独播报一句，免得玩家以为打空了 */
+    private static noteShadowHits(
+        caster: Hero,
+        skill: Skill,
+        positions: Position[],
+        targets: Hero[],
+        gameState: GameState
+    ): void {
+        if (targets.length === 0) return;
+        const standing = this.getHeroesAtPositions(positions, caster, skill.targetType, gameState, { ignoreLampShadows: true });
+        const throughShadow = targets.filter(target => !standing.includes(target));
+        if (throughShadow.length === 0) return;
+        DamageCalculator.addBattleLog(gameState, {
+            type: 'skill',
+            player: caster.owner,
+            message: `${caster.name}的${skill.name}踩中灯影，伤害直接照到${throughShadow.map(hero => hero.name).join('、')}身上`,
+        });
     }
 
     /**
@@ -316,6 +398,8 @@ export class SkillSystem {
 
         // 如果技能有自定义执行函数，使用自定义函数
         if (skill.execute) {
+            // 上一手若在中途抛错，折半标记可能没被摘干净：出手前一律先清一次
+            clearShadowTransfers(gameState);
             let finalTargetPositions = targetPositions;
             // 引擎为群体技能展开过的完整范围格：特效层直接采用，不必再从静态元数据二次推导
             let autoCoveredPositions: Position[] = [];
@@ -448,8 +532,10 @@ export class SkillSystem {
                 finalTargetPositions,
                 caster,
                 skill.targetType,
-                gameState
+                gameState,
+                { markShadows: true }
             );
+            this.noteShadowHits(caster, skill, finalTargetPositions, targets, gameState);
             const result = skill.execute(caster, targets, gameState);
             // 凋零播撒的幽魂从选中的四格升起，空格也属于实际 2×2 作用区。
             if (result.success && skill.id === 'wither_lord_skill1' && targetPositions.length === 2) {
@@ -461,6 +547,15 @@ export class SkillSystem {
                 result.fxCoveredPositions = autoCoveredPositions;
             }
             if (result.success) recordBattleSkillUse(gameState, caster, skill.id);
+            // 双飞燕：每次成功出手推进返航计时，并登记本次行动的第二手（每动作一次）
+            if (
+                result.success &&
+                caster.passiveId === 'shuangfeiyan_passive' &&
+                caster.state === HeroState.ALIVE
+            ) {
+                result.log.push(...advanceShuangfeiyanAfterSkill(caster, gameState));
+                queueShuangfeiyanSecondAction(caster, gameState);
+            }
             if (
                 result.success &&
                 caster.passiveId === 'schrodinger_passive' &&
@@ -497,11 +592,14 @@ export class SkillSystem {
             if (shouldClearExtendedTarget) {
                 delete caster.counters['__extended_target'];
             }
+            // 灯影折半只在本次施法内有效：这一手没打到的候选人不能把标记带到下一手
+            clearShadowTransfers(gameState);
             return result;
         }
 
         // 否则使用默认逻辑
         const result = this.executeDefaultSkill(caster, skill, targetPositions, gameState);
+        clearShadowTransfers(gameState);
         if (result.success) recordBattleSkillUse(gameState, caster, skill.id);
         return result;
     }
@@ -553,7 +651,8 @@ export class SkillSystem {
             targetPositions,
             caster,
             skill.targetType,
-            gameState
+            gameState,
+            { markShadows: true }
         );
 
         // 选择目标（英雄X 的致知1 会把随机改为按点击选定）
@@ -576,6 +675,7 @@ export class SkillSystem {
             player: caster.owner,
             message: `${caster.name}使用了${skill.name}`,
         });
+        this.noteShadowHits(caster, skill, targetPositions, targets, gameState);
 
         // 处理伤害
         if (skill.baseDamage !== undefined) {
@@ -639,6 +739,10 @@ export class SkillSystem {
         // 检查是否被眩晕
         if (EffectManager.isStunned(caster)) return false;
 
+        // 轩辕神君·御剑·贯阵：这一手自带位移，本回合走过一步就不该再进候选，
+        // 否则电脑会反复点它、被 store 门禁拦下后原地空转。
+        if (skill.id === 'xuanyuan_skill1' && caster.hasMovedThisTurn) return false;
+
         // 游隼再动窗口：额外行动里仅允许移动；收回风刃刷新疾掠后才放行技能1
         if (
             caster.passiveId === 'youjun_passive' &&
@@ -647,6 +751,9 @@ export class SkillSystem {
         ) {
             return false;
         }
+
+        // 闻人翊悬「破妄·燎原」：身上没有破妄时这一手打不出任何伤害，直接判不可用
+        if (skill.id === WENREN_SKILL2_ID) return getWenrenPos(caster) > 0;
 
         // 惊鸿·止水「止水决渊」：不在蓄力/释放窗口、手里又没有惊鸿时，这一手无事可做，
         // 提前判不可用，界面按钮直接灰掉，免得玩家点下去只吃到一句失败提示。

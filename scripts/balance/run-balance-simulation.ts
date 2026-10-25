@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { AVAILABLE_HERO_IDS, createHero, getHeroInfo } from '../../src/data/heroes';
-import { chooseComputerDeployment } from '../../src/core/computer-ai';
+import { chooseComputerDeployment, createSeededRandom } from '../../src/core/computer-ai';
 import { battleActorFor, runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
 import { takeAiDecisions } from '../../src/services/battle-replay';
 import { useGameStore } from '../../src/store/game-store';
@@ -281,8 +281,9 @@ function teamHash(team: Team): number {
 }
 
 function deploymentFor(team: Team, side: Player): { heroId: string; position: Position }[] {
-    const rotation = teamHash(team) % 6;
-    return chooseComputerDeployment(team, []).map(item => ({
+    const seed = teamHash(team);
+    const rotation = seed % 6;
+    return chooseComputerDeployment(team, [], createSeededRandom(seed)).map(item => ({
         heroId: item.heroId,
         position: [
             (item.position[0] + rotation) % 6,

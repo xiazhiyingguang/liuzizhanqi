@@ -12,7 +12,7 @@ import {
     type ReplayUnit,
 } from '../../src/core/battle-replay';
 import { addHero, makeGameState } from '../helpers/game-state';
-import type { BattleLogEntry } from '../../src/types/game';
+import type { BattleLogEntry, BoardEffect, Effect } from '../../src/types/game';
 import { HeroState } from '../../src/types/game';
 
 function logEntry(id: string, type: BattleLogEntry['type'], message = id): BattleLogEntry {
@@ -41,6 +41,22 @@ function makeUnit(def: number, r: number, c: number, hp: number): ReplayUnit {
     return { def, r, c, hp, shield: 0, state: 0, effects: [], counters: [] };
 }
 
+function makeEffect(name: string, sourceHeroId = 'source', overrides: Partial<Effect> = {}): Effect {
+    return {
+        id: `effect-${name}`, type: 'buff', name, duration: 1, sourceHeroId, ...overrides,
+    };
+}
+
+function makeArea(overrides: Partial<BoardEffect> & Pick<BoardEffect, 'type' | 'position'>): BoardEffect {
+    return {
+        id: `area-${overrides.type}`,
+        owner: 'player1',
+        sourceHeroId: 'source',
+        duration: 2,
+        ...overrides,
+    };
+}
+
 const STATICS: ReplayStatic[] = [
     { heroId: 'huifeng-player1-1', templateId: 'huifeng', name: '回锋', className: '武曲', owner: 'player1', maxHp: 40 },
     { heroId: 'moran-player2-2', templateId: 'moran', name: '墨阑', className: '武曲', owner: 'player2', maxHp: 47 },
@@ -57,6 +73,50 @@ describe('battle-replay 数据层', () => {
 
         hero.currentHp -= 5;
         expect(stepSignature(state)).not.toBe(before);
+    });
+
+    it('签名能区分两个非行动者互换位置，即使坐标总和不变', () => {
+        const state = makeGameState();
+        const left = addHero(state, 'huifeng', 'player1', [0, 1]);
+        const right = addHero(state, 'moran', 'player1', [0, 2]);
+        const before = stepSignature(state);
+
+        state.board[0][1] = right;
+        state.board[0][2] = left;
+        left.position = [0, 2];
+        right.position = [0, 1];
+
+        expect(stepSignature(state)).not.toBe(before);
+    });
+
+    it('签名能区分两名单位等量一伤一疗，即使生命总和不变', () => {
+        const state = makeGameState();
+        const hurt = addHero(state, 'huifeng', 'player1', [0, 1]);
+        const healed = addHero(state, 'liuli', 'player1', [0, 2]);
+        const before = stepSignature(state);
+
+        hurt.currentHp -= 5;
+        healed.currentHp += 5;
+
+        expect(stepSignature(state)).not.toBe(before);
+    });
+
+    it('签名能捕捉状态、计数器与场地效果内容变化', () => {
+        const state = makeGameState();
+        const hero = addHero(state, 'huifeng', 'player1', [2, 2]);
+        state.boardEffects = [makeArea({ type: 'water-moon', position: [4, 4] })];
+
+        const baseline = stepSignature(state);
+        hero.effects.push(makeEffect('潜行', hero.id));
+        const withEffect = stepSignature(state);
+        expect(withEffect).not.toBe(baseline);
+
+        hero.counters['禅定'] = 1;
+        const withCounter = stepSignature(state);
+        expect(withCounter).not.toBe(withEffect);
+
+        state.boardEffects = [{ ...state.boardEffects[0], duration: 1 }];
+        expect(stepSignature(state)).not.toBe(withCounter);
     });
 
     it('buildFrame 只存数字与字符串，历史帧不会被后续就地改写影响', () => {
@@ -127,13 +187,70 @@ describe('battle-replay 数据层', () => {
         expect(templateIdOf({ ...hero, id: 'summon|p1|t_painting|3' })).toBe('summon|p1|t_painting|3');
     });
 
+    it('buildFrame 完整保留状态列表、原始计数器与被动 id', () => {
+        const state = makeGameState();
+        state.phase = 'battle';
+        const hero = addHero(state, 'moran', 'player1', [2, 2]);
+        hero.effects = Array.from({ length: 7 }, (_, index) => makeEffect(`状态${index}`, hero.id));
+        hero.counters = { 禅定: 2, jetzmi_form: 1, __internal: 9 };
+
+        const interner = createInterner();
+        const frame = buildFrame(state, 0, 'sig', 0, 0, interner);
+        const unit = frame.units[0];
+
+        expect(unit.effects).toHaveLength(7);
+        expect(unit.counters).toContainEqual(['禅定', 2]);
+        expect(unit.counters).not.toContainEqual(['jetzmi_form', 1]);
+        expect(unit.rawCounters).toMatchObject({ 禅定: 2, jetzmi_form: 1 });
+        expect(interner.statics[0].passiveId).toBe('moran_passive');
+    });
+
+    it('buildFrame 保存水泽半径、英雄连线与时空停滞残影', () => {
+        const state = makeGameState({ roundNumber: 2 });
+        const caster = addHero(state, 'huifeng', 'player1', [1, 1]);
+        const target = addHero(state, 'moran', 'player2', [1, 3]);
+        caster.passiveId = 'yinyang_passive';
+        target.effects = [makeEffect('阳线攻击', caster.id)];
+        state.boardEffects = [makeArea({ type: 'water-marsh', position: [2, 2], owner: 'player2', radius: 2 })];
+
+        const ghost = addHero(state, 'liuli', 'player2', [4, 4]);
+        state.board[4][4] = null;
+        ghost.state = HeroState.DEAD;
+        ghost.currentHp = 0;
+        ghost.counters['__dai_stasis_until'] = 3;
+
+        const frame = buildFrame(state, 0, 'sig', 0, 0, createInterner());
+
+        expect(frame.areas[0].radius).toBe(2);
+        expect(frame.links).toHaveLength(1);
+        expect(frame.links?.[0]).toMatchObject({
+            from: [1, 1], to: [1, 3], kind: 'yang',
+        });
+        expect(frame.ghosts).toHaveLength(1);
+        expect(frame.ghosts?.[0]).toMatchObject({ r: 4, c: 4 });
+    });
+
+    it('computeFrameDeltas 记录护盾变化与死亡落点', () => {
+        const shielded = makeFrame({ units: [{ ...makeUnit(0, 2, 2, 40), shield: 10 }] });
+        const blocked = makeFrame({ units: [makeUnit(0, 2, 2, 40)] }, 1);
+        expect(computeFrameDeltas(shielded, blocked)).toEqual([
+            { def: 0, hp: 0, shield: -10, r: 2, c: 2, died: false },
+        ]);
+
+        const dying = makeFrame({ units: [makeUnit(0, 1, 4, 7)] }, 2);
+        const dead = makeFrame({ units: [{ ...makeUnit(0, -1, -1, 0), state: 2 }] }, 3);
+        expect(computeFrameDeltas(dying, dead)).toEqual([
+            { def: 0, hp: -7, shield: 0, r: 1, c: 4, died: true },
+        ]);
+    });
+
     it('computeFrameDeltas 给出本步生命增减', () => {
         const first = makeFrame({ units: [makeUnit(0, 2, 2, 40), makeUnit(1, 3, 3, 47)] });
         const second = makeFrame({ units: [makeUnit(0, 2, 2, 34), makeUnit(1, 3, 3, 50)] }, 1);
 
         expect(computeFrameDeltas(first, second)).toEqual([
-            { def: 0, hp: -6, shield: 0 },
-            { def: 1, hp: 3, shield: 0 },
+            { def: 0, hp: -6, shield: 0, r: 2, c: 2, died: false },
+            { def: 1, hp: 3, shield: 0, r: 3, c: 3, died: false },
         ]);
         expect(computeFrameDeltas(null, second)).toEqual([]);
     });
@@ -144,7 +261,8 @@ describe('battle-replay 数据层', () => {
             logEntry('b', 'kill', '回锋击杀了墨阑'),
             logEntry('c', 'tianwei', '回锋触发天威'),
         ];
-        const first = makeFrame({ units: [makeUnit(0, 2, 2, 30), makeUnit(1, -1, -1, 47)], logTo: 1 });
+        // 第 1 帧还没有 1 号单位：它在第 2 帧首次登记并上场，应判为补员
+        const first = makeFrame({ units: [makeUnit(0, 2, 2, 30)], logTo: 1 });
         const second = makeFrame({
             units: [makeUnit(0, 2, 2, 8), makeUnit(1, 3, 3, 47)],
             logFrom: 1,
@@ -163,6 +281,42 @@ describe('battle-replay 数据层', () => {
         const killMark = secondFrameMarks.find(mark => mark.kind === 'kill');
         expect(killMark?.label).toContain('回锋击杀了墨阑');
         expect(killMark?.label).toContain('回锋触发天威');
+    });
+
+    it('老单位离场后重新上场记为返场，不再冒充补员', () => {
+        const first = makeFrame({ units: [makeUnit(0, 2, 2, 40), makeUnit(1, -1, -1, 40)] });
+        const second = makeFrame({
+            units: [makeUnit(0, 2, 2, 40), makeUnit(1, 3, 3, 40)],
+            logFrom: 0,
+            logTo: 0,
+        }, 1);
+
+        const marks = detectKeyMoments([first, second], STATICS, []);
+        expect(marks.filter(mark => mark.kind === 'reinforce')).toHaveLength(0);
+        expect(marks.filter(mark => mark.kind === 'return')).toEqual([
+            expect.objectContaining({ frame: 1, label: '墨阑返场' }),
+        ]);
+    });
+
+    it('同一帧的多次击杀与多次天威全部一一配对，不留下重复刻度', () => {
+        const narration = [
+            logEntry('k1', 'kill', '回锋击杀了甲'),
+            logEntry('k2', 'kill', '回锋击杀了乙'),
+            logEntry('t1', 'tianwei', '回锋触发天威一'),
+            logEntry('t2', 'tianwei', '回锋触发天威二'),
+        ];
+        const first = makeFrame({ units: [makeUnit(0, 2, 2, 40), makeUnit(1, 3, 3, 40)] });
+        const second = makeFrame({
+            units: [makeUnit(0, 2, 2, 20), makeUnit(1, 3, 3, 20)],
+            logFrom: 0,
+            logTo: 4,
+        }, 1);
+
+        const marks = detectKeyMoments([first, second], STATICS, narration);
+        const kills = marks.filter(mark => mark.kind === 'kill');
+        expect(kills).toHaveLength(2);
+        expect(kills.every(mark => mark.label.includes('；'))).toBe(true);
+        expect(marks.filter(mark => mark.kind === 'tianwei')).toHaveLength(0);
     });
 
     it('濒危节点每名单位整局只打一次点，避免残血单位反复刷屏', () => {

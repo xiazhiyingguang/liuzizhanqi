@@ -22,7 +22,7 @@ export function CraftedSkillFx({ event, variant, atPos }: {
         const ctx=canvas.getContext('2d');if(!ctx)return;
         const lite=isLowQuality();
         const media=window.matchMedia('(prefers-reduced-motion: reduce)');
-        const cross=variant==='caster' && ['particle-beam','abyss-pull','dread-arrow','soul-cycle'].includes(theme);
+        const cross=variant==='caster' && ['particle-beam','abyss-pull','dread-arrow','soul-cycle','wenren-leap','wenren-leap-zhaoshen'].includes(theme);
         let endpoint=event.targetPos;
         if(theme==='particle-beam'){
             const vx=endpoint[1]-event.fromPos[1],vy=endpoint[0]-event.fromPos[0];

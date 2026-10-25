@@ -32,8 +32,9 @@ import { getSkill } from '../data/skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
 import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection, scanXuanyuanLeapValue } from '../data/extended-skills';
-import { getGMovePlans, getGStartCell, getLeapsUsed, isXuanyuan } from '../core/xuanyuan-form';
+import { getLeapsUsed, getXiangStepMovePlans, isXuanyuan } from '../core/xuanyuan-form';
 import { findFlyingSwordAt } from '../core/flying-sword';
+import { WENREN_SKILL1_ID, getWenrenWaypoint } from '../core/wenren-form';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
 import { heroXRedirectCost } from '../core/hero-zhizhi';
 import { MovementSystem } from '../core/movement-system';
@@ -249,13 +250,6 @@ function nextPlannedTarget(
     // 南风引风成道：两步点击，风向计数器是否已写入决定这一步点方向格还是点行列格
     if (skill.id === 'nanfeng_skill2' && plan && plan.targetPositions.length >= 2) {
         const step = caster.counters['__nanfeng_skill2_dir'] === undefined ? 0 : 1;
-        const fromPlan = plan.targetPositions[step];
-        if (isAllowed(fromPlan)) return fromPlan;
-    }
-
-    // 轩辕神君御剑连破：两段式点击，起笔计数器是否已写入决定这一步点起笔格还是点落点
-    if (skill.id === 'xuanyuan_skill1' && plan && plan.targetPositions.length >= 2) {
-        const step = caster.counters['__xuanyuan_leap_start'] === undefined ? 0 : 1;
         const fromPlan = plan.targetPositions[step];
         if (isAllowed(fromPlan)) return fromPlan;
     }
@@ -496,25 +490,34 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && getLeapsUsed(caster) > 0) {
-        // 御剑连破（跳后挂起）：挑「起笔+落点」咬得住人的组合继续跳，谁都咬不到就收剑结束行动
-        let best: { start: Position; cell: Position; score: number } | null = null;
+        // 御剑连破（跳后挂起）：续跳必须踩剑，只挑「对角空落点且踩得到自己飞剑」的格子；
+        // 挑不出咬得住人的就收剑结束行动
+        let best: { cell: Position; score: number } | null = null;
         if (caster.position) {
-            for (let dir = 0; dir < 4; dir++) {
-                const startCell = getGStartCell(caster.position, dir);
-                if (!startCell) continue;
-                for (const plan of getGMovePlans(caster.position, dir)) {
-                    const cell = plan.to;
-                    if (state.board[cell[0]][cell[1]] !== null) continue;
-                    if (!findFlyingSwordAt(state, cell, caster.id)) continue;
-                    const score = scanXuanyuanLeapValue(caster, cell, state, dir);
-                    if (!best || score > best.score) best = { start: startCell, cell, score };
-                }
+            for (const plan of getXiangStepMovePlans(caster.position)) {
+                const cell = plan.to;
+                if (state.board[cell[0]][cell[1]] !== null) continue;
+                if (!findFlyingSwordAt(state, cell, caster.id)) continue;
+                const score = scanXuanyuanLeapValue(caster, cell, state);
+                if (!best || score > best.score) best = { cell, score };
             }
         }
         if (best && best.score > 0) {
-            // 第一段点起笔（store 的两段式拦截只定笔、不放技能），第二段沿那一笔跃向飞剑
-            store.executeSkill(best.start);
             store.executeSkill(best.cell);
+        } else {
+            store.endHeroAction();
+        }
+        return;
+    }
+
+    // 闻人翊悬跃阵：两段点击。先点方案里的中途友军（store 会展开落点），
+    // 下一拍点锁定的落点真正结算；任一段找不到合法点就收手，别让整次行动空转。
+    if (skill.id === WENREN_SKILL1_ID) {
+        const plan = chooseComputerSkillPlan(state, caster, skill.id);
+        const waypoint = getWenrenWaypoint(caster);
+        const target = waypoint ? plan?.targetPositions[1] : plan?.targetPositions[0];
+        if (target && state.skillRange.some(position => samePosition(position, target))) {
+            store.executeSkill(target);
         } else {
             store.endHeroAction();
         }
@@ -1015,7 +1018,7 @@ export function runComputerOpponentStep(repeatCount = 0): void {
         }
         if (useGameStore.getState().player2SelectedHeroIds.length === 6) {
             useGameStore.getState().confirmHeroSelectionForPlayer(AI_PLAYER);
-            useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成选将` });
+            useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成选将`, setup: true });
         }
         return;
     }
@@ -1027,7 +1030,7 @@ export function runComputerOpponentStep(repeatCount = 0): void {
             useGameStore.getState().toggleWeaponForPlayer(AI_PLAYER, heroId);
         }
         useGameStore.getState().confirmWeaponSelectionForPlayer(AI_PLAYER);
-        useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成武装` });
+        useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成武装`, setup: true });
         return;
     }
 
@@ -1043,7 +1046,7 @@ export function runComputerOpponentStep(repeatCount = 0): void {
         }
         if (useGameStore.getState().player2Heroes.length === 4) {
             useGameStore.getState().confirmDeploymentForPlayer(AI_PLAYER);
-            useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成布阵` });
+            useGameStore.getState().addLog({ type: 'system', player: AI_PLAYER, message: `${difficultyLabel(state.aiDifficulty)}电脑已完成布阵`, setup: true });
         }
         return;
     }

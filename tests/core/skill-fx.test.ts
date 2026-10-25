@@ -7,8 +7,10 @@ import {
     isImpactFxKind,
     isPerTargetFxKind,
     resolveSkillFx,
+    SKILL_FX_KIND_LABELS,
     SKILL_FX_PROFILES,
 } from '../../src/core/skill-fx';
+import { isDirectionalFxKind } from '../../src/core/skill-fx-preview';
 import { SKILL_SOUND_MAP } from '../../src/data/skill-sounds';
 
 describe('resolveSkillFx', () => {
@@ -92,6 +94,32 @@ describe('resolveSkillFx', () => {
         // 全场选点、局部结算：不铺整盘区域特效，旋刃只在落位格出一次
         expect(wheel.fxArea).toBe('none');
         expect(isPerTargetFxKind(wheel.kind)).toBe(false);
+    });
+
+    it('闻人翊悬两式技能各走专属手绘材质，昭神变体换成金白一套', () => {
+        const leap = resolveSkillFx('wenren_skill1');
+        expect(leap.kind).toBe('wenren-leap');
+        expect(leap.crafted).toBe('wenren-leap');
+        expect(SKILL_FX_KIND_LABELS[leap.kind]).toBe('烬步火环');
+        // 跃阵是跨格位移，图鉴预览必须摆成起手格→落点格
+        expect(isDirectionalFxKind(leap.kind)).toBe(true);
+
+        const reap = resolveSkillFx('wenren_skill2');
+        expect(reap.kind).toBe('wenren-reap');
+        expect(reap.crafted).toBe('wenren-reap');
+        expect(SKILL_FX_KIND_LABELS[reap.kind]).toBe('裂焰燎原');
+        expect(isDirectionalFxKind(reap.kind)).toBe(false);
+
+        expect(resolveSkillFx('wenren_skill1_zhaoshen').crafted).toBe('wenren-leap-zhaoshen');
+        expect(resolveSkillFx('wenren_skill2_zhaoshen').crafted).toBe('wenren-reap-zhaoshen');
+
+        // 昭神入场是火行自己的变身，不能借轩辕的剑阵：换成火纹升腾的专属机制演出
+        const ascend = resolveSkillFx('wenren_zhaoshen');
+        expect(ascend.mechanism).toBe('ember-ascend');
+        expect(ascend.durationMs).toBeGreaterThanOrEqual(1500);
+        expect(ascend.fxArea).toBe('none');
+        // 轩辕那套剑阵原样保留
+        expect(resolveSkillFx('xuanyuan_zhaoshen').mechanism).toBe('zhaoshen');
     });
 
     it('云缨天威·燎原百斩：落点格一记火焰旋斩，全场只出一次本体', () => {

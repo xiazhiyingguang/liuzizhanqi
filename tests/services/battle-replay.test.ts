@@ -43,6 +43,43 @@ describe('对局回放录制器', () => {
         expect(getBattleReplay().narration[0].id).toBe('log-1');
     });
 
+    it('首帧不收录选将/布阵的 setup 日志，只从战斗开始后记起', () => {
+        const state = battleFixture('m-logs');
+        state.battleLog = [
+            { id: 'setup-select', timestamp: 0, type: 'system', player: 'player2', message: '电脑已完成选将', setup: true },
+            { id: 'setup-deploy', timestamp: 0, type: 'system', player: 'player2', message: '电脑已完成布阵', setup: true },
+        ];
+        noteReplayStep(state);
+
+        const first = getBattleReplay();
+        expect(first.narration).toHaveLength(0);
+        expect(first.frames[0].logFrom).toBe(0);
+        expect(first.frames[0].logTo).toBe(0);
+
+        state.battleLog = [
+            ...state.battleLog,
+            { id: 'battle-start', timestamp: 1, type: 'system', player: 'player1', message: '战斗开始！第1轮' },
+        ];
+        noteReplayStep(state);
+
+        const replay = getBattleReplay();
+        expect(replay.narration.map(entry => entry.id)).toEqual(['battle-start']);
+        expect(replay.frames[0].logTo).toBe(1);
+    });
+
+    it('战斗开始后才到达的选将/布阵日志也不进回放', () => {
+        const state = battleFixture('m-setup');
+        noteReplayStep(state);
+
+        state.battleLog = [
+            { id: 'ai-deploy', timestamp: 0, type: 'system', player: 'player2', message: '电脑已完成布阵', setup: true },
+            { id: 'battle-start', timestamp: 1, type: 'system', player: 'player1', message: '战斗开始！第1轮' },
+        ];
+        noteReplayStep(state);
+
+        expect(getBattleReplay().narration.map(entry => entry.id)).toEqual(['battle-start']);
+    });
+
     it('局面真正推进时产生新帧，并带上本步战报区间', () => {
         const state = battleFixture('m2');
         noteReplayStep(state);

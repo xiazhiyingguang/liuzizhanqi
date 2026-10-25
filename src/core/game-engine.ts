@@ -16,7 +16,9 @@ import { lanesAtPosition, windLaneNextCell } from './wind-lane';
 import { applyStillnessReward, consumeDaizongLamp } from './mountain-stance';
 import { advanceDragon, sustainDragonAtRoundStart } from './dragon-orbit';
 import { tickCloudsAtRoundStart } from './thunder-cloud';
+import { clearShuangfeiyanBoomerangState } from './boomerang';
 import { fierceAnnouncement } from './battle-tempo';
+import { healFromWakeLamps } from './lamp-shadow';
 
 /**
  * 对局回合上限：打满即强制结算，按场上存活人数判定胜负；
@@ -607,6 +609,12 @@ export class GameEngine {
                         delete extraHero.counters['youjun_extra_move_only'];
                     }
                 }
+                // 双飞燕被动「比翼双飞」：自己登记的第二手只许放技能；
+                // 别人给的再动仍是完整行动
+                if (extraHero.passiveId === 'shuangfeiyan_passive' && extraHero.counters['__sfy_self_extra'] === 1) {
+                    extraHero.counters['sfy_extra_skill_only'] = 1;
+                    delete extraHero.counters['__sfy_self_extra'];
+                }
 
                 // 记录原本应该轮到的玩家（如果还没记录过，且当前不是已经在额外行动中）
                 // 逻辑：如果当前是 P1 正常行动 -> 触发额外 -> 应该在额外结束后切给 P2
@@ -907,6 +915,13 @@ export class GameEngine {
         for (const hero of allHeroes) {
             if (hero.state !== HeroState.ALIVE) continue;
 
+            // 双飞燕：回合初清掉上一轮可能遗留的双出手记账（正常路径会在第二手结束时清）
+            if (hero.passiveId === 'shuangfeiyan_passive') {
+                delete hero.counters['sfy_extra_skill_only'];
+                delete hero.counters['sfy_second_queued'];
+                delete hero.counters['__sfy_self_extra'];
+            }
+
             // 夺岁「血偿」：砍走的那笔血按轮次戳分两期还回来。
             // 走回合开始而不是效果时长衰减——被眩晕、被跳过、被换位都不该改掉还血节奏。
             settleXuechangAtTurnStart(hero, gameState);
@@ -1021,6 +1036,12 @@ export class GameEngine {
             gameState.activeHero?.id === hero.id
         ) {
             delete hero.counters['youjun_extra_move_only'];
+        }
+
+        // 双飞燕：自己的第二手收尾时解除“仅技能”限制，并允许下一次行动重新登记第二手
+        if (hero.passiveId === 'shuangfeiyan_passive' && hero.counters['sfy_extra_skill_only'] === 1) {
+            delete hero.counters['sfy_extra_skill_only'];
+            delete hero.counters['sfy_second_queued'];
         }
 
         // 敖渊「游龙」：每次行动结束，绕身的龙影顺时针扫过半圈（含起点共 5 格）落一轮伤害。
@@ -1316,6 +1337,10 @@ export class GameEngine {
                 }
             }
         }
+
+        // 夕月辞的「身后留灯」：灯不问主人还在不在，到回合末就照着两格内的友方回血。
+        // 放在按人循环之外——她本人已经阵亡，不会进 allHeroes 里那一轮。
+        healFromWakeLamps(gameState);
     }
 
     /**
@@ -1439,6 +1464,9 @@ export class GameEngine {
         hero.counters['__temp_dead_hp'] = hero.currentHp;
         hero.state = HeroState.TEMP_DEAD;
         hero.currentHp = 0;
+        if (hero.passiveId === 'shuangfeiyan_passive') {
+            clearShuangfeiyanBoomerangState(hero, gameState);
+        }
         if (oldPosition && gameState.board[oldPosition[0]]?.[oldPosition[1]] === hero) {
             gameState.board[oldPosition[0]][oldPosition[1]] = null;
         }

@@ -56,6 +56,8 @@ export const DIRECTIONAL_FX_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKin
     'libai-flurry',
     'feynman-beam',
     'shadow-dash',
+    // 闻人翊悬跃阵：烬迹要沿起手格→落点格铺开，图鉴演示不能缩在同格
+    'wenren-leap',
     'phase-swap',
     'huanongying-fan',
     'huanongying-swap',

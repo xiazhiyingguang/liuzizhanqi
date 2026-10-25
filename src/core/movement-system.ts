@@ -66,7 +66,10 @@ export class MovementSystem {
     ): Position[] {
         if (!hero.position) return [];
 
-        // 轩辕神君：不走曼哈顿逐格走，而是象棋式跳法（普通态象走田、昭神态 G 型外圈）。
+        // 双飞燕的被动第二手只许出招：这一动作不做普通走位（技能二瞬移不受影响）
+        if (hero.counters['sfy_extra_skill_only'] === 1) return [];
+
+        // 轩辕神君：不走曼哈顿逐格走，而是象棋式跳法（普通态象走田斜跳两格、昭神态对角一格或两格）。
         // 技能位移/指定范围的外部移动（rangeOverride、skillMovement）不抢道，强制位移照常；
         // 束缚格仍钳制落点（跳得再远也飞不出罩子）
         if (rangeOverride === undefined && !options?.skillMovement && isXuanyuan(hero)) {

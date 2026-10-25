@@ -65,8 +65,22 @@ import {
 } from '../core/chain-lightning';
 import { markYoujunKnifeSpot, placeWindBlade, retractWindBladesOnCells, WIND_BLADE_DAMAGE, youjunDashMaxDistance } from '../core/wind-blade';
 import {
+    SHUANGFEIYAN_SKILL1_ID,
+    SHUANGFEIYAN_SKILL2_ID,
+    SHUANGFEIYAN_TELEPORT_DAMAGE,
+    SHUANGFEIYAN_TRIANGLE_DAMAGE,
+    getShuangfeiyanBoomerangs,
+    getShuangfeiyanThrowPath,
+    getShuangfeiyanTriangleCells,
+    isShuangfeiyanThrowTarget,
+    placeShuangfeiyanBoomerang,
+    removeShuangfeiyanBoomerangAt,
+} from '../core/boomerang';
+import { shuangfeiyanBoomerangDamage } from '../core/shuangfeiyan';
+import {
     addSwordMitigation,
     attachSwordToAlly,
+    driftFlyingSwords,
     findFlyingSwordAt,
     findNearestAllyForSword,
     getDiagonalSwords,
@@ -76,13 +90,11 @@ import {
     SWORD_MITIGATION_PER_STACK,
 } from '../core/flying-sword';
 import {
-    getGMovePlans,
     getLeapsUsed,
-    getStagedGStart,
     getXiangMovePlans,
+    getXiangStepMovePlans,
     isZhaoShen,
     setLeapsUsed,
-    clearStagedGStart,
     XUANYUAN_LEAP_MAX,
     type MovePlan,
 } from '../core/xuanyuan-form';
@@ -124,6 +136,26 @@ import {
 import { applyHeroWeapon, createHero } from './heroes';
 import { applyWeaponOnArrival } from '../core/weapon-effects';
 import { applyZhizhiForMode, hasZhizhi, zhizhiValue } from '../core/hero-zhizhi';
+import {
+    WENREN_CRIT_DURATION,
+    WENREN_CRIT_DURATION_ZHAOSHEN,
+    WENREN_CRIT_EFFECT,
+    WENREN_CRIT_PER_LAYER,
+    WENREN_CRIT_PER_LAYER_ZHAOSHEN,
+    WENREN_SKILL1_ID,
+    WENREN_SKILL2_ID,
+    WENREN_TORUS_MAX_STEPS,
+    addWenrenPos,
+    clearWenrenWaypoint,
+    findWenrenLeapPlan,
+    getWenrenLeapPlansForLanding,
+    getWenrenPos,
+    getWenrenWaypoint,
+    isWenrenZhaoShen,
+    setWenrenPos,
+    tryEnterWenrenZhaoShen,
+    wenrenRingCells,
+} from '../core/wenren-form';
 import { advanceWangshuPhase, getWangshuAllies, getWangshuMultiplier, getWangshuPhase, WANGSHU_PHASE_NAMES } from '../core/wangshu';
 import {
     cloudAnchorCells,
@@ -133,6 +165,17 @@ import {
     ROD_DAMAGE,
     strikeCloud,
 } from '../core/thunder-cloud';
+import {
+    LAMP_PLACE_RANGE,
+    XIYUECI_KNOCKUP_RATE,
+    XIYUECI_RING_DAMAGE,
+    XIYUECI_RING_DAMAGE_TALENT,
+    enemiesOnCells,
+    findLampAt,
+    knockUpTarget,
+    placeLamp,
+    shadowsCastBy,
+} from '../core/lamp-shadow';
 
 function result(log: string[] = []): SkillExecuteResult {
     return { success: true, damageDealt: [], healingDone: [], effectsApplied: [], log };
@@ -140,6 +183,14 @@ function result(log: string[] = []): SkillExecuteResult {
 
 function fail(message: string): SkillExecuteResult {
     return { success: false, log: [message] };
+}
+
+/**
+ * 灯影只多挨半刀，本体没有站进作用面就没有实体可推／可落剑。
+ * 位移、落子这类"要真格子"的结算用它在按格索敌的名单里把影子摘干净。
+ */
+function standsOnAnyCell(hero: Hero, cells: Position[]): boolean {
+    return !!hero.position && cells.some(([row, col]) => hero.position![0] === row && hero.position![1] === col);
 }
 
 function damageOne(
@@ -865,8 +916,8 @@ function summonPaintingUnit(
  */
 function jinwuBurstAt(jinwu: Hero, center: Position, gameState: GameState): SkillExecuteResult {
     const positions = MovementSystem.getAreaPositions(center, 3).concat([center]);
-    const targets = positions.map(([r, c]) => gameState.board[r][c])
-        .filter((hero): hero is Hero => !!hero && hero.owner !== jinwu.owner && hero.state === HeroState.ALIVE);
+    // 按格索敌统一走灯影口径：影格被耀斑盖到的敌人也挨这一刀（折半在 DamageCalculator 里）
+    const targets = enemiesOnCells(gameState, jinwu, positions);
     const output = result();
     output.fxCoveredPositions = positions;
     // 金乌自己没有致知：耀斑的系数看的是布画本体的致知3（3 → 4）
@@ -1075,11 +1126,7 @@ export const feynmanSkill2: Skill = {
         for (let row = minRow; row <= maxRow; row++) {
             for (let col = minCol; col <= maxCol; col++) rectCells.push([row, col]);
         }
-        const targetsInArea = getLivingHeroes(getEnemies(caster, gameState)).filter(target =>
-            target.position &&
-            target.position[0] >= minRow && target.position[0] <= maxRow &&
-            target.position[1] >= minCol && target.position[1] <= maxCol
-        );
+        const targetsInArea = enemiesOnCells(gameState, caster, rectCells);
         const markCount = getLivingHeroes(getEnemies(caster, gameState)).reduce(
             (sum, target) => sum + target.effects
                 .filter(effect => effect.name === '粒子标记' && effect.sourceHeroId === caster.id)
@@ -1354,8 +1401,7 @@ export const libaiSkill2: Skill = {
         if (zuiyi < 1) return fail('醉意不足，无法释放谪仙醉斩');
         const rect = getLibaiFrontRect(caster);
         if (rect.length === 0) return fail('未选择方向');
-        const targets = rect.map(([r, c]) => gameState.board[r][c])
-            .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
+        const targets = enemiesOnCells(gameState, caster, rect);
         if (targets.length === 0) return fail('前方范围内没有敌人');
         const output = result();
         output.fxCoveredPositions = rect;
@@ -1466,11 +1512,17 @@ export const zuizhendaoSkill1: Skill = {
         output.fxCoveredPositions = plan.path;
         let gained = 0;
         const zuiyiLimit = zuiyiCap(caster);
+        // 路线规划照旧只认真实站位（影子不占格，不能替她选路）；这里只把灯影盖到的敌人补进伤害名单，
+        // 醉意层数仍只认"踩到的人"——影子没被踩，不该替她攒势
+        const stepped = plan.enemies;
+        const shadowVictims = enemiesOnCells(gameState, caster, plan.path)
+            .filter(enemy => !stepped.includes(enemy));
         DamageCalculator.asOneAttack(() => {
-            for (const enemy of plan.enemies) {
+            for (const enemy of [...stepped, ...shadowVictims]) {
                 // 致知1：踩过一名敌人 4 → 5 点
                 const damage = damageOne(caster, enemy, zhizhiValue(caster, 1, 4, 5), gameState);
                 output.damageDealt?.push(damage.finalDamage);
+                if (!stepped.includes(enemy)) continue;
                 const stacks = EffectManager.getCounter(caster, '醉意');
                 if (stacks < zuiyiLimit) {
                     EffectManager.setCounter(caster, '醉意', stacks + 1);
@@ -1632,11 +1684,8 @@ export const feixueSkill1: Skill = {
         };
 
         const splashDamage = caster.counters['talent_2'] ? 8 : 6;
-        const splashTargets = MovementSystem.getAreaPositions(targetPosition, 3)
-            .map(([row, col]) => gameState.board[row][col])
-            .filter((hero): hero is Hero =>
-                !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE
-            );
+        // 破冰爆震的作用面就是这九格：灯影盖在格上也照样挨刀（寒天附加跟着这次命中走）
+        const splashTargets = enemiesOnCells(gameState, caster, MovementSystem.getAreaPositions(targetPosition, 3));
 
         DamageCalculator.asOneAttack(() => {
             for (const splashTarget of splashTargets) {
@@ -1865,9 +1914,14 @@ export const dilanSkill1: Skill = {
         const directionCode = caster.counters['__dilan_skill1_dir'];
         if (directionCode === undefined) return fail('请先选择顺逆长风的方向');
         delete caster.counters['__dilan_skill1_dir'];
-        const line = getDilanSkill1Cells(caster, directionCode)
+        const cells = getDilanSkill1Cells(caster, directionCode);
+        const line = cells
             .map(([row, col]) => gameState.board[row][col])
             .filter((hero): hero is Hero => !!hero && hero !== caster && hero.state === HeroState.ALIVE);
+        // 这条线同时给友方发顺风，友方名单必须仍是真实站位；影子只会是敌人，直接追加在队尾挨刀
+        for (const shadowEnemy of enemiesOnCells(gameState, caster, cells)) {
+            if (!line.includes(shadowEnemy)) line.push(shadowEnemy);
+        }
         if (line.length === 0) return fail('该方向上没有其他角色');
 
         const output = result();
@@ -1909,9 +1963,7 @@ export const dilanSkill2: Skill = {
         if (dirCode === undefined) return fail('请先选择风压方向');
         const rect = getDilanFrontRect(caster);
         delete caster.counters['__dilan_skill2_dir'];
-        const enemies = rect
-            .map(([row, col]) => gameState.board[row][col])
-            .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
+        const enemies = enemiesOnCells(gameState, caster, rect);
         if (enemies.length === 0) return fail('前方范围内没有敌人');
 
         const output = result();
@@ -1928,7 +1980,8 @@ export const dilanSkill2: Skill = {
                         hit.detonatedStacks > 0 ? `并引爆${hit.detonatedStacks}层羽化` : ''
                     }`
                 );
-                if (enemy.state === HeroState.ALIVE) hitEnemies.push(enemy);
+                // 击退只认真正站在风压格里的人：灯影没有实体，推不动
+                if (enemy.state === HeroState.ALIVE && standsOnAnyCell(enemy, rect)) hitEnemies.push(enemy);
             }
         });
 
@@ -1994,11 +2047,7 @@ export const nanfengSkill1: Skill = {
         const output = result();
         const cells: Position[] = [center, ...MovementSystem.getAreaPositions(center, 3)];
         output.fxCoveredPositions = cells;
-        const enemies = cells
-            .map(([row, col]) => gameState.board[row][col])
-            .filter((hero): hero is Hero =>
-                !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE
-            );
+        const enemies = enemiesOnCells(gameState, caster, cells);
 
         if (enemies.length === 0) {
             output.log.push(`${caster.name}卷起扶摇，旋风扫过空巷`);
@@ -2018,7 +2067,9 @@ export const nanfengSkill1: Skill = {
         });
 
         // 由外向内吹，外侧目标先腾空，同线上的内侧目标才有机会被依次推出
-        const pushable = enemies.filter(enemy => enemy.state === HeroState.ALIVE && !!enemy.position);
+        // 风推同样只认真正站在旋风里的人：灯影挨了半刀，但脚没在风里，吹不动
+        const pushable = enemies.filter(enemy =>
+            enemy.state === HeroState.ALIVE && !!enemy.position && standsOnAnyCell(enemy, cells));
         const chebyshev = ([row, col]: Position) =>
             Math.max(Math.abs(row - center[0]), Math.abs(col - center[1]));
         pushable.sort((left, right) => chebyshev(right.position!) - chebyshev(left.position!));
@@ -2359,18 +2410,19 @@ export const shangguanSkill1: Skill = {
 
         const output = result();
         // 落在敌方英雄身上：立即造成9点固定伤害（不可闪避；致知3 按墨意层数放大）
-        if (occupant && occupant.owner !== caster.owner && occupant.state === HeroState.ALIVE) {
+        // 灯影盖在落点上也挨得到这记直落；毛笔照旧落在她点的那一格，与名单无关
+        for (const victim of enemiesOnCells(gameState, caster, [[r, c]])) {
             const dmg = DamageCalculator.calculate(
                 caster,
-                occupant,
+                victim,
                 shangguanSkillDamage(caster, SHANGGUAN_BRUSH_DAMAGE),
                 false,
                 false,
                 { fixedDamage: true, canCrit: false }
             );
-            DamageCalculator.applyDamage(occupant, dmg, caster, gameState);
+            DamageCalculator.applyDamage(victim, dmg, caster, gameState);
             output.damageDealt?.push(dmg.finalDamage);
-            output.log.push(`毛笔直落${occupant.name}，造成${dmg.finalDamage}点固定伤害`);
+            output.log.push(`毛笔直落${victim.name}，造成${dmg.finalDamage}点固定伤害`);
         }
 
         gameState.boardEffects ??= [];
@@ -2478,13 +2530,12 @@ export const youjunSkill1: Skill = {
         const [dr, dc] = deltas[direction];
         const start: Position = [caster.position[0], caster.position[1]];
         const landing: Position = [clicked[0], clicked[1]];
-        const piercedEnemies: Hero[] = [];
+        // 冲刺路径上的伤害名单走灯影口径：影格被掠过的敌人也挨这一刀（落点空格校验仍认真实站位）
+        const piercedCells: Position[] = [];
         for (let step = 1; step < clickedDistance; step++) {
-            const occupant = gameState.board[start[0] + dr * step][start[1] + dc * step];
-            if (occupant && occupant.state === HeroState.ALIVE && occupant.owner !== caster.owner) {
-                piercedEnemies.push(occupant);
-            }
+            piercedCells.push([start[0] + dr * step, start[1] + dc * step]);
         }
+        const piercedEnemies = enemiesOnCells(gameState, caster, piercedCells);
 
         const dashDistance = clickedDistance;
         const lastMove = Math.min(6, caster.counters['youjun_lastMove'] ?? 0);
@@ -3169,10 +3220,8 @@ export function requestRecoveryFx(source: Hero, target: Hero, skillId: string, g
 }
 
 function lingxiEnemiesInCells(cells: Position[], gameState: GameState, caster: Hero): Hero[] {
-    return cells
-        .map(([row, col]) => gameState.board[row]?.[col])
-        .filter((unit): unit is Hero =>
-            !!unit && unit.owner !== caster.owner && unit.state === HeroState.ALIVE);
+    // 潮面盖到几格就照到几格：站着的与灯影里的敌人都算被拍中（影子的折半在 DamageCalculator）
+    return enemiesOnCells(gameState, caster, cells);
 }
 
 function lingxiBoxEnemies(caster: Hero, gameState: GameState, size: number): Hero[] {
@@ -3417,10 +3466,8 @@ export function castBloodSweep(
             cells.push([row, col]);
         }
     }
-    const enemies = cells
-        .map(([row, col]) => gameState.board[row][col])
-        .filter((hero): hero is Hero =>
-            !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
+    // 横扫的一圈就是作用面：灯影盖在圈内同样被斩到（愤怒跟着这次命中走）
+    const enemies = enemiesOnCells(gameState, caster, cells);
 
     const output = result();
     const expireAtActionSerial = xueqiBindingExpireSerial(caster);
@@ -3560,11 +3607,8 @@ export function getYunyingChargeCells(caster: Hero, dirCode: number): Position[]
 }
 
 function yunyingEnemiesOn(caster: Hero, cells: Position[], gameState: GameState): Hero[] {
-    return cells
-        .map(([row, col]) => gameState.board[row]?.[col])
-        .filter((hero): hero is Hero =>
-            !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE
-        );
+    // 火烧到的这几格连灯影一起算：影子挨的半刀在 DamageCalculator 里折
+    return enemiesOnCells(gameState, caster, cells);
 }
 
 /** 技能整批命中期间挂起标记，避免"下一次攻击"的吸血在半途被摘掉 */
@@ -4567,10 +4611,8 @@ function pushHnyLog(gameState: GameState, player: Player, message: string): void
 }
 
 function hnyEnemiesInCells(cells: Position[], gameState: GameState, caster: Hero): Hero[] {
-    return cells
-        .map(([row, col]) => gameState.board[row]?.[col])
-        .filter((unit): unit is Hero =>
-            !!unit && unit.owner !== caster.owner && unit.state === HeroState.ALIVE);
+    // 斩面盖到的格就连灯影一起斩；影子没有实体，落点那格仍只认真正被斩中的人
+    return enemiesOnCells(gameState, caster, cells);
 }
 
 /** 中心的正交四格（弄影的落点斩与影子的周圈重演共用） */
@@ -5038,7 +5080,8 @@ export const zhiguangSkill2: Skill = {
 
         const { cells, prismCount } = traceZhiguangBeam(caster, gameState, dirCode);
         const damage = getZhiguangBeamDamage(caster, prismCount);
-        const enemies = zhiguangEnemiesOn(cells, caster, gameState);
+        // 光束的伤害名单走灯影口径；天威那套还要按格钉光棱，仍留在 zhiguangEnemiesOn
+        const enemies = enemiesOnCells(gameState, caster, cells);
         const output = result();
         output.fxCoveredPositions = cells;
 
@@ -6242,9 +6285,10 @@ function xuanyuanLeapStrike(
     const landing = plan.to;
     const output = result();
     const hitCells: Position[] = [];
-    const victimsOn = (cells: Position[]) => {
+    // cell=null＝这一刀打在灯影上：挨半刀可以，但那一格没有实体，落不了飞剑
+    const victimsOn = (cells: Position[]): Array<{ enemy: Hero; cell: Position | null }> => {
         const seen = new Set<string>();
-        const list: Array<{ enemy: Hero; cell: Position }> = [];
+        const list: Array<{ enemy: Hero; cell: Position | null }> = [];
         for (const [r, c] of cells) {
             const unit = gameState.board[r]?.[c];
             if (!unit || unit.state !== HeroState.ALIVE || unit.owner === caster.owner) continue;
@@ -6252,6 +6296,10 @@ function xuanyuanLeapStrike(
             if (seen.has(key)) continue;
             seen.add(key);
             list.push({ enemy: unit, cell: [r, c] });
+        }
+        for (const shadowBody of enemiesOnCells(gameState, caster, cells)) {
+            if (list.some(victim => victim.enemy === shadowBody)) continue;
+            list.push({ enemy: shadowBody, cell: null });
         }
         return list;
     };
@@ -6261,7 +6309,7 @@ function xuanyuanLeapStrike(
         for (const victim of victimsOn(plan.path)) {
             const damage = damageOne(caster, victim.enemy, pathDamage, gameState, true);
             output.damageDealt?.push(damage.finalDamage);
-            hitCells.push(victim.cell);
+            if (victim.cell) hitCells.push(victim.cell);
         }
     });
 
@@ -6282,12 +6330,16 @@ function xuanyuanLeapStrike(
         for (const victim of victimsOn(ringCells)) {
             const damage = damageOne(caster, victim.enemy, ringDamage, gameState, true);
             output.damageDealt?.push(damage.finalDamage);
-            hitCells.push(victim.cell);
+            if (victim.cell) hitCells.push(victim.cell);
         }
     });
 
     // 每个命中过人的格子钉下一把飞剑（同一格重复命中只刷新）
     for (const cell of hitCells) placeFlyingSword(gameState, caster, cell);
+
+    // 被动「剑随气走」：落地后场上属于他的飞剑各挪一格（普通态跃击与昭神每一跳都触发）
+    const drifted = driftFlyingSwords(gameState, caster);
+    if (drifted > 0) output.log.push(`剑随气走：${drifted}把飞剑各挪一格`);
 
     const totalDamage = (output.damageDealt ?? []).reduce((sum, amount) => sum + amount, 0);
     const hitCount = new Set(hitCells.map(([r, c]) => `${r},${c}`)).size;
@@ -6300,14 +6352,14 @@ function xuanyuanLeapStrike(
 }
 
 /**
- * 轩辕神君技能一「御剑·贯阵」：自带位移的命中落剑技。
- * 普通态象走田（5/6），昭神态骑自己的剑沿 G 型外圈连跳（4/8，至多 3 跳，终点剑消失）。
+ * 轩辕神君技能一「御剑·贯阵」：自带位移的命中落剑技，本回合移动过就起不了手。
+ * 普通态象走田（5/6），昭神态沿对角线连跳一格或两格（4/8，至多 3 跳，踩到的剑被收走）。
  */
 export const xuanyuanSkill1: Skill = {
     id: 'xuanyuan_skill1',
     name: '御剑·贯阵',
     type: 'damage',
-    description: '普通形态：象走田斜跳两格（象眼有人也照跳），对沿途敌人造成5点伤害，落点后对周围一圈敌人造成6点伤害，每个命中目标所在格留下一把【飞剑】。昭神形态：先点周身正方向的一格定下G的起笔，沿外圈跃向踩得到自己飞剑的格（那把剑消失，G的开口一格描不到），沿途造成4点、落点周围8点伤害并照样留剑，一次行动内至多连跳3次（可中途停下）',
+    description: '普通形态：象走田斜跳两格（象眼有人也照跳），对沿途敌人造成5点伤害，落点后对周围一圈敌人造成6点伤害，每个命中目标所在格留下一把【飞剑】。昭神形态：沿对角线跃向一格或两格外的空格，踩着自己的那把剑会被收走，沿途造成4点、落点周围8点伤害并照样留剑，一次行动内至多连跳3次（可中途停下）。这一击本身就是位移，所以本回合移动过之后无法再使用',
     rangeType: 'single',
     range: 2,
     targetType: 'any',
@@ -6323,17 +6375,15 @@ export const xuanyuanSkill1: Skill = {
         if (zhaoShen) {
             const used = getLeapsUsed(caster);
             if (used >= leapMax) return fail(`御剑连破一次行动至多连跳${leapMax}次`);
-            // G 的旋向由玩家选：第一步已把起笔方向暂存在计数器里，这一跳沿那笔描
-            const dir = getStagedGStart(caster);
-            if (dir === null) return fail('请先点击周身正方向的一格，定下这一笔G从哪里起笔');
-            const plan = getGMovePlans(start, dir).find(item => item.to[0] === clicked[0] && item.to[1] === clicked[1]);
-            if (!plan) return fail('这一笔G描不到那一格（注意起笔旁的斜格是G的开口）');
+            const plan = getXiangStepMovePlans(start)
+                .find(item => item.to[0] === clicked[0] && item.to[1] === clicked[1]);
+            if (!plan) return fail('御剑连破只能沿对角线跃向一格或两格外的空格');
             if (gameState.board[clicked[0]][clicked[1]] !== null) return fail('跃击落点必须是空格');
+            // 续跳必须踩剑：第一跳是起手（空盘也能跳），第二、三跳只能落在自己的飞剑上
             const endpointSword = findFlyingSwordAt(gameState, clicked, caster.id);
-            if (!endpointSword) return fail('只能跃向站着自己【飞剑】的格子');
-            removeFlyingSword(gameState, endpointSword.id);
+            if (used > 0 && !endpointSword) return fail('续跳必须落在自己的飞剑上');
+            if (endpointSword) removeFlyingSword(gameState, endpointSword.id);
             setLeapsUsed(caster, used + 1);
-            clearStagedGStart(caster);
             const output = xuanyuanLeapStrike(
                 caster,
                 plan,
@@ -6341,7 +6391,7 @@ export const xuanyuanSkill1: Skill = {
                 zhizhiValue(caster, 1, 8, 9),
                 gameState,
                 true,
-                true
+                Boolean(endpointSword)
             );
             output.log.unshift(`御剑连破第${used + 1}/${leapMax}跳`);
             return output;
@@ -6425,12 +6475,13 @@ export const xuanyuanSkill2: Skill = {
 };
 
 /**
- * AI 御剑连跳的直估：指定起笔方向时按那一笔的笔画算，不指定则取四种起笔里最便宜的那段弧。
+ * AI 御剑连跳的直估：按对角一格或两格的那一跳算账面伤害。
  * 0 分代表这一跳空转，电脑不该为此再跳。
  */
-export function scanXuanyuanLeapValue(caster: Hero, cell: Position, gameState: GameState, dir?: number): number {
+export function scanXuanyuanLeapValue(caster: Hero, cell: Position, gameState: GameState): number {
     if (!caster.position) return 0;
-    const plan = getGMovePlans(caster.position, dir).find(item => item.to[0] === cell[0] && item.to[1] === cell[1]);
+    const plan = getXiangStepMovePlans(caster.position)
+        .find(item => item.to[0] === cell[0] && item.to[1] === cell[1]);
     if (!plan) return 0;
     const pathDamage = zhizhiValue(caster, 1, 4, 5);
     const ringDamage = zhizhiValue(caster, 1, 8, 9);
@@ -6455,6 +6506,431 @@ export function scanXuanyuanLeapValue(caster: Hero, cell: Position, gameState: G
     }
     return value;
 }
+
+/**
+ * 闻人翊悬技能一「蹈火·跃阵」：先点友军当中途点，再点他身后的落点。
+ * 普通态只沿直线走到棋盘边缘；昭神态把棋盘当作闭环，并把飞跃距离加进伤害。
+ * 两段点击的暂存由 store 写入 __wenren_waypoint；AI 在模拟前也写同一格，
+ * 真正的落点则由引擎统一塞进 __extended_target。
+ */
+export const wenrenSkill1: Skill = {
+    id: WENREN_SKILL1_ID,
+    name: '蹈火·跃阵',
+    type: 'damage',
+    description: '选择一名与自己同处八方向直线上的友军作为中途点，飞越他到身后同方向的任一空格（落点必须为空）。落地后对周围一圈敌人造成8点伤害，并获得等同于飞跃距离的【破妄】。本回合已移动也能使用。昭神形态下整张棋盘按上下左右闭环计算，伤害还会额外附带本次飞跃距离',
+    rangeType: 'single',
+    range: WENREN_TORUS_MAX_STEPS,
+    targetType: 'any',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('闻人翊悬不在场上');
+        const landing = encodedTarget(caster);
+        if (!landing) return fail('未选择飞跃落点');
+
+        const waypoint = getWenrenWaypoint(caster);
+        const plan = waypoint
+            ? findWenrenLeapPlan(caster, gameState, waypoint, landing)
+            : getWenrenLeapPlansForLanding(caster, gameState, landing)
+                .sort((left, right) => left.distance - right.distance)[0] ?? null;
+        if (!plan) return fail('只能飞向友军身后、同方向上的空格');
+        if (gameState.board[landing[0]]?.[landing[1]] !== null) return fail('飞跃落点必须是空格');
+        clearWenrenWaypoint(caster);
+
+        const start: Position = [...caster.position] as Position;
+        const distance = plan.distance;
+        const zhaoShen = isWenrenZhaoShen(caster);
+        const base = zhizhiValue(caster, 2, 8, 10);
+        // 普通态只有基础伤害；昭神才把飞跃距离一并烧进落点那一圈
+        const damageAmount = base + (zhaoShen ? distance : 0);
+
+        // 飞跃是技能自带的位移，不吃羽化逐格伤害
+        gameState.board[start[0]][start[1]] = null;
+        gameState.board[landing[0]][landing[1]] = caster;
+        caster.position = [landing[0], landing[1]];
+
+        const ring = wenrenRingCells(landing);
+        const output = result();
+        let hitCount = 0;
+        let totalDamage = 0;
+        DamageCalculator.asOneAttack(() => {
+            // 落点这一圈认灯影：影格里的人也计入命中（位移已在前面按真实落点结算完）
+            for (const victim of enemiesOnCells(gameState, caster, ring)) {
+                const damage = damageOne(caster, victim, damageAmount, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+                totalDamage += damage.finalDamage;
+                hitCount++;
+            }
+        });
+
+        addWenrenPos(caster, distance);
+        const entered = tryEnterWenrenZhaoShen(caster, gameState);
+        if (entered) {
+            const triggerLogId = gameState.battleLog[gameState.battleLog.length - 1]?.id;
+            requestSkillFx({
+                skillId: 'wenren_zhaoshen',
+                owner: caster.owner,
+                sourceHeroId: caster.id,
+                fromPos: [...landing],
+                targetPos: [...landing],
+                impactPositions: [[...landing]],
+                coveredPositions: [],
+                damagePositions: [],
+                logIds: triggerLogId ? [triggerLogId] : [],
+            }, gameState);
+        }
+
+        output.log.push(
+            `${caster.name}${zhaoShen ? '昭神·蹈火' : '蹈火'}飞越${plan.ally.name}至(${landing[0] + 1},${landing[1] + 1})，飞跃${distance}格，` +
+            `命中${hitCount}名敌人共造成${totalDamage}点伤害，获得${distance}点破妄` +
+            (zhaoShen ? `（昭神每格额外+1点距离伤害）` : '') +
+            (entered ? '，踏入【昭神】' : '')
+        );
+        output.fxCoveredPositions = ring;
+        gameState.skillFxExtras = {
+            ...(gameState.skillFxExtras ?? {}),
+            targetPos: [...landing],
+            ...(zhaoShen ? { fxVariant: 'wenren_skill1_zhaoshen' } : {}),
+        };
+        return output;
+    },
+};
+
+/**
+ * 闻人翊悬技能二「破妄·燎原」：周围一圈按当前破妄层数结算，随后消耗一半（向上取整）。
+ * 普通态每层换 5% 暴击率、持续 2 回合；昭神态每层 10%、持续 3 回合（致知三再各 +5%）。
+ * 昭神只改写暴击那一段，伤害仍严格等于破妄层数。
+ */
+export const wenrenSkill2: Skill = {
+    id: WENREN_SKILL2_ID,
+    name: '破妄·燎原',
+    type: 'damage',
+    description: '对周围一圈敌人造成等同于当前【破妄】层数的伤害，随后消耗一半【破妄】（向上取整）：每消耗1层获得5%暴击率，持续2回合。昭神形态下每层暴击率提升为10%、持续3回合',
+    rangeType: 'area',
+    areaSize: 3,
+    range: 0,
+    targetType: 'self',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('闻人翊悬不在场上');
+        const current = getWenrenPos(caster);
+        if (current <= 0) return fail('身上没有【破妄】，放不出破妄·燎原');
+
+        const zhaoShen = isWenrenZhaoShen(caster);
+        const damageAmount = current;
+        const consumed = Math.ceil(current / 2);
+        setWenrenPos(caster, current - consumed);
+
+        const ring = wenrenRingCells(caster.position);
+        const output = result();
+        let hitCount = 0;
+        let totalDamage = 0;
+        DamageCalculator.asOneAttack(() => {
+            for (const cell of ring) {
+                const victim = gameState.board[cell[0]][cell[1]];
+                if (!victim || victim.state !== HeroState.ALIVE || victim.owner === caster.owner) continue;
+                const damage = damageOne(caster, victim, damageAmount, gameState, true);
+                output.damageDealt?.push(damage.finalDamage);
+                totalDamage += damage.finalDamage;
+                hitCount++;
+            }
+        });
+
+        // 暴击率是"随后"才拿到的：这一发燎原按消耗前的面板结算，不吃自己刚换来的暴击
+        const baseRate = zhaoShen ? WENREN_CRIT_PER_LAYER_ZHAOSHEN : WENREN_CRIT_PER_LAYER;
+        const perLayer = zhizhiValue(caster, 3, baseRate, baseRate + 0.05);
+        const critDuration = zhaoShen ? WENREN_CRIT_DURATION_ZHAOSHEN : WENREN_CRIT_DURATION;
+        const critGain = consumed * perLayer;
+        let critEffect = caster.effects.find(effect =>
+            effect.name === WENREN_CRIT_EFFECT && effect.sourceHeroId === caster.id
+        );
+        if (critEffect) {
+            critEffect.value = (critEffect.value ?? 0) + critGain;
+            critEffect.duration = critDuration;
+        } else {
+            EffectManager.addEffect(caster, {
+                type: 'buff',
+                name: WENREN_CRIT_EFFECT,
+                duration: critDuration,
+                value: critGain,
+                sourceHeroId: caster.id,
+                description: `每消耗1层破妄获得${Math.round(perLayer * 100)}%暴击率，持续${critDuration}回合`,
+            });
+            critEffect = caster.effects.find(effect =>
+                effect.name === WENREN_CRIT_EFFECT && effect.sourceHeroId === caster.id
+            );
+        }
+        if (critEffect) {
+            critEffect.description =
+                `每消耗1层破妄获得${Math.round(perLayer * 100)}%暴击率；当前累计+${Math.round((critEffect.value ?? 0) * 100)}%，持续${critDuration}回合`;
+        }
+
+        output.log.push(
+            `${caster.name}${zhaoShen ? '昭神·' : ''}破妄燎原，消耗${consumed}层破妄，` +
+            `命中${hitCount}名敌人共造成${totalDamage}点伤害，获得${Math.round(critGain * 100)}%暴击率（${critDuration}回合）`
+        );
+        output.effectsApplied = critEffect ? [critEffect] : [];
+        output.fxCoveredPositions = ring;
+        gameState.skillFxExtras = {
+            ...(gameState.skillFxExtras ?? {}),
+            targetPos: [...caster.position],
+            ...(zhaoShen ? { fxVariant: 'wenren_skill2_zhaoshen' } : {}),
+        };
+        return output;
+    },
+};
+
+/**
+ * 双飞燕技能一「双飞剪」
+ * 手里有镖时：向八方向最远3格掷出一把，去程对路径上的敌人各造成4点伤害；
+ * 两把镖都在外时改为以她与两把镖为顶点结算7点三角伤害（不消耗镖）。
+ */
+export const shuangfeiyanSkill1: Skill = {
+    id: SHUANGFEIYAN_SKILL1_ID,
+    name: '双飞剪',
+    type: 'damage',
+    description: '手中还有回旋镖时，向八方向之一最远3格掷出一把，去程对路径上的敌人各造成4点伤害；两把回旋镖都在外时，改为以她与两把镖为顶点，对三角区域内所有敌人造成7点伤害。回旋镖会在她下下次出手结束后沿最短路径返航，返程同样造成4点伤害',
+    rangeType: 'line',
+    range: 3,
+    targetType: 'any',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('双飞燕不在场上');
+
+        const out = getShuangfeiyanBoomerangs(gameState, caster);
+        const output = result();
+
+        if (out.length >= 2) {
+            const cells = getShuangfeiyanTriangleCells(
+                caster.position,
+                out[0].position,
+                out[1].position
+            );
+            // 三角区域内站着的与灯影盖到的都算被剪到
+            const enemies = new Set(enemiesOnCells(gameState, caster, cells));
+
+            let total = 0;
+            DamageCalculator.asOneAttack(() => {
+                for (const enemy of enemies) {
+                    const damage = damageOne(
+                        caster,
+                        enemy,
+                        SHUANGFEIYAN_TRIANGLE_DAMAGE,
+                        gameState,
+                        true
+                    );
+                    output.damageDealt?.push(damage.finalDamage);
+                    total += damage.finalDamage;
+                }
+            });
+
+            output.fxCoveredPositions = cells;
+            output.log.push(
+                enemies.size > 0
+                    ? `${caster.name}以双镖为顶点结成三角，${enemies.size}名敌人共受${total}点伤害`
+                    : `${caster.name}的双镖三角内没有敌人`
+            );
+            return output;
+        }
+
+        const clicked = encodedTarget(caster);
+        if (!clicked) return fail('未选择掷镖落点');
+        if (!isShuangfeiyanThrowTarget(caster.position, clicked)) {
+            return fail('回旋镖只能掷向八个方向3格内');
+        }
+
+        const placed = placeShuangfeiyanBoomerang(gameState, caster, clicked);
+        if (!placed) return fail('两把回旋镖都已掷出');
+
+        const path = getShuangfeiyanThrowPath(caster.position, clicked);
+        // 去程掠过的每一格都认灯影；镖的落点与返航仍照原样按格子算，与名单无关
+        const enemies = new Set(enemiesOnCells(gameState, caster, path));
+
+        let total = 0;
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of enemies) {
+                const damage = damageOne(
+                    caster,
+                    enemy,
+                    shuangfeiyanBoomerangDamage(caster),
+                    gameState,
+                    true
+                );
+                output.damageDealt?.push(damage.finalDamage);
+                total += damage.finalDamage;
+            }
+        });
+
+        output.fxCoveredPositions = path;
+        output.log.push(
+            `${caster.name}掷出回旋镖${enemies.size > 0
+                ? `，路径上${enemies.size}名敌人共受${total}点伤害`
+                : ''}；下下次出手后返航`
+        );
+        return output;
+    },
+};
+
+/**
+ * 双飞燕技能二「燕归巢」
+ * 跃向场上任意一把自己的回旋镖（落点必须是空格），拾回它，
+ * 落地时对周围一圈敌人各造成7点伤害；拾回会取消这把镖原来的返航计时。
+ */
+export const shuangfeiyanSkill2: Skill = {
+    id: SHUANGFEIYAN_SKILL2_ID,
+    name: '燕归巢',
+    type: 'damage',
+    description: '跃向场上一把回旋镖所在格（该格必须为空），拾回这把镖，并对落点周围一圈敌人各造成7点伤害。拾回会取消这把镖原本的返航计时',
+    rangeType: '全场',
+    range: 6,
+    targetType: 'any',
+    targetCount: 1,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position || caster.state !== HeroState.ALIVE) return fail('双飞燕不在场上');
+        const clicked = encodedTarget(caster);
+        if (!clicked) return fail('未选择回旋镖');
+        const [row, col] = clicked;
+        if (gameState.board[row][col] !== null) {
+            return fail('回旋镖所在格被占用，无法跃入');
+        }
+
+        const picked = removeShuangfeiyanBoomerangAt(gameState, caster, clicked);
+        if (!picked) return fail('该位置没有双飞燕的回旋镖');
+
+        const [fromRow, fromCol] = caster.position;
+        gameState.board[fromRow][fromCol] = null;
+        gameState.board[row][col] = caster;
+        caster.position = [row, col];
+
+        const ring = MovementSystem.getAreaPositions([row, col], 3);
+        const output = result();
+        let total = 0;
+        let hits = 0;
+        DamageCalculator.asOneAttack(() => {
+            // 落地一圈的作用面认灯影：影格盖在圈里的人同样被这记燕归巢扫到
+            for (const victim of enemiesOnCells(gameState, caster, ring)) {
+                const damage = damageOne(
+                    caster,
+                    victim,
+                    SHUANGFEIYAN_TELEPORT_DAMAGE,
+                    gameState,
+                    true
+                );
+                output.damageDealt?.push(damage.finalDamage);
+                total += damage.finalDamage;
+                hits++;
+            }
+        });
+
+        output.fxCoveredPositions = [[row, col], ...ring];
+        output.log.push(
+            `${caster.name}跃向回旋镖并拾回${hits > 0 ? `，落地一圈${hits}名敌人共受${total}点伤害` : ''}`
+        );
+        return output;
+    },
+};
+
+/* ============================================================
+   夕月辞 —— 「明灯」场地 / 「灯影」伤害转移
+   ============================================================ */
+
+/**
+ * 夕月辞·技能一「辞光·散影」：周身一圈敌人各吃 8 点伤害（致知二 10），
+ * 再逐人掷一次 50% 击飞。击飞沿用现网同一条判定——只挑本回合还没行动过的人，
+ * 已经动过的人再挑起来没有意义。一圈合算一次出手，和声/吸血这类按攻击结算的效果整组只走一遍。
+ */
+export const xiyueciSkill1: Skill = {
+    id: 'xiyueci_skill1',
+    name: '辞光·散影',
+    type: 'damage',
+    description: '对周围一圈的敌方角色各造成8点伤害（致知二10点），并逐人以50%概率击飞：本回合还没行动过的人会当场失去这次行动',
+    rangeType: 'area',
+    range: 1,
+    areaSize: 3,
+    targetType: 'enemy',
+    targetCount: 'all',
+    baseDamage: XIYUECI_RING_DAMAGE,
+    canCrit: false,
+    execute: (caster, targets, gameState) => {
+        if (!caster.position) return fail('夕月辞不在场上');
+        const enemies = targets.filter(enemy =>
+            enemy.owner !== caster.owner && enemy.state === HeroState.ALIVE);
+        if (enemies.length === 0) return fail('周围一圈没有敌方角色');
+
+        const perHit = zhizhiValue(caster, 2, XIYUECI_RING_DAMAGE, XIYUECI_RING_DAMAGE_TALENT);
+        const output = result();
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of enemies) {
+                const damage = damageOne(caster, enemy, perHit, gameState, true, false, false, { canCrit: false });
+                output.damageDealt?.push(damage.finalDamage);
+            }
+        });
+        const knocked = enemies.filter(enemy => enemy.state === HeroState.ALIVE
+            && Math.random() < XIYUECI_KNOCKUP_RATE
+            && knockUpTarget(enemy, caster, gameState));
+
+        output.fxCoveredPositions = MovementSystem.getAreaPositions(caster.position, 3);
+        output.log.push(`${caster.name}辞光散影，一圈${enemies.length}名敌人各受${perHit}点伤害${
+            knocked.length > 0 ? `，${knocked.map(hero => hero.name).join('、')}被击飞` : ''}`);
+        return output;
+    },
+};
+
+/**
+ * 夕月辞·技能二「明灯·照影」：在两格内的一格空地立起明灯（两回合，致知三三回合）。
+ * 灯把周围一圈站着的人各照出一道影子，影子朝"背离灯"的方向再铺一格；
+ * 影子不占格——别人照样走得进去，但打中影子就等于打在本体身上。
+ */
+export const xiyueciSkill2: Skill = {
+    id: 'xiyueci_skill2',
+    name: '明灯·照影',
+    type: 'special',
+    description: '在两格范围内的一格空地放一盏明灯（持续两回合，致知三三回合）：灯照出周围一圈敌方角色的影子，影子朝背离灯的方向蔓延一格；攻击影子会使本体受到这一击一半的伤害，影子不占据格子（队友与自己都不落影）',
+    rangeType: 'area',
+    range: LAMP_PLACE_RANGE,
+    areaSize: 5,
+    targetType: 'empty',
+    targetCount: 1,
+    canCrit: false,
+    execute: (caster, _targets, gameState) => {
+        if (!caster.position) return fail('夕月辞不在场上');
+        const cell = encodedTarget(caster);
+        if (!cell) return fail('请选择放灯的格子');
+        if (!MovementSystem.getBoxPositions(caster.position, 5).some(([row, col]) => row === cell[0] && col === cell[1])) {
+            return fail('明灯只能放在自己两格范围内');
+        }
+        if (gameState.board[cell[0]][cell[1]]) return fail('灯要立在地上，不能压在谁脚下');
+        if (findLampAt(gameState, cell)) return fail('那一格已经立着一盏灯');
+
+        const logIdsBefore = new Set(gameState.battleLog.map(log => log.id));
+        const lamp = placeLamp(gameState, caster, cell);
+        if (!lamp) return fail('那一格放不下明灯');
+        const lit = shadowsCastBy(gameState, lamp);
+        gameState.battleLog.push({
+            id: nextBattleLogId(),
+            type: 'skill',
+            player: caster.owner,
+            message: `${caster.name}在(${cell[0] + 1},${cell[1] + 1})点起明灯，亮${lamp.duration}回合：${
+                lit.length > 0
+                    ? lit.map(shadow => `${shadow.body.name}的影子落在(${shadow.cell[0] + 1},${shadow.cell[1] + 1})`).join('，')
+                    : '一圈没有敌人，这一盏暂时照不到影子'}`,
+            timestamp: Date.now(),
+        });
+        const output = result();
+        const coveredCells: Position[] = [cell, ...lit.map(shadow => [...shadow.cell] as Position)];
+        output.fxCoveredPositions = coveredCells;
+        requestSkillFx({
+            skillId: 'xiyueci_skill2',
+            owner: caster.owner,
+            sourceHeroId: caster.id,
+            fromPos: [...caster.position] as Position,
+            targetPos: [...cell] as Position,
+            impactPositions: [[...cell] as Position],
+            coveredPositions: coveredCells,
+            logIds: gameState.battleLog.filter(log => !logIdsBefore.has(log.id)).map(log => log.id),
+        }, gameState);
+        return output;
+    },
+};
 
 export const EXTENDED_SKILLS: Record<string, Skill> = {
     daizong_skill1: daizongSkill1,
@@ -6543,4 +7019,10 @@ export const EXTENDED_SKILLS: Record<string, Skill> = {
     duosui_skill2: duosuiSkill2,
     xuanyuan_skill1: xuanyuanSkill1,
     xuanyuan_skill2: xuanyuanSkill2,
+    wenren_skill1: wenrenSkill1,
+    wenren_skill2: wenrenSkill2,
+    shuangfeiyan_skill1: shuangfeiyanSkill1,
+    shuangfeiyan_skill2: shuangfeiyanSkill2,
+    xiyueci_skill1: xiyueciSkill1,
+    xiyueci_skill2: xiyueciSkill2,
 };

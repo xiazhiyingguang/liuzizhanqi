@@ -4,6 +4,7 @@ import { Position, type Hero } from '../../types/game';
 import { GameEngine } from '../../core/game-engine';
 import type { SkillFxEvent } from '../../core/skill-fx';
 import { computeFxAngleDeg, computeFxLogImpactDelayMs, computeFxDirection, resolveSkillFx } from '../../core/skill-fx';
+import { cellFxKey, planCellFx } from '../../core/cell-fx-arbitration';
 import { collectMirrorBladeFx } from '../../core/mirror-blade-fx';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroStatusPopover from './HeroStatusPopover';
@@ -13,6 +14,7 @@ import { WindBladeGlyph } from './WindBladeGlyph';
 import { resolveHeroLinks } from '../../core/hero-link-view';
 import { isLowQuality } from '../../core/render-quality';
 import { marshCovers } from '../../core/water-marsh';
+import { lampShadows } from '../../core/lamp-shadow';
 import { ThunderCloudLayer } from './ThunderCloudField';
 import { isYunxiuCloudFx } from '../../core/yunxiu-cloud-fx';
 import '../../styles/thunder-cloud-fx.css';
@@ -83,6 +85,28 @@ type DeathFx = {
     col: number;
     delayMs: number;
 };
+
+type SkillFxVariant = 'caster' | 'target' | 'impact' | 'area' | 'splash' | 'chain';
+
+/** 一格内的最终渲染清单：主效全尺寸，回声缩进格角，第三份起只剩格边短线 */
+type CellFxRender = {
+    event: SkillFxEvent;
+    variant: SkillFxVariant;
+    emphasis: 'main' | 'echo';
+};
+type CellFxCellPlan = {
+    renders: CellFxRender[];
+    notches: SkillFxEvent[];
+    hot: boolean;
+};
+const EMPTY_CELL_FX_PLAN: CellFxCellPlan = { renders: [], notches: [], hot: false };
+
+/** 格边短线的颜色：优先用技能档案主色，缺省退回施法方阵营色 */
+function cellFxNotchColor(event: SkillFxEvent): string {
+    return event.profile.c1 ?? (event.owner === 'player1'
+        ? 'rgba(63, 143, 107, 0.9)'
+        : 'rgba(192, 57, 43, 0.9)');
+}
 
 /** 同格飘字偏移表（px）：第 0 条居中，后续左右交错向上错开 */
 const FLOATING_OFFSETS: Array<[number, number]> = [
@@ -463,10 +487,22 @@ export default function Board() {
         return groups;
     }, [boardEffects]);
 
+    // 夕月辞的灯影：由"灯 + 此刻站位"当场推导，影子不占格——别人照样能走上去，
+    // 但这一格从此替本体挨打。逐格建一次索引供 36 格查表，免得每格重扫一遍灯与人。
+    const lampShadowNames = useMemo(() => {
+        const byCell = new Map<string, string[]>();
+        for (const shadow of lampShadows({ board, boardEffects, player1Heroes, player2Heroes })) {
+            const key = `${shadow.cell[0]},${shadow.cell[1]}`;
+            const names = byCell.get(key) ?? [];
+            if (!names.includes(shadow.body.name)) names.push(shadow.body.name);
+            byCell.set(key, names);
+        }
+        return byCell;
+    }, [board, boardEffects, player1Heroes, player2Heroes]);
+
     // 命中本格的技能特效事件：起手格渲染光环，目标格渲染主效，溅射格与链电链路格
     // 渲染各自的多格变体；AOE 真正打到的每一格各渲染一份 impact，
     // 落在作用区域但未被更强变体占用的格子渲染 area 贴地底光
-    type SkillFxVariant = 'caster' | 'target' | 'impact' | 'area' | 'splash' | 'chain';
     const lowQualityFxCellBudget = isLowQuality() ? LOW_QUALITY_FX_CELL_LIMIT : 0;
 
     /**
@@ -525,10 +561,25 @@ export default function Board() {
         return index;
     }, [skillFx, lowQualityFxCellBudget]);
 
-    const skillFxAtCell = (row: number, col: number): Array<{
-        event: SkillFxEvent;
-        variant: SkillFxVariant;
-    }> => fxHitCells.get(`${row},${col}`) ?? [];
+    // 一格一主演出：同格多来源先仲裁，再交给格子渲染；回声与短线只表达"还有谁打到这格"
+    const fxCellPlans = useMemo(() => {
+        const plans = new Map<string, CellFxCellPlan>();
+        for (const [cellKey, entries] of fxHitCells) {
+            const plan = planCellFx(entries.map(({ event, variant }) => ({ eventId: event.id, variant })));
+            const renders: CellFxRender[] = [];
+            for (const { event, variant } of entries) {
+                const role = plan.roles.get(cellFxKey(event.id, variant));
+                if (role === 'show') renders.push({ event, variant, emphasis: 'main' });
+                else if (role === 'echo') renders.push({ event, variant, emphasis: 'echo' });
+            }
+            const notches = plan.notchEventIds
+                .map(eventId => entries.find(entry => entry.event.id === eventId)?.event)
+                .filter((event): event is SkillFxEvent => Boolean(event));
+            if (renders.length === 0 && notches.length === 0) continue;
+            plans.set(cellKey, { renders, notches, hot: plan.hot });
+        }
+        return plans;
+    }, [fxHitCells]);
 
     // 时空停滞残影：被戴尔凝固时间的阵亡单位，其死亡格上留下的可点残影
     const stasisGhostAt = (row: number, col: number): Hero | null => {
@@ -618,6 +669,25 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 双飞燕的回旋镖：落在格上，按她的出手序号返航；两把可以叠在同一格
+                            const boomerangsHere = (boardEffects ?? []).filter(
+                                effect =>
+                                    effect.type === 'boomerang' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            const boomerang = boomerangsHere[0];
+                            const boomerangSource = boomerang
+                                ? [...player1Heroes, ...player2Heroes].find(item => item.id === boomerang.sourceHeroId)
+                                : undefined;
+                            const boomerangRemaining = boomerang?.returnAtSkillSerial !== undefined && boomerangSource
+                                ? Math.max(0, boomerang.returnAtSkillSerial - (boomerangSource.counters['sfy_skillSerial'] ?? 0))
+                                : undefined;
+                            const boomerangTitle = boomerang
+                                ? `回旋镖：${boomerangRemaining !== undefined
+                                    ? `再${boomerangRemaining}次出手后沿最短路径返航`
+                                    : '下下次出手后沿最短路径返航'}`
+                                : '';
                             // 镜花·水月的两枚镜像标记：水月（可踏的跳板）与月座（等她归场）
                             const waterMoon = (boardEffects ?? []).find(
                                 effect =>
@@ -663,6 +733,15 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 夕月辞的明灯：她点的灯，也包括她倒下后留下的那一盏
+                            const lamp = (boardEffects ?? []).find(
+                                effect =>
+                                    (effect.type === 'lit-lamp' || effect.type === 'wake-lamp') &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            // 压在本格上的灯影：影子不占格，所以站着的人可以和影子同框
+                            const lampShadowHere = lampShadowNames.get(`${rowIndex},${colIndex}`);
                             // 时空停滞残影：本格空着、但躺着一个被戴尔凝固时间的阵亡单位
                             const stasisGhost = stasisGhostAt(rowIndex, colIndex);
                             const stasisAnchored = stasisGhost !== null && daiReviveHeroId === stasisGhost.id;
@@ -699,6 +778,7 @@ export default function Board() {
                             const pickedCorner = (pendingSkillTargetPositions ?? []).some(
                                 ([r, c]) => r === rowIndex && c === colIndex
                             );
+                            const cellFxPlan = fxCellPlans.get(`${rowIndex},${colIndex}`) ?? EMPTY_CELL_FX_PLAN;
 
                             return (
                                 <div
@@ -707,7 +787,7 @@ export default function Board() {
                                     onClick={(e) => handleCellClick(e, rowIndex, colIndex)}
                                     onMouseDown={(e) => e.preventDefault()}
                                     style={{ userSelect: 'none' }}
-                                    className={`${cellClass}${daizongGuardedCells.has(`${rowIndex},${colIndex}`) ? ' cell-daizong-guard' : ''} battle-board-cell flex flex-col items-center justify-center`}
+                                    className={`${cellClass}${daizongGuardedCells.has(`${rowIndex},${colIndex}`) ? ' cell-daizong-guard' : ''}${cellFxPlan.hot ? ' cell-fx-hot' : ''} battle-board-cell flex flex-col items-center justify-center`}
                                 >
                                     {cellContacts.map(hit => <HitContactFx key={hit.id} hit={hit} />)}
                                     {pickedCorner && (
@@ -848,6 +928,21 @@ export default function Board() {
                                         </div>
                                     )}
 
+                                    {boomerang && !cell && (
+                                        <div
+                                            className={`bf-boomerang bf-boomerang-${boomerang.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title={boomerangTitle}
+                                        >
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M3 8 Q10 3 18 8 Q12 11 8 19 Q7 13 3 8 Z" />
+                                                <path d="M21 16 Q14 21 6 16 Q12 13 16 5 Q17 11 21 16 Z" />
+                                            </svg>
+                                            {boomerangsHere.length > 1 && (
+                                                <span className="bf-boomerang-count">{boomerangsHere.length}</span>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {iceCrystal && (
                                         <div
                                             className="bf-ice-crystal absolute inset-1 flex items-center justify-center pointer-events-none"
@@ -939,6 +1034,32 @@ export default function Board() {
                                                 <path className="bf-prism-edge" d="M12 3.2 L20.2 18 M12 3.2 L3.8 18 M3.8 18 L20.2 18 M12 3.2 L12 18" />
                                                 <path className="bf-prism-ray" d="M0.6 12.4 L8.4 12.4 M15.6 12.4 L23.4 9.2" />
                                             </svg>
+                                        </div>
+                                    )}
+
+                                    {lamp && (
+                                        <div
+                                            className={`bf-lamp bf-lamp-${lamp.owner === 'player1' ? 'p1' : 'p2'}${lamp.type === 'wake-lamp' ? ' bf-lamp-wake' : ''} absolute inset-1 pointer-events-none`}
+                                            title={lamp.type === 'wake-lamp'
+                                                ? `留灯：${lamp.duration}回合内每回合末为两格内友方恢复5点生命`
+                                                : `明灯：照出周围一圈敌人的影子（剩${lamp.duration}回合），灯下两格内夕月辞免伤30%`}
+                                        >
+                                            <i className="bf-lamp-halo" aria-hidden="true" />
+                                            <svg className="bf-lamp-glyph" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path className="bf-lamp-flame" d="M12 4.2c1.9 2.1 2.8 3.7 2.8 5.1a2.8 2.8 0 0 1-5.6 0c0-1.4.9-3 2.8-5.1z" />
+                                                <path className="bf-lamp-body" d="M7.6 12.4h8.8l-1.3 6.2q-.1.6-.7.6H9.6q-.6 0-.7-.6z" />
+                                                <path className="bf-lamp-base" d="M6.4 20.2h11.2" />
+                                            </svg>
+                                        </div>
+                                    )}
+
+                                    {lampShadowHere && (
+                                        <div
+                                            className="bf-lamp-shadow absolute inset-1 pointer-events-none"
+                                            title={`灯影：这一格连着${lampShadowHere.join('、')}本人，打中影子就照到本体`}
+                                        >
+                                            <i className="bf-lamp-shadow-stretch" aria-hidden="true" />
+                                            <i className="bf-lamp-shadow-tip" aria-hidden="true" />
                                         </div>
                                     )}
 
@@ -1059,10 +1180,10 @@ export default function Board() {
                                                 </div>
                                                 <HeroStatusFx hero={cell} />
                                                 {/* 泠汐的水波与折扇贴角色本身，不受下方名字与血条影响。 */}
-                                                {skillFxAtCell(rowIndex, colIndex)
+                                                {cellFxPlan.renders
                                                     .filter(({ event, variant }) => variant === 'caster' && ['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind))
-                                                    .map(({ event, variant }) => (
-                                                        <SkillFxVisual key={`${event.id}-${variant}`} event={event} variant={variant} atPos={[rowIndex, colIndex]} />
+                                                    .map(({ event, variant, emphasis }) => (
+                                                        <SkillFxVisual key={`${event.id}-${variant}`} event={event} variant={variant} atPos={[rowIndex, colIndex]} emphasis={emphasis} />
                                                     ))}
                                             </div>
                                             </HitResponsivePiece>
@@ -1087,6 +1208,22 @@ export default function Board() {
                                                 </div>
                                             )}
                                         </HeroStatusPopover>
+                                    )}
+
+                                    {/* 镖落在人身上：棋子会盖住整格标记，改在左上角钉一枚小镖徽 */}
+                                    {cell && boomerang && (
+                                        <div
+                                            className={`bf-boomerang-occupied bf-boomerang-${boomerang.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            title={boomerangTitle}
+                                        >
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M3 8 Q10 3 18 8 Q12 11 8 19 Q7 13 3 8 Z" />
+                                                <path d="M21 16 Q14 21 6 16 Q12 13 16 5 Q17 11 21 16 Z" />
+                                            </svg>
+                                            {boomerangsHere.length > 1 && (
+                                                <span className="bf-boomerang-count">{boomerangsHere.length}</span>
+                                            )}
+                                        </div>
                                     )}
 
                                     {/* 伤害飘字：灼烧/流血/链电伤害使用专属来源配色 */}
@@ -1150,17 +1287,28 @@ export default function Board() {
                                             </span>
                                         ))}
 
-                                    {/* 英雄技能特效：起手格光环 + 目标格主效 + 溅射/链电多格变体 */}
-                                    {skillFxAtCell(rowIndex, colIndex)
+                                    {/* 英雄技能特效：同格先仲裁，主效全尺寸、旧的回声、再往后的只留格边短线 */}
+                                    {cellFxPlan.renders
                                         .filter(({ event, variant }) => !cell || variant !== 'caster' || !['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind))
-                                        .map(({ event, variant }) => (
+                                        .map(({ event, variant, emphasis }) => (
                                         <SkillFxVisual
                                             key={`${event.id}-${variant}`}
                                             event={event}
                                             variant={variant}
                                             atPos={[rowIndex, colIndex]}
+                                            emphasis={emphasis}
                                         />
                                     ))}
+                                    {cellFxPlan.notches.length > 0 && (
+                                        <span className="cell-fx-notches" aria-hidden="true">
+                                            {cellFxPlan.notches.slice(0, 3).map(event => (
+                                                <i
+                                                    key={event.id}
+                                                    style={{ '--notch-color': cellFxNotchColor(event) } as CSSProperties}
+                                                />
+                                            ))}
+                                        </span>
+                                    )}
                                 </div>
                             );
                         })

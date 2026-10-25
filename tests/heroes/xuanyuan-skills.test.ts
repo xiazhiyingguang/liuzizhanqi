@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SKILLS } from '../../src/data/skills';
 import type { GameState, Hero, Position } from '../../src/types/game';
 import { DamageCalculator } from '../../src/core/damage-calculator';
 import { MovementSystem } from '../../src/core/movement-system';
+import { SkillSystem } from '../../src/core/skill-system';
+import { chooseComputerSkillPlan } from '../../src/core/computer-ai';
 import {
     ATTACHED_SWORD_SHOT_DAMAGE,
     SWORD_MITIGATION_PER_STACK,
@@ -12,11 +14,21 @@ import {
     getXuanyuanLeapCells,
     placeFlyingSword,
 } from '../../src/core/flying-sword';
-import { getLeapsUsed, getStagedGStart, markZhaoShenHit, setLeapsUsed, setStagedGStart, tryEnterZhaoShen } from '../../src/core/xuanyuan-form';
+import { getLeapsUsed, markZhaoShenHit, setLeapsUsed, tryEnterZhaoShen } from '../../src/core/xuanyuan-form';
+import { useGameStore } from '../../src/store/game-store';
 import { addHero, makeGameState } from '../helpers/game-state';
 
 const SKILL1 = SKILLS['xuanyuan_skill1'];
 const SKILL2 = SKILLS['xuanyuan_skill2'];
+
+// 被动「剑随气走」会调用 Math.random 决定漂移方向；0.99 恒定指向「右」，
+// 同时也保证暴击/闪避这类 0.99 < 概率 的判定一律不成立。
+beforeEach(() => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+});
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 /** 无被动干扰的标靶：墨澜模板 + 显式 100 HP，便于精确断言伤害数字 */
 function makeDummy(state: GameState, owner: 'player1' | 'player2', position: Position): Hero {
@@ -72,8 +84,8 @@ describe('轩辕神君 · 御剑·贯阵（基础形态：象走田跳斩）', (
         // 远端目标不受影响
         expect(untouched.currentHp).toBe(100);
 
-        // 命中目标位置各留下一把飞剑
-        expect(swordCells(state)).toEqual(['1,1', '2,3']);
+        // 命中目标位置各留下一把飞剑，落地后被动把它们各向右吹了一格
+        expect(swordCells(state)).toEqual(['1,2', '2,4']);
 
         // 本体完成跃迁
         expect(caster.position).toEqual([2, 2]);
@@ -95,86 +107,69 @@ describe('轩辕神君 · 御剑·贯阵（基础形态：象走田跳斩）', (
     });
 });
 
-describe('轩辕神君 · 御剑·贯阵（昭神形态：G型踩剑跃击）', () => {
-    it('踩毁终点的飞剑，路径 4 点 + 周圈 8 点，连跳次数 +1，起笔计数随之清空', () => {
+describe('轩辕神君 · 御剑·贯阵（昭神形态：相步跃击，不必踩剑）', () => {
+    it('场上没有飞剑也能起手：对角一格跃击，落点周圈 8 点，命中处钉下飞剑', () => {
         const state = makeState();
-        // G 从正下起笔：描 [下(1,0)→右下(1,1)→右(0,1)]，落点选踩剑的 (1,1)
-        const caster = makeXuanyuan(state, [0, 0], true);
-        placeFlyingSword(state, caster, [1, 1]);
-        const pathTarget = makeDummy(state, 'player2', [1, 0]); // 沿途格
-        const ringTarget = makeDummy(state, 'player2', [1, 2]); // 仅落点周圈
+        const caster = makeXuanyuan(state, [2, 2], true);
+        const ringTarget = makeDummy(state, 'player2', [3, 4]);
 
-        setStagedGStart(caster, 2); // 下
-        click(caster, [1, 1]);
+        click(caster, [3, 3]);
         const result = SKILL1.execute!(caster, 0, state);
         expect(result.success).toBe(true);
-        expect(pathTarget.currentHp).toBe(100 - 4 - 8);
+        expect(caster.position).toEqual([3, 3]);
         expect(ringTarget.currentHp).toBe(100 - 8);
-        expect(caster.position).toEqual([1, 1]);
-
-        // 终点飞剑被踩毁，命中处留下新飞剑
-        expect(swordCells(state)).toEqual(['1,0', '1,2']);
-        // 连跳计数 +1，起笔计数已随起跳清空
+        // 起手前盘上一把剑都没有，这一跳之后才第一次有了剑（随即被被动向右吹一格）
+        expect(swordCells(state)).toEqual(['3,5']);
         expect(getLeapsUsed(caster)).toBe(1);
-        expect(getStagedGStart(caster)).toBeNull();
     });
 
-    it('未点起笔时无法出手', () => {
-        const state = makeState();
-        const caster = makeXuanyuan(state, [0, 0], true);
-        placeFlyingSword(state, caster, [1, 1]);
-
-        click(caster, [1, 1]);
-        const result = SKILL1.execute!(caster, 0, state);
-        expect(result.success).toBe(false);
-        expect(caster.position).toEqual([0, 0]);
-        expect(getLeapsUsed(caster)).toBe(0);
-        expect(swordCells(state)).toEqual(['1,1']);
-    });
-
-    it('起笔旁的斜格是 G 的开口，那一格描不到', () => {
+    it('对角两格照跳：象眼上的敌人先吃 4 点路径伤再吃 8 点周圈伤', () => {
         const state = makeState();
         const caster = makeXuanyuan(state, [2, 2], true);
-        // 唯一的剑在右上 (1,3)；正上起笔的开口正好在右上
-        placeFlyingSword(state, caster, [1, 3]);
-        setStagedGStart(caster, 0); // 上：笔画绕左半圈，收笔在正右，右上是开口
+        const eyeTarget = makeDummy(state, 'player2', [3, 3]);
+        const ringTarget = makeDummy(state, 'player2', [5, 4]);
 
-        click(caster, [1, 3]);
-        const result = SKILL1.execute!(caster, 0, state);
-        expect(result.success).toBe(false);
-        expect(caster.position).toEqual([2, 2]);
-        expect(swordCells(state)).toEqual(['1,3']);
+        click(caster, [4, 4]);
+        expect(SKILL1.execute!(caster, 0, state).success).toBe(true);
+        expect(caster.position).toEqual([4, 4]);
+        expect(eyeTarget.currentHp).toBe(100 - 4 - 8);
+        expect(ringTarget.currentHp).toBe(100 - 8);
+        expect(swordCells(state)).toEqual(['3,4', '5,5']);
     });
 
-    it('昭神跃击的高亮：未定起笔亮正四方向，定笔后只亮笔画内踩得到剑的空格', () => {
+    it('落点正好踩到自己的飞剑时只收走那一把，远处的剑不受牵连', () => {
         const state = makeState();
         const caster = makeXuanyuan(state, [2, 2], true);
-        placeFlyingSword(state, caster, [3, 3]); // 右下：正上/下/左起笔都描得到，正右起笔正好卡在开口
-        placeFlyingSword(state, caster, [0, 4]); // 远处：不是任何一笔的外圈格
+        placeFlyingSword(state, caster, [4, 4]);
+        placeFlyingSword(state, caster, [0, 5]);
+        makeDummy(state, 'player2', [3, 4]);
 
-        // 未定笔：亮四个起笔格（上、右、下、左）
-        expect(getXuanyuanLeapCells(caster, state).map(position => position.join(',')))
-            .toEqual(['1,2', '2,3', '3,2', '2,1']);
-
-        setStagedGStart(caster, 0); // 上：笔画描到 (3,3)
-        expect(getXuanyuanLeapCells(caster, state)).toEqual([[3, 3]]);
-
-        setStagedGStart(caster, 1); // 右：开口在右下，这一笔够不到剑
-        expect(getXuanyuanLeapCells(caster, state)).toEqual([]);
+        click(caster, [4, 4]);
+        expect(SKILL1.execute!(caster, 0, state).success).toBe(true);
+        // 落点那把被踩走；远处的 [0,5] 右边界出不去、按序退到左格；新剑向右
+        expect(swordCells(state)).toEqual(['0,4', '3,5']);
     });
 
-    it('场上没有可跃的飞剑时连起笔都不亮', () => {
+    it('落点被占据时跃击失败，不消耗落点上已有的飞剑', () => {
         const state = makeState();
         const caster = makeXuanyuan(state, [2, 2], true);
-        expect(getXuanyuanLeapCells(caster, state)).toEqual([]);
-    });
+        placeFlyingSword(state, caster, [3, 3]);
+        const blocker = makeDummy(state, 'player2', [3, 3]);
 
-    it('目标格没有飞剑时跃击失败', () => {
-        const state = makeState();
-        const caster = makeXuanyuan(state, [2, 2], true);
-
-        setStagedGStart(caster, 2); // 下：笔画经过 (3,3)
         click(caster, [3, 3]);
+        expect(SKILL1.execute!(caster, 0, state).success).toBe(false);
+        expect(caster.position).toEqual([2, 2]);
+        expect(blocker.currentHp).toBe(100);
+        expect(swordCells(state)).toEqual(['3,3']);
+    });
+
+    it('对角之外一律描不到：正交两格与斜三格都失败', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+
+        click(caster, [2, 4]);
+        expect(SKILL1.execute!(caster, 0, state).success).toBe(false);
+        click(caster, [5, 5]);
         expect(SKILL1.execute!(caster, 0, state).success).toBe(false);
         expect(caster.position).toEqual([2, 2]);
     });
@@ -182,16 +177,59 @@ describe('轩辕神君 · 御剑·贯阵（昭神形态：G型踩剑跃击）', 
     it('单次行动最多三连跳，第四次出手失败', () => {
         const state = makeState();
         const caster = makeXuanyuan(state, [2, 2], true);
-        placeFlyingSword(state, caster, [3, 3]);
 
-        setStagedGStart(caster, 2);
         setLeapsUsed(caster, 3);
         click(caster, [3, 3]);
-        const result = SKILL1.execute!(caster, 0, state);
-        expect(result.success).toBe(false);
+        expect(SKILL1.execute!(caster, 0, state).success).toBe(false);
         expect(caster.position).toEqual([2, 2]);
-        // 失败的出手不消耗飞剑
-        expect(swordCells(state)).toEqual(['3,3']);
+    });
+
+    it('高亮：没剑也亮全部对角空落点，被占的不亮，跳满三次不再亮', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+
+        expect(getXuanyuanLeapCells(caster, state).map(position => position.join(',')).sort())
+            .toEqual(['0,0', '0,4', '1,1', '1,3', '3,1', '3,3', '4,0', '4,4'].sort());
+
+        makeDummy(state, 'player2', [3, 3]);
+        expect(getXuanyuanLeapCells(caster, state).map(position => position.join(',')))
+            .not.toContain('3,3');
+
+        setLeapsUsed(caster, 3);
+        expect(getXuanyuanLeapCells(caster, state)).toEqual([]);
+    });
+
+    it('续跳必须踩剑：第二跳落在没有剑的对角空格会失败', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+        setLeapsUsed(caster, 1);
+
+        click(caster, [3, 3]);
+        expect(SKILL1.execute!(caster, 0, state).success).toBe(false);
+        expect(caster.position).toEqual([2, 2]);
+    });
+
+    it('续跳高亮只亮踩得到自己剑的对角空落点', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+        setLeapsUsed(caster, 1);
+        placeFlyingSword(state, caster, [3, 3]);
+        placeFlyingSword(state, caster, [0, 3]); // 不是对角格，不该亮
+
+        expect(getXuanyuanLeapCells(caster, state)).toEqual([[3, 3]]);
+    });
+
+    it('每跳都吹一次：第一跳钉下的剑漂走后，续跳认的是漂移后的位置', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+        makeDummy(state, 'player2', [3, 4]);
+
+        click(caster, [3, 3]);
+        expect(SKILL1.execute!(caster, 0, state).success).toBe(true);
+
+        // 剑钉在 (3,4)，随被动向右漂到 (3,5)：从 (3,3) 看它不是对角格，续跳就无剑可踩
+        expect(swordCells(state)).toEqual(['3,5']);
+        expect(getXuanyuanLeapCells(caster, state)).toEqual([]);
     });
 });
 
@@ -324,21 +362,20 @@ describe('轩辕神君 · 移动规则', () => {
         expect(positions).toContain('0,0');
     });
 
-    it('昭神形态改为 G 型移动（八格，可停路径中途，不能踩 occupied）', () => {
+    it('昭神形态按「相」走：对角一格与两格都给，被占的那格不给', () => {
         const state = makeState();
         const caster = makeXuanyuan(state, [2, 2], true);
-        makeDummy(state, 'player2', [2, 3]);
+        const blocker = makeDummy(state, 'player2', [1, 1]);
 
         const positions = MovementSystem.getMovablePositions(caster, state).map(
             (position) => `${position[0]},${position[1]}`,
         );
-        expect(positions).toContain('1,1');
-        expect(positions).toContain('1,3'); // 外圈行走中途可停
-        expect(positions).toContain('3,3');
-        expect(positions).not.toContain('2,3'); // 被占据
-        expect(positions.length).toBe(7);
+        expect(positions.sort()).toEqual(['0,0', '0,4', '1,3', '3,1', '3,3', '4,0', '4,4'].sort());
+        expect(positions).not.toContain('1,1');
 
-        expect(MovementSystem.moveHero(caster, [1, 3], state)).toBe(true);
+        expect(MovementSystem.moveHero(caster, [3, 3], state)).toBe(true);
+        expect(caster.position).toEqual([3, 3]);
+        expect(state.board[1][1]).toBe(blocker);
     });
 
     it('非轩辕英雄的移动不受影响', () => {
@@ -416,5 +453,62 @@ describe('轩辕神君 · 连跳计数随行动结束失效', () => {
 
         caster.counters['__actionSerial'] = (caster.counters['__actionSerial'] ?? 0) + 1;
         expect(getLeapsUsed(caster)).toBe(0);
+    });
+});
+
+describe('轩辕神君 · 技能一与移动互斥', () => {
+    /** 门禁在 store 的 selectSkill 上，所以走真实选将→选技能链路，不直接调 execute */
+    function mountInStore(state: GameState): void {
+        useGameStore.setState({
+            ...state,
+            moveRange: [],
+            skillRange: [],
+            wukongSkill2State: undefined,
+            suppressOnlineBroadcast: false,
+            selectedHero: null,
+            activeHero: null,
+        });
+    }
+
+    it('本回合移动过：技能一选不动并给出反馈，技能二照选', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+        caster.hasMovedThisTurn = true;
+        mountInStore(state);
+        useGameStore.getState().selectHeroForAction(caster);
+
+        // addLog 会换掉整个 battleLog 数组，所以计数只能问 store，不能握着旧引用看长度
+        const logBefore = useGameStore.getState().battleLog.length;
+        useGameStore.getState().selectSkill('xuanyuan_skill1');
+        expect(useGameStore.getState().selectedSkill?.id).not.toBe('xuanyuan_skill1');
+        expect(useGameStore.getState().battleLog.length).toBeGreaterThan(logBefore);
+
+        useGameStore.getState().selectSkill('xuanyuan_skill2');
+        expect(useGameStore.getState().selectedSkill?.id).toBe('xuanyuan_skill2');
+    });
+
+    it('原地起手（本回合没移动过）时技能一可选', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2], true);
+        mountInStore(state);
+        useGameStore.getState().selectHeroForAction(caster);
+
+        useGameStore.getState().selectSkill('xuanyuan_skill1');
+        expect(useGameStore.getState().selectedSkill?.id).toBe('xuanyuan_skill1');
+    });
+});
+
+describe('轩辕神君 · 门禁对电脑规划同样生效', () => {
+    it('移动过后技能一判不可用，也不会再进 AI 候选（否则电脑会反复点它空转）', () => {
+        const state = makeState();
+        const caster = makeXuanyuan(state, [2, 2]);
+        makeDummy(state, 'player2', [3, 3]);
+
+        expect(SkillSystem.canUseSkill(caster, SKILL1, state)).toBe(true);
+        expect(chooseComputerSkillPlan(state, caster, 'xuanyuan_skill1')).not.toBeNull();
+
+        caster.hasMovedThisTurn = true;
+        expect(SkillSystem.canUseSkill(caster, SKILL1, state)).toBe(false);
+        expect(chooseComputerSkillPlan(state, caster, 'xuanyuan_skill1')).toBeNull();
     });
 });

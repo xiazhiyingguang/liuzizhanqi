@@ -3,7 +3,7 @@
  *
  * 飞剑是落在棋盘格上的锚点，同时承担三件事：
  * 1. 技能命中的痕迹——每命中一个目标，就在那个目标所在的格子留下一把剑；
- * 2. 昭神态技能一的传送终点——他只能沿 G 型路线跳到另一把剑上，跳完那把剑就消失；
+ * 2. 昭神态技能一的可选终点——跃到站着自己剑的格上时那把剑被收走（没剑也照样能起手跃击）；
  * 3. 技能二的资源——回收/召唤的每一把剑折成一层 10% 免伤。
  *
  * 口径（策划定稿）：同屏上限 6 把、每把持续 3 回合、只有轩辕自己回收或当作跳跃终点才会消失，
@@ -15,7 +15,7 @@ import { BOARD_SIZE, HeroState, type BoardEffect, type GameState, type Hero, typ
 import { EffectManager } from './effect-manager';
 import { DamageCalculator } from './damage-calculator';
 import { nextBattleLogId } from './battle-log-id';
-import { getGMovePlans, getGStartCell, getStagedGStart } from './xuanyuan-form';
+import { getLeapsUsed, getXiangStepMovePlans, XUANYUAN_LEAP_MAX } from './xuanyuan-form';
 
 export const FLYING_SWORD_DURATION = 3;
 /** 同屏至多 6 把：铺满后最老的一把先散，避免棋盘被剑糊死 */
@@ -79,6 +79,55 @@ export function removeFlyingSword(gameState: GameState, swordId: string): void {
     gameState.boardEffects = (gameState.boardEffects ?? []).filter(effect => effect.id !== swordId);
 }
 
+/** 被动「剑随气走」的四个方向：上、下、左、右（顺序即 Math.random 的抽取顺序，测试按此钉方向） */
+const DRIFT_DIRECTIONS: Position[] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+/**
+ * 被动「剑随气走」：轩辕神君每完成一次主动位移，属于他的飞剑各随机挪一格。
+ * - 出界的方向不参与抽取（贴边的剑只会往盘内走）；
+ * - 两把剑抽到同一格时，后处理的那把原地不动，维持"一格一刃"；
+ * - 移动前的坐标记进 prevPosition，供「撤回移动」原样放回去。
+ * 返回真正挪过的剑数（0 表示场上没剑，或全都被挤住）。
+ */
+export function driftFlyingSwords(gameState: GameState, caster: Hero): number {
+    const swords = getFlyingSwords(gameState, caster.id);
+    if (swords.length === 0) return 0;
+    const taken = new Set<string>();
+    const moves: Array<{ sword: BoardEffect; to: Position }> = [];
+    for (const sword of swords) {
+        const [row, col] = sword.position;
+        // 先按四个方向均匀抽，再看落点：抽到出界或已被别的剑占住，这一把就原地不动
+        const options = DRIFT_DIRECTIONS
+            .map(([dr, dc]) => [row + dr, col + dc] as Position)
+            .filter(([r, c]) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE);
+        if (options.length === 0) {
+            taken.add(`${row},${col}`);
+            continue;
+        }
+        const to = options[Math.floor(Math.random() * options.length)];
+        if (taken.has(`${to[0]},${to[1]}`)) {
+            taken.add(`${row},${col}`);
+            continue;
+        }
+        taken.add(`${to[0]},${to[1]}`);
+        moves.push({ sword, to });
+    }
+    for (const { sword, to } of moves) {
+        sword.prevPosition = [sword.position[0], sword.position[1]];
+        sword.position = to;
+    }
+    return moves.length;
+}
+
+/** 撤回移动：把这一步漂移过的剑放回原处（没有漂移记录的剑不动） */
+export function restoreDriftedSwords(gameState: GameState, caster: Hero): void {
+    for (const sword of getFlyingSwords(gameState, caster.id)) {
+        if (!sword.prevPosition) continue;
+        sword.position = [sword.prevPosition[0], sword.prevPosition[1]];
+        delete sword.prevPosition;
+    }
+}
+
 /** 技能二普通版的作用域：轩辕周身四个斜方向（对角相邻一格）上的剑 */
 export function getDiagonalSwords(gameState: GameState, hero: Hero): BoardEffect[] {
     if (!hero.position) return [];
@@ -138,36 +187,25 @@ export function attachSwordToAlly(ally: Hero, stacks: number): void {
     ally.counters[ATTACHED_SWORD_COUNTER] = (ally.counters[ATTACHED_SWORD_COUNTER] ?? 0) + stacks;
 }
 
-/** 昭神态技能一「御剑连破」的跳跃候选：G 型外圈落点中、站着他那把飞剑且格上无人的格子 */
-/** 盘上是否存在可被跃向的飞剑：站着自己的剑、且落点无人 */
+/** 昭神态技能一此刻还有没有可跃的落点（跳满三次即无） */
 export function hasXuanyuanLeapTarget(hero: Hero, gameState: GameState): boolean {
-    return getFlyingSwords(gameState, hero.id).some(
-        sword => !gameState.board[sword.position[0]]?.[sword.position[1]]
-    );
+    return getXuanyuanLeapCells(hero, gameState).length > 0;
 }
 
 /**
- * 「御剑连破」此刻该高亮的格：G 是旋向可选的——未定起笔时亮周身正四方向
- * （点哪格就从哪格起笔）；定笔后只亮那一笔描得到的、空着且踩着自己飞剑的格。
+ * 「御剑连破」该高亮的格：对角一格或两格的空落点。
+ * 第一跳不要求踩剑——盘上一把剑都没有时，照样能靠这一跳命中目标钉出第一把；
+ * 续跳（第二、三跳）必须落在站着自己飞剑的格上，那一把会被收走（结算在技能一里）。
+ * 跳满 XUANYUAN_LEAP_MAX 后不再给落点，免得界面邀请第四次出手。
  */
 export function getXuanyuanLeapCells(hero: Hero, gameState: GameState): Position[] {
     if (!hero.position) return [];
-    if (!hasXuanyuanLeapTarget(hero, gameState)) return [];
-    const staged = getStagedGStart(hero);
-    if (staged === null) {
-        const starts: Position[] = [];
-        for (let dir = 0; dir < 4; dir++) {
-            const cell = getGStartCell(hero.position, dir);
-            if (cell) starts.push(cell);
-        }
-        return starts;
-    }
-    return getGMovePlans(hero.position, staged)
+    if (getLeapsUsed(hero) >= XUANYUAN_LEAP_MAX) return [];
+    const chaining = getLeapsUsed(hero) > 0;
+    return getXiangStepMovePlans(hero.position)
         .map(plan => plan.to)
-        .filter(cell =>
-            !gameState.board[cell[0]]?.[cell[1]] &&
-            findFlyingSwordAt(gameState, cell, hero.id) !== undefined
-        );
+        .filter(cell => !gameState.board[cell[0]]?.[cell[1]])
+        .filter(cell => !chaining || findFlyingSwordAt(gameState, cell, hero.id) !== undefined);
 }
 
 /** 是否还有附着在友方身上、等轩辕下次出手前射出的飞剑 */

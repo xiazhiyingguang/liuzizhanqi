@@ -56,7 +56,8 @@ export type HeroStatusFxKind =
     | 'pressure'     // 岳势（岱宗镇守期间挡下来的伤害池，数字即池深）
     | 'dragon'       // 游龙（敖渊绕身盘旋的龙影）
     | 'scales'      // 龙鳞层数（敖渊，环绕鳞光数=层数）
-    | 'tingxi';     // 霆息层数（云岫，每层 +1 移动力与 5% 防御）
+    | 'tingxi'      // 霆息层数（云岫，每层 +1 移动力与 5% 防御）
+    | 'zhaoshen';   // 昭神形态（闻人翊悬：破妄盈满后的两回合爆发）
 
 /** 同时渲染的状态特效上限（棋子很小，多了会糊） */
 export const MAX_HERO_STATUS_FX = 2;
@@ -87,6 +88,7 @@ const STATUS_FX_PRIORITY: Array<{ kind: HeroStatusFxKind; effectNames?: string[]
     { kind: 'inlay', effectNames: ['金银错'] },
     { kind: 'longshi', effectNames: ['龙势'] },
     { kind: 'duanxue', effectNames: ['断雪'] },
+    { kind: 'zhaoshen', effectNames: ['昭神'] },
     { kind: 'guard', effectNames: ['援护'] },
     { kind: 'ice-armor', effectNames: ['冰甲'] },
     { kind: 'bulwark', effectNames: ['镇守'] },

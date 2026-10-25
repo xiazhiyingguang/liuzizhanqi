@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useGameStore } from '../../src/store/game-store';
 import { getBattleReplay, hasBattleReplay, resetBattleReplay } from '../../src/services/battle-replay';
+import { runComputerOpponentStep } from '../../src/hooks/useComputerOpponent';
 import { addHero, makeGameState } from '../helpers/game-state';
 import type { GameState } from '../../src/types/game';
 
@@ -115,6 +116,41 @@ describe('对局回放录制接线', () => {
 
         expect(useGameStore.getState().currentPlayer).not.toBe('player2');
         expect(getBattleReplay().frames.length).toBeGreaterThan(before);
+    });
+
+    it('电脑选将/布阵日志带 setup 标记，回放主叙里不会出现', () => {
+        const state = makeGameState({
+            phase: 'deploy',
+            matchId: 'match-ai-setup-log',
+            isAiMode: true,
+            aiPlayer: 'player2',
+            isOnlineMode: false,
+            selectingPlayer: 'player2',
+            player1ReadyDeploy: true,
+            player2ReadyDeploy: false,
+            player1SelectedHeroIds: ['huifeng', 'moran', 'liuli', 'baize', 'changli', 'guying'],
+            player2SelectedHeroIds: ['zhenxiao', 'wukong', 'xuanxiao', 'nightowl', 'mirror', 'mowen'],
+        });
+        for (const [heroId, position] of [
+            ['huifeng', [2, 0]], ['moran', [1, 0]], ['liuli', [4, 1]], ['baize', [3, 1]],
+        ] as const) {
+            addHero(state, heroId, 'player1', [position[0], position[1]]);
+        }
+        useGameStore.setState({
+            ...state,
+            moveRange: [],
+            skillRange: [],
+            selectedHero: null,
+            activeHero: null,
+            wukongSkill2State: undefined,
+            suppressOnlineBroadcast: false,
+        });
+
+        runComputerOpponentStep();
+
+        const deployLog = useGameStore.getState().battleLog.find(entry => entry.message.includes('已完成布阵'));
+        expect(deployLog?.setup).toBe(true);
+        expect(getBattleReplay().narration.some(entry => entry.message.includes('已完成布阵'))).toBe(false);
     });
 
     it('返回主界面（resetGame）后旧录像立即清空，不会串到下一局', () => {
