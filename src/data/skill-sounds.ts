@@ -229,10 +229,24 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     // ===== 游隼：疾掠冲锋与四向风刃 =====
     youjun_skill1: 'dash',
     youjun_skill2: 'snow',
+    shuangfeiyan_skill1: 'dash',      // 双飞剪：掷镖/三角
+    shuangfeiyan_skill2: 'teleport',  // 燕归巢：跃向镖位
+
+    // ===== 夕月辞：环身月光与一盏明灯 =====
+    xiyueci_skill1: 'wind',           // 辞光·散影：一圈月光掀开的呼啸
+    xiyueci_skill2: 'soulfire',       // 明灯·照影：灯芯亮起来的那一响
+    xiyueci_tianwei: 'soulfire',      // 身后留灯：同一团火，换月青的音色档位
 
     // ===== 轩辕神君：御剑贯阵与飞剑归元 =====
     xuanyuan_skill1: 'dash',          // 御剑·贯阵：鎏金跃斩
     xuanyuan_skill2: 'metal',         // 御剑·归元：剑鸣归鞘
+
+    // ===== 闻人翊悬：蹈火跃阵与破妄燎原 =====
+    wenren_skill1: 'dash',            // 蹈火·跃阵：越过友军的一跳
+    wenren_skill2: 'explosion',       // 破妄·燎原：环身火浪
+    wenren_zhaoshen: 'buff',          // 昭神降临
+    wenren_skill1_zhaoshen: 'dash',   // 昭神·蹈火（条件形态）
+    wenren_skill2_zhaoshen: 'explosion', // 昭神·燎原（条件形态）
 
     // ===== 叙白：净化治疗与黑白凝珠 =====
     xubai_skill1: 'heal',

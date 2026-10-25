@@ -6,6 +6,7 @@ let mirrorBladeFxSequence = 0;
 import { Hero, DamageResult, GameState, HeroState, BattleLogEntry, Player, Position } from '../types/game';
 import { EffectManager } from './effect-manager';
 import { hasZhizhi, heroXRedirectCost, zhizhiValue } from './hero-zhizhi';
+import { clearShuangfeiyanBoomerangState } from './boomerang';
 import { MovementSystem } from './movement-system';
 import {
     moranPassive,
@@ -78,6 +79,7 @@ import { applyDragonTianwei, getScaleDodgeRate } from './dragon-orbit';
 import { fierceMultiplier } from './battle-tempo';
 import { isParalyzed, tingxiDefenseRate } from './thunder-cloud';
 import { findDaizongBulwark, hasStance, queueDaizongLamp, recordStanceDamage, stillnessDefense, stanceConversion } from './mountain-stance';
+import { SHADOW_DAMAGE_RATE, SHADOW_TRANSFER_KEY, clearShadowTransfers, lampMitigationFor, leaveWakeLamp } from './lamp-shadow';
 
 type DamageCalculationOptions = {
     /** 本次普通伤害段必定暴击。 */
@@ -144,6 +146,10 @@ export class DamageCalculator {
         } finally {
             this.currentAttackGroup = previous;
             if (previous === null) {
+                // 灯影的"半刀"只覆盖这一组攻击：多段招式每段都算打在影子上，所以整组期间都折半；
+                // 但组末的连枝/追击/鲸落是对本体的另一次出手，必须先把标记摘干净再结算。
+                const traced = this.attackTrace?.state;
+                if (traced) clearShadowTransfers(traced);
                 this.resolveLianzhiFollowUps();
                 this.resolveZhiyuanPursue();
                 this.resolveJiangtaigongWhaleFall();
@@ -675,6 +681,12 @@ export class DamageCalculator {
             finalDamage *= Math.max(0, 1 - (iceArmor.value ?? 0.2));
         }
 
+        // 灯影只替本体挡半刀：这一击落在影子上，本体按半数承受（放在全部减免之后、取整之前，
+        // 折的是最终那一刀的实际数值，不会再被防御/免伤二次稀释成没人预期的更低档）
+        if (target.counters?.[SHADOW_TRANSFER_KEY] === 1) {
+            finalDamage *= SHADOW_DAMAGE_RATE;
+        }
+
         // 6. 取整
         finalDamage = Math.floor(Math.max(0, finalDamage));
 
@@ -868,6 +880,16 @@ export class DamageCalculator {
                 }
             }
         }
+        // 夕月辞「灯下安身」：她站在自己的明灯两格内时，这一击先被灯光挡下三成。
+        // 抢在 remainingDamage 取数之前改 finalDamage，护盾分摊、反击、吸血才都按减完的那份算；
+        // 与冰甲同一条口径：不可规避的固定伤害不吃免伤。
+        if (!unavoidable && damageResult.finalDamage > 0) {
+            const shelter = lampMitigationFor(gameState, target);
+            if (shelter > 0) {
+                damageResult.finalDamage = Math.floor(damageResult.finalDamage * (1 - shelter));
+            }
+        }
+
         let remainingDamage = damageResult.finalDamage;
         // 后面每一道"这一下没打中"的分支都要求 remainingDamage > 0 才会触发，
         // 所以入口值本身就是 0 时，说明这一击确实落在了他身上、只是被承转吃得一滴不剩。
@@ -1362,7 +1384,7 @@ export class DamageCalculator {
                 this.addBattleLog(gameState, {
                     type: 'passive',
                     player: attacker.owner,
-                    message: `${attacker.name}金痕盖满在场之敌，昭神降世：移动改为 G 型，御剑全面升华`,
+                    message: `${attacker.name}金痕盖满在场之敌，昭神降世：对角可走一格，御剑全面升华`,
                 });
                 requestMechanismFx(attacker, 'xuanyuan_zhaoshen', gameState, {
                     logId: gameState.battleLog[gameState.battleLog.length - 1]?.id,
@@ -1919,6 +1941,9 @@ export class DamageCalculator {
         }
 
         target.state = HeroState.DEAD;
+        if (target.passiveId === 'shuangfeiyan_passive') {
+            clearShuangfeiyanBoomerangState(target, gameState);
+        }
         // 召唤物/分身被打掉不算"击杀一名角色"：既不推进连击档位（击杀横幅的 tier 读 killCount），
         // 也不发 hero-kill 播报——震屏与"首破/二连击破"那套是给真英雄阵亡的
         const isRealVictim = isRealCharacterHero(target);
@@ -2038,6 +2063,12 @@ export class DamageCalculator {
 
         // 折光阵亡：她布下的光棱一起碎掉，不留无主的折射点在棋盘上
         purgeZhiguangPrisms(target, gameState);
+
+        // 夕月辞阵亡：她点的灯跟着灭（无主之灯不该继续照影子坑队友），
+        // 但在她倒下的那一格留下最后一盏——奥义「身后留灯」的兑现点就在这儿。
+        if (target.passiveId === 'xiyueci_passive') {
+            leaveWakeLamp(gameState, target);
+        }
 
         let removedCloneCount = 0;
         for (let r = 0; r < 6; r++) {

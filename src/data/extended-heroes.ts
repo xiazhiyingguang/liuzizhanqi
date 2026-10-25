@@ -68,6 +68,9 @@ export const EXTENDED_HERO_IDS = [
     'daizong',
     'yunxiu',
     'xuanyuan',
+    'wenren',
+    'shuangfeiyan',
+    'xiyueci',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -510,8 +513,8 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'jiangtaigong_passive',
         tianweiId: 'jiangtaigong_tianwei',
     },
-    // 轩辕神君（金行）：移动不走常规移动力，普通态象走田、昭神态 G 型外圈（见 core/xuanyuan-form）；
-    // 昭神顶替天威，没有 tianweiId，也没有独立被动（昭神触发挂在 DamageCalculator）
+    // 轩辕神君（金行）：移动不走常规移动力，普通态象走田跳两格、昭神态对角一格或两格（见 core/xuanyuan-form）；
+    // 昭神顶替天威，没有 tianweiId；被动「剑随气走」在 core/flying-sword（昭神触发挂在 DamageCalculator）
     xuanyuan: {
         name: '轩辕神君',
         class: '霸魁',
@@ -521,6 +524,41 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'xuanyuan_skill1',
         skill2Id: 'xuanyuan_skill2',
         passiveId: 'xuanyuan_passive',
+    },
+    // 闻人翊悬（火行）：以友军为中途点直线飞跃，积【破妄】；满10点自动踏入【昭神】。
+    // 普通态不闭环、距离只换破妄；昭神才把棋盘接成环并让距离附伤（见 core/wenren-form）
+    wenren: {
+        name: '闻人翊悬',
+        class: '武曲',
+        maxHp: 48,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'wenren_skill1',
+        skill2Id: 'wenren_skill2',
+        passiveId: 'wenren_passive',
+    },
+    // 双飞燕：两把回旋镖各自独立计时，返航由 core/shuangfeiyan 按她的成功出手序号推进。
+    // 天威暂留空（不填 tianweiId），被动「比翼双飞」挂 skill-system 的额外行动队列。
+    shuangfeiyan: {
+        name: '双飞燕',
+        class: '武曲',
+        maxHp: 46,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'shuangfeiyan_skill1',
+        skill2Id: 'shuangfeiyan_skill2',
+        passiveId: 'shuangfeiyan_passive',
+    },
+    xiyueci: {
+        name: '夕月辞',
+        class: '天师',
+        maxHp: 53,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'xiyueci_skill1',
+        skill2Id: 'xiyueci_skill2',
+        passiveId: 'xiyueci_passive',
+        tianweiId: 'xiyueci_tianwei',
     },
 };
 
@@ -566,7 +604,10 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     aoyuan: { name: '游龙·敖渊', class: '武曲', description: '唤一尾游龙绕身盘旋，每次行动结束扫过半圈；越扫越多的龙鳞把他推成攻守一体的滚雪球。生命46，移动力3' },
     yunxiu: { name: '云岫', class: '天师', description: '在两格外布一团会自己挪窝的雷云，每回合开始先走一格再落一次雷；一针钉下去把整片云往人堆里拽，越打越厚的霆息让她又肉又能贴。生命50，移动力2' },
     jiangtaigong: { name: '姜太公', class: '天师', description: '下钩等人自己踩、把上钩的人丢到任意空格，一片5×5水泽养满家闪避。生命52，移动力2' },
-    xuanyuan: { name: '轩辕神君', class: '霸魁', description: '象走田踏阵、命中落剑；收剑成御剑之盾，金痕盖满在场敌人即入昭神，移动与技能全面升华。生命56，移动为对角跳两格（昭神后周身G型）' },
+    xuanyuan: { name: '轩辕神君', class: '霸魁', description: '象走田踏阵、命中落剑；每走一步飞剑随气漂一格，收剑成御剑之盾；金痕盖满在场敌人即入昭神，移动与技能全面升华。生命56，移动为对角跳两格（昭神后可走一格）' },
+    wenren: { name: '闻人翊悬', class: '武曲', description: '借友军作中途点直线飞跃，落点一圈起火并积攒【破妄】；满10点自动踏入【昭神】：棋盘闭环、飞跃距离附伤，技能二暴击提升。生命48，移动力3' },
+    shuangfeiyan: { name: '双飞燕', class: '武曲', description: '两把回旋镖掷出后沿最短路径返航，双镖在外时结成三角；每次行动可出手两次，技能二可跃向镖位拾回并炸开一圈。生命46，移动力2' },
+    xiyueci: { name: '夕月辞', class: '天师', description: '两格内点一盏明灯，灯只照敌方：周围一圈敌人的影子被拖到背离灯的那一格——打影子等于打本体，队友与自己都不落影；自己站在灯下两格内免伤三成，阵亡时倒下的那一格留下最后一盏灯，每回合末照回两格内友方的血。生命53，移动力2' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {
@@ -669,6 +710,13 @@ export function initializeExtendedHero(hero: Hero): void {
             break;
         case 'xihuan_passive':
             hero.counters['盈光'] = 0;   // 均光抽走的生命总量，只保留最大值（玩家可见资源）
+            break;
+        case 'wenren_passive':
+            hero.counters['破妄'] = 0;   // 飞跃距离积攒；技能二与昭神消耗
+            break;
+        case 'shuangfeiyan_passive':
+            hero.counters['sfy_skillSerial'] = 0;   // 成功出手序号：返航计时读它
+            hero.counters['sfy_second_queued'] = 0; // 本动作是否已经给过第二手
             break;
     }
 }

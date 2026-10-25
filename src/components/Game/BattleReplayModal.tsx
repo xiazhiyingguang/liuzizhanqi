@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useBattleReplay } from '../../hooks/useBattleReplay';
-import { computeFrameDeltas, type BattleReplay, type ReplayMarkKind } from '../../core/battle-replay';
+import { computeFrameDeltas, type BattleReplay, type ReplayDelta, type ReplayMarkKind } from '../../core/battle-replay';
+import { nextPlaybackToggle } from '../../core/replay-playback';
 import { tokenizeBattleLogContent } from '../../core/battle-presentation';
 import ReplayBoard from './ReplayBoard';
 import HeroAvatar from '../ui/HeroAvatar';
@@ -15,13 +16,14 @@ const MARK_LABELS: Record<ReplayMarkKind, string> = {
     kill: '击杀',
     tianwei: '天威',
     reinforce: '补员',
+    return: '返场',
     critical: '濒危',
     round: '回合',
     end: '终局',
 };
 
 /** 图例只讲时间轴上真会出现的刻度类型；回合切换由上轨的分段带承载 */
-const LEGEND_KINDS: ReplayMarkKind[] = ['kill', 'tianwei', 'reinforce', 'critical', 'end'];
+const LEGEND_KINDS: ReplayMarkKind[] = ['kill', 'tianwei', 'reinforce', 'return', 'critical', 'end'];
 
 const PLAY_INTERVAL_MS = 720;
 
@@ -49,11 +51,9 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
     const frame = frames[current];
     const previous = current > 0 ? frames[current - 1] : null;
 
-    const deltas = useMemo(() => {
-        const map = new Map<number, number>();
-        if (!frame) return map;
-        for (const delta of computeFrameDeltas(previous, frame)) map.set(delta.def, delta.hp);
-        return map;
+    const deltas = useMemo<ReplayDelta[]>(() => {
+        if (!frame) return [];
+        return computeFrameDeltas(previous, frame);
     }, [frame, previous]);
 
     // 上轨的回合分段：把连续同回合的帧并成一段，点段头直接跳到该回合首步
@@ -98,6 +98,12 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
         setFrameIndex(index => Math.min(Math.max(index + amount, 0), lastIndex));
     }, [lastIndex]);
 
+    const togglePlaying = useCallback(() => {
+        const next = nextPlaybackToggle(playing, current, lastIndex);
+        if (next.restartAt !== undefined) setFrameIndex(next.restartAt);
+        setPlaying(next.playing);
+    }, [playing, current, lastIndex]);
+
     const stepEvent = useCallback((direction: -1 | 1) => {
         const target = direction < 0
             ? [...eventFrames].reverse().find(index => index < current)
@@ -118,12 +124,12 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                 stepBy(1);
             } else if (event.key === ' ') {
                 event.preventDefault();
-                setPlaying(value => !value);
+                togglePlaying();
             }
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [onClose, stepBy]);
+    }, [onClose, stepBy, togglePlaying]);
 
     useEffect(() => {
         // 拖时间轴时这份面板重排：必须停在顶端，否则"本步战报"被顶出可视区，
@@ -166,8 +172,8 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                         {actorName && <span className="replay-readout-cell replay-readout-actor">行动者 <b>{actorName}</b></span>}
                         {currentMarks.length > 0 && (
                             <span className="replay-readout-cell replay-readout-events">
-                                {currentMarks.map(mark => (
-                                    <span key={`${mark.kind}-${mark.label}`} className={`replay-mark-tag replay-mark-${mark.kind}`} title={mark.label}>
+                                {currentMarks.map((mark, index) => (
+                                    <span key={`${mark.kind}-${mark.label}-${index}`} className={`replay-mark-tag replay-mark-${mark.kind}`} title={mark.label}>
                                         {MARK_LABELS[mark.kind]}
                                     </span>
                                 ))}
@@ -235,7 +241,7 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                         <div className="replay-transport-group flex items-center gap-1.5">
                             <button type="button" className="replay-btn" onClick={() => seek(0)} aria-label="回到开局">⏮</button>
                             <button type="button" className="replay-btn" onClick={() => stepBy(-1)} aria-label="上一步">‹</button>
-                            <button type="button" className="replay-btn replay-btn-play" onClick={() => setPlaying(value => !value)} aria-label={playing ? '暂停' : '播放'}>
+                            <button type="button" className="replay-btn replay-btn-play" onClick={togglePlaying} aria-label={playing ? '暂停' : '播放'}>
                                 {playing ? '❚❚' : '▶'}
                             </button>
                             <button type="button" className="replay-btn" onClick={() => stepBy(1)} aria-label="下一步">›</button>
@@ -301,9 +307,9 @@ export function BattleReplayPanel({ replay, onClose }: BattleReplayModalProps & 
                         <div className="replay-track">
                             {/* 中轨：关键节点刻度直接落在拖拽轨上，可点可悬停；
                                 原来那叠「击杀 #146」chip 的跳转职责交给它 + 上一/下一事件按钮 */}
-                            {eventMarks.map(mark => (
+                            {eventMarks.map((mark, index) => (
                                 <button
-                                    key={`event-${mark.frame}-${mark.kind}`}
+                                    key={`event-${mark.frame}-${mark.kind}-${index}`}
                                     type="button"
                                     className={`replay-event replay-mark-${mark.kind}${mark.frame === current ? ' is-current' : ''}`}
                                     style={trackRatioStyle(lastIndex > 0 ? mark.frame / lastIndex : 0)}
@@ -374,7 +380,8 @@ function ReplaySideRail({
     // 名单按登记顺序（= 上场顺序）排，绝不按血量排：
     // 血量每步都在变，按血量排会让名字在逐帧翻动时来回跳位。
     const units = frame.units.filter(unit => replay.statics[unit.def]?.owner === owner);
-    const alive = units.filter(unit => unit.state !== 2).length;
+    // 暂亡（state=1）不算存活：它不阻止失败判定，和同行的「暂亡」徽章保持一致
+    const alive = units.filter(unit => unit.state === 0).length;
     const actorDef = frame.actor >= 0 ? frame.units[frame.actor]?.def : -1;
 
     return (

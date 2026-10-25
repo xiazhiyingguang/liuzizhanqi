@@ -105,7 +105,9 @@ export function noteReplayStep(state: GameState): void {
     if (state.phase !== 'battle' && state.phase !== 'ended') return;
 
     const entries = state.battleLog ?? [];
-    const freshLogs = entries.filter(entry => !recorder.seenLogIds.has(entry.id));
+    // setup 是选将/武装/布阵阶段的系统提示：无论它什么时候到达，都不进对局回放。
+    // 不能用“首帧整批丢弃”的启发式，否则联机中途接手时会把真实战报一起丢掉。
+    const freshLogs = entries.filter(entry => !recorder.seenLogIds.has(entry.id) && !entry.setup);
     for (const entry of entries) recorder.seenLogIds.add(entry.id);
     // 区间起点必须在追加之前取，否则本帧的战报窗口会错位
     const logFrom = recorder.narration.length;

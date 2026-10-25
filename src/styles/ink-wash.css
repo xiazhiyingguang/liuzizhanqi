@@ -1234,10 +1234,65 @@
     inset: 0;
     z-index: 29;
     pointer-events: none;
+    /* 主次交接时缩进格角是渐变，不是瞬间跳变 */
+    transition: transform 180ms ease-out, opacity 180ms ease-out, filter 180ms ease-out;
     /* 通用原型（fxp-*）调色板缺省值；档案配色以 inline 变量覆盖 */
     --fx-c1: #d4a843;
     --fx-c2: #f0d080;
     --fx-glow: rgba(212, 168, 67, 0.5);
+}
+
+/* —— 同格仲裁 ——
+   一格同一时刻只留一张全尺寸主效；第二份缩到左下角当回声，
+   第三份起只由 .cell-fx-notches 在格边留一道来源色短线。
+   规则来源：src/core/cell-fx-arbitration.ts。
+   优先级写到 .battle-cell 这一层，压过 .skill-fx-impact 的 0.82 缩放。 */
+.battle-cell .skill-fx.is-fx-echo {
+    opacity: 0.3;
+    transform: scale(0.42);
+    transform-origin: 0% 100%;
+    filter: saturate(0.75);
+}
+
+/* 常驻层让位：命中主效在场时，场地、印记、状态环与形态角标压暗；
+   伤害/治疗飘字是独立的 z 30 层，不在这些选择器里，始终最清晰 */
+.battle-cell > [class*="bf-"],
+.battle-cell > .wind-lane-band,
+.battle-cell .status-fx,
+.battle-cell .hero-mechanism-state {
+    transition: opacity 140ms ease-out, filter 140ms ease-out;
+}
+
+.battle-cell.cell-fx-hot > [class*="bf-"],
+.battle-cell.cell-fx-hot > .wind-lane-band,
+.battle-cell.cell-fx-hot .status-fx,
+.battle-cell.cell-fx-hot .hero-mechanism-state {
+    opacity: 0.3;
+    filter: saturate(0.7);
+}
+
+/* 第三份起的来源只剩格边短线：不铺动画，不抢棋子 */
+.cell-fx-notches {
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    /* 压在技能特效（29）之下、飘字（30）之下：短线只是备忘，不能盖住伤害数字 */
+    z-index: 28;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.cell-fx-notches i {
+    display: block;
+    width: 3px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--notch-color, currentColor);
+    box-shadow: 0 0 4px var(--notch-color, currentColor);
+    opacity: 0.9;
 }
 
 .fx-anchor {
@@ -3951,6 +4006,11 @@
     animation-duration: 2.2s;
     box-shadow: 0 0 8px rgba(196, 150, 66, 0.5), inset 0 0 6px rgba(255, 236, 170, 0.38);
 }
+.sfx-zhaoshen-ring {
+    border-color: rgba(206, 92, 36, 0.88);
+    animation-duration: 1.6s;
+    box-shadow: 0 0 9px rgba(206, 92, 36, 0.46), inset 0 0 6px rgba(255, 214, 128, 0.36);
+}
 .sfx-longshi-dragon {
     position: absolute;
     /* 扩大龙身时同步上移，保持龙头落在发顶而不是压向额头。 */
@@ -5839,15 +5899,26 @@
     border-radius: 10px;
 }
 
-.replay-delta {
+/* 本步数值列：放在左上角，避开右上角的护盾角标 */
+.replay-deltas {
     position: absolute;
     top: 2px;
-    right: 4px;
-    font-size: 11px;
+    left: 3px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    pointer-events: none;
+}
+
+.replay-delta {
+    font-size: clamp(9px, calc(var(--board-cell-size) * 0.16), 11px);
+    line-height: 1.15;
     font-weight: 700;
     padding: 0 4px;
     border-radius: 6px;
-    pointer-events: none;
+    white-space: nowrap;
 }
 
 .replay-delta-hurt {
@@ -5858,6 +5929,23 @@
 .replay-delta-heal {
     color: #f2f8f3;
     background: rgba(45, 106, 79, 0.86);
+}
+
+/* 被护盾完全挡下：用靛蓝，和掉血的红、回血的绿区分开 */
+.replay-delta-block {
+    color: #eef4fb;
+    background: rgba(44, 62, 107, 0.9);
+}
+
+.replay-delta-shield {
+    color: #eaf2f8;
+    background: rgba(55, 95, 130, 0.82);
+}
+
+.replay-delta-death {
+    color: #fbeee8;
+    background: rgba(90, 24, 18, 0.92);
+    border: 1px solid rgba(247, 237, 230, 0.45);
 }
 
 .replay-btn {
@@ -5955,6 +6043,7 @@
 .replay-mark-kill { background: #c0392b; }
 .replay-mark-tianwei { background: #d4a843; }
 .replay-mark-reinforce { background: #2d6a4f; }
+.replay-mark-return { background: #3d6b7d; }
 .replay-mark-critical { background: #2c3e6b; }
 .replay-mark-round { background: rgba(26, 26, 26, 0.28); }
 .replay-mark-end { background: #8f2f2a; }
@@ -11856,5 +11945,226 @@ html[data-quality="low"] .bf-fish-hook {
 }
 
 html[data-quality="low"] .bf-flying-sword {
+    animation: none !important;
+}
+
+/* ============================================================
+   双飞燕 · 回旋镖：落在格上的墨青镖影
+   两把镖各自独立计时，同格叠放时右下角标数量。
+   ============================================================ */
+.bf-boomerang {
+    position: absolute;
+    inset: 20%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(95, 143, 134, 0.9);
+    filter: drop-shadow(0 0 4px rgba(95, 143, 134, 0.45));
+    animation: bf-boomerang-hover 3.2s ease-in-out infinite;
+}
+
+.bf-boomerang svg {
+    width: 100%;
+    height: 100%;
+}
+
+.bf-boomerang-p2 {
+    color: rgba(214, 132, 115, 0.92);
+    filter: drop-shadow(0 0 4px rgba(214, 132, 115, 0.42));
+}
+
+.bf-boomerang-count {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    min-width: 11px;
+    height: 11px;
+    padding: 0 2px;
+    border-radius: 6px;
+    background: rgba(40, 44, 40, 0.72);
+    color: #f7f5ed;
+    font-size: 8px;
+    line-height: 11px;
+    text-align: center;
+}
+
+/* 镖落在人身上：棋子会盖住整格标记，改在左上角钉一枚小镖徽 */
+.bf-boomerang-occupied {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    z-index: 6;
+    width: 13px;
+    height: 13px;
+    color: rgba(95, 143, 134, 0.95);
+    filter: drop-shadow(0 0 3px rgba(95, 143, 134, 0.5));
+}
+
+.bf-boomerang-occupied svg {
+    width: 100%;
+    height: 100%;
+}
+
+.bf-boomerang-occupied.bf-boomerang-p2 {
+    color: rgba(214, 132, 115, 0.95);
+    filter: drop-shadow(0 0 3px rgba(214, 132, 115, 0.5));
+}
+
+.bf-boomerang-occupied .bf-boomerang-count {
+    right: -5px;
+    bottom: -5px;
+    transform: scale(0.82);
+}
+
+@keyframes bf-boomerang-hover {
+    0%, 100% { transform: translateY(0) rotate(-4deg); }
+    50% { transform: translateY(-6%) rotate(4deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bf-boomerang {
+        animation: none !important;
+    }
+}
+
+html[data-quality="low"] .bf-boomerang {
+    animation: none !important;
+}
+
+/* ============================================================
+   夕月辞 · 明灯与灯影
+   灯是钉在格上的常驻场地件（与飞剑、鱼钩同一类），影子是不占格的投影：
+   米白棋盘上浅光会被吃掉，所以灯焰走深琥珀、描边压墨青，影子直接用近黑的紫。
+   ============================================================ */
+.bf-lamp {
+    position: absolute;
+    inset: 18%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(196, 118, 26, 0.95);
+    z-index: 2;
+}
+
+.bf-lamp svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 0 4px rgba(196, 118, 26, 0.45));
+    animation: bf-lamp-flicker 2.4s ease-in-out infinite;
+}
+
+.bf-lamp-halo {
+    position: absolute;
+    inset: -12%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(212, 146, 42, 0.34) 0%, rgba(212, 146, 42, 0.1) 46%, rgba(212, 146, 42, 0) 70%);
+    animation: bf-lamp-breathe 3.2s ease-in-out infinite;
+}
+
+.bf-lamp-flame {
+    fill: rgba(228, 156, 44, 0.95);
+    stroke: rgba(126, 68, 12, 0.85);
+    stroke-width: 0.7;
+}
+
+.bf-lamp-body {
+    fill: rgba(46, 34, 26, 0.5);
+    stroke: rgba(38, 26, 18, 0.9);
+    stroke-width: 1.2;
+    stroke-linejoin: round;
+}
+
+.bf-lamp-base {
+    stroke: rgba(38, 26, 18, 0.9);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+}
+
+/* 红方：灯罩偏绯，焰色仍压得住米白底 */
+.bf-lamp-p2 {
+    color: rgba(198, 86, 96, 0.95);
+}
+
+.bf-lamp-p2 .bf-lamp-flame {
+    fill: rgba(226, 130, 138, 0.95);
+    stroke: rgba(120, 36, 46, 0.85);
+}
+
+.bf-lamp-p2 .bf-lamp-halo {
+    background: radial-gradient(circle, rgba(214, 108, 120, 0.32) 0%, rgba(214, 108, 120, 0.09) 46%, rgba(214, 108, 120, 0) 70%);
+}
+
+/* 留灯：她倒下后那一盏，光色转月青，形状不变——读的是"同一门灯"，不是新道具 */
+.bf-lamp-wake {
+    color: rgba(58, 116, 150, 0.95);
+}
+
+.bf-lamp-wake .bf-lamp-flame {
+    fill: rgba(126, 190, 214, 0.95);
+    stroke: rgba(30, 74, 102, 0.9);
+}
+
+.bf-lamp-wake .bf-lamp-halo {
+    background: radial-gradient(circle, rgba(96, 172, 200, 0.3) 0%, rgba(96, 172, 200, 0.08) 48%, rgba(96, 172, 200, 0) 72%);
+}
+
+@keyframes bf-lamp-flicker {
+    0%, 100% { transform: translateY(0) scale(1); }
+    45% { transform: translateY(-2%) scale(1.03); }
+    70% { transform: translateY(1%) scale(0.98); }
+}
+
+@keyframes bf-lamp-breathe {
+    0%, 100% { opacity: 0.75; }
+    50% { opacity: 1; }
+}
+
+/* 灯影：贴地的深色投影，末端带一点回勾，明确"这一格连着别人" */
+.bf-lamp-shadow {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+
+.bf-lamp-shadow-stretch {
+    position: absolute;
+    left: 22%;
+    right: 22%;
+    top: 44%;
+    bottom: 20%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at 50% 40%, rgba(30, 16, 44, 0.62) 0%, rgba(30, 16, 44, 0.3) 58%, rgba(30, 16, 44, 0) 78%);
+    filter: blur(1px);
+    animation: bf-lamp-shadow-drift 3.6s ease-in-out infinite;
+}
+
+.bf-lamp-shadow-tip {
+    position: absolute;
+    left: 50%;
+    top: 16%;
+    width: 10px;
+    height: 10px;
+    margin-left: -5px;
+    border-left: 1.5px solid rgba(46, 24, 62, 0.72);
+    border-top: 1.5px solid rgba(46, 24, 62, 0.72);
+    transform: rotate(45deg);
+}
+
+@keyframes bf-lamp-shadow-drift {
+    0%, 100% { transform: scaleX(1) translateY(0); opacity: 0.85; }
+    50% { transform: scaleX(1.08) translateY(-1px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bf-lamp svg,
+    .bf-lamp-halo,
+    .bf-lamp-shadow-stretch {
+        animation: none !important;
+    }
+}
+
+html[data-quality="low"] .bf-lamp svg,
+html[data-quality="low"] .bf-lamp-halo,
+html[data-quality="low"] .bf-lamp-shadow-stretch {
     animation: none !important;
 }

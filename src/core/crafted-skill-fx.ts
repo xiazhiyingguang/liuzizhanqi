@@ -1,7 +1,8 @@
 /** Hand-built materials for the heroes whose old effects relied on neon rings. */
 export type CraftedFxTheme = 'particle-beam' | 'particle-burst' | 'soul-array' | 'soul-cycle'
     | 'abyss-pull' | 'abyss-ward' | 'time-swap' | 'cold-star' | 'rune-awaken'
-    | 'moon-double' | 'dread-arrow' | 'dread-curse' | 'wind-vortex' | 'wind-corridor';
+    | 'moon-double' | 'dread-arrow' | 'dread-curse' | 'wind-vortex' | 'wind-corridor'
+    | 'wenren-leap' | 'wenren-leap-zhaoshen' | 'wenren-reap' | 'wenren-reap-zhaoshen';
 export type CraftedFxVariant = 'caster' | 'target' | 'impact' | 'area' | 'splash' | 'chain';
 
 export function craftedVariantVisible(theme: CraftedFxTheme | undefined, variant: CraftedFxVariant) {
@@ -320,6 +321,386 @@ function wind(ctx: Ctx, f: CraftedFrame, p: number) {
     }ctx.restore();
 }
 
+/** 闻人翊悬：焦墨打底、赭红中段、金白只留窄高光；火舌一律画成带缺口的笔触。 */
+const WENREN_INK = {
+    char: '#2a1712',
+    umber: '#6f2b1a',
+    red: '#a83a20',
+    orange: '#d9621f',
+    gold: '#f0b45a',
+    pale: '#ffe7a6',
+};
+
+function emberTongue(
+    ctx: Ctx, x: number, y: number, height: number, width: number,
+    lean: number, pale: string, alpha = 1, gold = false, lite = false
+) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(lean);
+    ctx.globalAlpha *= alpha;
+    const body = ctx.createLinearGradient(0, 0, 0, -height);
+    body.addColorStop(0, 'rgba(30,15,11,.74)');
+    body.addColorStop(.16, WENREN_INK.umber);
+    if (gold) {
+        body.addColorStop(.44, '#c9762a');
+        body.addColorStop(.68, '#f0b45a');
+        body.addColorStop(.86, '#ffe9a6');
+    } else {
+        body.addColorStop(.44, '#b44422');
+        body.addColorStop(.68, '#df6a28');
+        body.addColorStop(.86, '#f5b955');
+    }
+    body.addColorStop(1, 'rgba(255,241,190,0)');
+    // 暖光垫底与同色投影晕边是两笔贵操作：低画质档整层跳过，只留渐变填充
+    if (!lite) {
+        ctx.save();
+        ctx.globalAlpha *= .5;
+        const halo = ctx.createRadialGradient(0, -height * .22, 0, 0, -height * .22, width * 2.6);
+        halo.addColorStop(0, gold ? 'rgba(255,217,138,.5)' : 'rgba(226,105,31,.42)');
+        halo.addColorStop(1, gold ? 'rgba(255,217,138,0)' : 'rgba(226,105,31,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(0, -height * .22, width * 2.6, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+    }
+    // 宽腹、钩尖的火焰轮廓，避免画成一根尖刺
+    if (!lite) {
+        ctx.shadowColor = 'rgba(226,105,31,.5)';
+        ctx.shadowBlur = Math.max(3, height * .16);
+    }
+    ctx.beginPath();
+    ctx.moveTo(-width, 0);
+    ctx.bezierCurveTo(-width * 1.12, -height * .26, -width * .62, -height * .5, -width * .2, -height * .9);
+    ctx.quadraticCurveTo(-width * .04, -height * 1.02, width * .13, -height * .82);
+    ctx.bezierCurveTo(width * .5, -height * .58, width * .9, -height * .26, width, 0);
+    ctx.closePath();
+    ctx.fillStyle = body;
+    ctx.fill();
+    if (!lite) ctx.shadowBlur = 0;
+    // 内部亮焰只占中上段；昭神那一门换成金白芯，跟普通态一眼分开
+    ctx.save();
+    ctx.globalAlpha *= gold ? .85 : .72;
+    const inner = ctx.createLinearGradient(0, -height * .08, 0, -height * .82);
+    if (gold) {
+        inner.addColorStop(0, 'rgba(240,180,90,.25)');
+        inner.addColorStop(.45, '#e8a24a');
+        inner.addColorStop(.78, '#ffd98a');
+        inner.addColorStop(1, '#fffdf0');
+    } else {
+        inner.addColorStop(0, 'rgba(111,43,26,.2)');
+        inner.addColorStop(.45, '#c64724');
+        inner.addColorStop(.78, '#ef8a35');
+        inner.addColorStop(1, pale);
+    }
+    ctx.beginPath();
+    ctx.moveTo(-width * .46, -height * .04);
+    ctx.quadraticCurveTo(-width * .4, -height * .42, -width * .04, -height * .76);
+    ctx.quadraticCurveTo(width * .26, -height * .44, width * .46, -height * .04);
+    ctx.closePath();
+    ctx.fillStyle = inner;
+    ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.ellipse(0, 0, width * .98, Math.max(2.2, height * .12), 0, 0, Math.PI);
+    ctx.fillStyle = 'rgba(29,14,10,.42)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-width * .16, gold ? -height * .86 : -height * .74);
+    ctx.quadraticCurveTo(width * .52, -height * .46, width * .82, -3);
+    ctx.strokeStyle = gold ? '#fffbe0' : pale;
+    ctx.globalAlpha *= gold ? .7 : .5;
+    ctx.lineWidth = gold ? 1 : .8;
+    ctx.stroke();
+    ctx.restore();
+}
+
+/** 焦痕用几道不等宽的断弧，避免又画成一整圈黑边 */
+function emberScorch(ctx: Ctx, radiusX: number, radiusY: number, alpha: number) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    for (let i = 0; i < 3; i++) {
+        const a = i * 2.1 + .25;
+        ctx.beginPath();
+        ctx.ellipse(0, 13, radiusX + i * 2, radiusY + i, 0, a, a + 1.25 + i * .35);
+        ctx.strokeStyle = i === 0 ? WENREN_INK.char : WENREN_INK.umber;
+        ctx.lineWidth = i === 0 ? 5 : 2.2;
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+/** 余烬先向外抛、再落；数量与射程都留给低画质档 */
+function emberCinders(ctx: Ctx, t: number, count: number, reach: number, seed = 3) {
+    const p = ease(t);
+    ctx.save();
+    ctx.globalAlpha *= 1 - clamp(t) * .8;
+    for (let i = 0; i < count; i++) {
+        const a = noise(i + seed) * TAU;
+        const r = (10 + noise(i + seed + 17) * reach) * p;
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r * .62 - 18 * Math.sin(p * Math.PI) + p * p * 26;
+        const size = .8 + noise(i + seed + 5) * 2.2;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(a + p * 3);
+        polygon(ctx, [[-size, 0], [size * .3, -size * 1.5], [size, .2]], i % 3 ? WENREN_INK.gold : WENREN_INK.pale);
+        ctx.restore();
+    }
+    ctx.restore();
+}
+
+/** 贴地火环：焦痕与暖光在脚下，火舌从环上一圈位置向上舔，中心留给角色。
+ *  火舌高度与倾角按时间步进取噪，逐帧跳动；后半圈压到九成亮度并收窄，交代纵深但不消失。 */
+function emberGroundRing(
+    ctx: Ctx, rx: number, ry: number, count: number,
+    minHeight: number, maxHeight: number, pale: string, seed: number, alpha = .95,
+    phase = 0, lite = false, gold = false
+) {
+    ctx.save();
+    emberScorch(ctx, Math.max(12, rx - 5), ry, .55);
+    glow(ctx, 0, 12, rx * .95, '#c2471f', .2);
+    // 外圈两段短断弧交代作用范围；收短、压淡，避免读成一整圈霓虹
+    ctx.save();
+    ctx.globalAlpha *= .26;
+    ctx.beginPath();
+    ctx.ellipse(0, 12, rx + 7, ry + 4, 0, .5, 1.85);
+    ctx.strokeStyle = 'rgba(168,58,32,.75)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, 12, rx + 7, ry + 4, 0, 3.5, 4.75);
+    ctx.strokeStyle = 'rgba(111,43,26,.6)';
+    ctx.lineWidth = .8;
+    ctx.stroke();
+    ctx.restore();
+    const step = Math.floor(phase);
+    const jit = (i: number, salt: number) => noise(i + seed + salt + step * 3.71);
+    const ring = lite ? Math.max(3, Math.ceil(count / 2)) : count;
+    const tongues = Array.from({ length: ring }, (_, i) => {
+        const a = i * TAU / ring + noise(i + seed) * .16;
+        const h = (minHeight + jit(i, 3) * (maxHeight - minHeight)) * (.82 + jit(i, 23) * .32);
+        return {
+            x: Math.cos(a) * rx,
+            y: 12 + Math.sin(a) * ry * .7,
+            h,
+            // 宽高比锁在约 1:5，再瘦就成一根刺
+            w: Math.max(4.6, h * .19) + noise(i + seed + 7) * 1.6,
+            lean: (jit(i, 11) - .5) * .52,
+            back: Math.sin(a),
+            i,
+        };
+    }).sort((left, right) => left.back - right.back);
+    for (const tongue of tongues) {
+        const depth = tongue.back > .2 ? 1 : .9;
+        emberTongue(ctx, tongue.x, tongue.y, tongue.h, tongue.w * depth, tongue.lean, pale,
+            alpha * depth, gold, lite);
+        if (!lite && tongue.i % 2 === 0) {
+            emberTongue(ctx, tongue.x + (noise(tongue.i + seed + 19) - .5) * 4, tongue.y + 1,
+                tongue.h * .58, tongue.w * .66 * depth, tongue.lean + .1, pale,
+                alpha * .62 * depth, gold, lite);
+        }
+    }
+    ctx.restore();
+}
+
+/** 昭神的闭环暗示：两圈反向走的断续金线，不画成霓虹实环 */
+function emberGoldLoop(ctx: Ctx, rx: number, ry: number, p: number, reverse = false) {
+    ctx.save();
+    ctx.globalAlpha *= .9;
+    ctx.setLineDash([9, 7]);
+    ctx.lineDashOffset = (reverse ? 1 : -1) * p * 34;
+    ctx.beginPath();
+    ctx.ellipse(0, 12, rx + 8, ry + 5, 0, .3, TAU - .55);
+    ctx.strokeStyle = '#ffe9a6';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    ctx.setLineDash([6, 10]);
+    ctx.lineDashOffset = (reverse ? -1 : 1) * p * 46;
+    ctx.beginPath();
+    ctx.ellipse(0, 12, rx + 13, ry + 8, 0, .95, TAU - .3);
+    ctx.strokeStyle = '#fff3c2';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.restore();
+}
+
+/** 跃阵残影：一个立正的火人身形，只留头肩与下摆的轮廓，越靠后越淡 */
+function fireWraith(ctx: Ctx, x: number, y: number, h: number, lean: number, alpha: number, pale: string) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(lean);
+    ctx.globalAlpha *= alpha;
+    const body = ctx.createLinearGradient(0, 0, 0, -h);
+    body.addColorStop(0, 'rgba(42,23,18,.1)');
+    body.addColorStop(.3, WENREN_INK.umber);
+    body.addColorStop(.62, WENREN_INK.orange);
+    body.addColorStop(.9, WENREN_INK.gold);
+    body.addColorStop(1, pale);
+    ctx.beginPath();
+    ctx.moveTo(-h * .16, 0);
+    ctx.quadraticCurveTo(-h * .21, -h * .4, -h * .1, -h * .55);
+    ctx.quadraticCurveTo(-h * .15, -h * .7, -h * .07, -h * .79);
+    ctx.arc(0, -h * .87, h * .1, Math.PI, 0);
+    ctx.quadraticCurveTo(h * .15, -h * .7, h * .1, -h * .55);
+    ctx.quadraticCurveTo(h * .21, -h * .4, h * .16, 0);
+    ctx.quadraticCurveTo(h * .05, -h * .1, 0, -h * .04);
+    ctx.quadraticCurveTo(-h * .05, -h * .1, -h * .16, 0);
+    ctx.closePath();
+    ctx.fillStyle = body;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-h * .1, -h * .55);
+    ctx.quadraticCurveTo(-h * .15, -h * .7, -h * .07, -h * .79);
+    ctx.strokeStyle = pale;
+    ctx.globalAlpha *= .55;
+    ctx.lineWidth = .7;
+    ctx.stroke();
+    ctx.restore();
+}
+
+function wenrenLeap(ctx: Ctx, f: CraftedFrame, p: number) {
+    const gold = f.theme === 'wenren-leap-zhaoshen';
+    const pale = gold ? '#fff7cf' : WENREN_INK.pale;
+    const phase = f.time / 55;
+    if (f.variant === 'caster') {
+        // 起跳：脚下炸开炭烬，再沿飞跃轴向拖出火人残影与炭灰
+        ctx.save();
+        ctx.globalAlpha *= 1 - clamp((p - .62) / .3);
+        emberGroundRing(ctx, 24, 9, 5, 14, 24, pale, 9, .75 * (1 - p * .6), phase, f.lite, gold);
+        emberCinders(ctx, clamp(p / .55), f.lite ? 4 : 9, 22, 9);
+        ctx.restore();
+        const d = Math.hypot(f.dx, f.dy);
+        if (d > 0 && p > .03) {
+            const head = Math.min(d, ease((p - .03) / .24) * d);
+            const fade = 1 - clamp((p - .34) / .4);
+            const ca = Math.cos(f.angle), sa = Math.sin(f.angle);
+            // 跳跃轴上的点先按角度转回世界坐标，身形才不会被西向跃入画成倒挂
+            const at = (lx: number, ly: number): [number, number] => [lx * ca - ly * sa, lx * sa + ly * ca];
+            ctx.save();
+            ctx.rotate(f.angle);
+            ctx.globalAlpha *= fade;
+            const path = Array.from({ length: 19 }, (_, i) => {
+                const q = i / 18;
+                return [head * q, -Math.sin(q * Math.PI) * 20];
+            });
+            ctx.setLineDash([15, 9]);
+            stroke(ctx, 'rgba(42,23,18,.3)', 5.5, path);
+            stroke(ctx, 'rgba(168,58,32,.5)', 2.2, path);
+            ctx.setLineDash([]);
+            ctx.restore();
+            const ghosts = f.lite ? 2 : 3;
+            for (let i = 0; i < ghosts; i++) {
+                const q = (i + 1) / (ghosts + 1);
+                const [gx, gy] = at(head * q, -Math.sin(q * Math.PI) * 20 + 3);
+                // 身后两档更淡的拖影副本，"掠过"才读得出速度
+                for (let k = f.lite ? 1 : 2; k >= 1; k--) {
+                    fireWraith(ctx, gx - ca * 7 * k, gy - sa * 7 * k, (32 - i * 2) * (1 - k * .06),
+                        f.angle * .18, (.52 - i * .14) * fade * (k === 1 ? .45 : .25), pale);
+                }
+                fireWraith(ctx, gx, gy, 32 - i * 2, f.angle * .18, (.52 - i * .14) * fade, pale);
+            }
+            const sparks = f.lite ? 3 : 6;
+            for (let i = 0; i < sparks; i++) {
+                const q = (i + 1) / (sparks + 1);
+                const [sx, sy] = at(head * q, -Math.sin(q * Math.PI) * 20 + 4);
+                emberTongue(ctx, sx, sy, 9 + noise(i + 4 + Math.floor(phase) * 3.71) * 8,
+                    2.4 + noise(i + 6) * 1.2,
+                    (noise(i + 8) - .5) * .5, pale, .72 * fade, gold, f.lite);
+                if (i % 2 === 0) {
+                    const size = 1.4 + noise(i + 12) * 1.6;
+                    polygon(ctx, [[sx - size, sy + 4], [sx + size * .4, sy - size], [sx + size, sy + 5]],
+                        WENREN_INK.gold);
+                }
+            }
+            const [hx, hy] = at(head, 0);
+            glow(ctx, hx, hy, 16, gold ? '#ffe9a6' : '#d9621f', .4 * fade);
+        }
+        return;
+    }
+    if (f.variant === 'impact') {
+        // 落点环上被波及的敌人：一小簇火舌，不复制整圈
+        ctx.save();
+        ctx.globalAlpha *= .92;
+        emberGroundRing(ctx, 30, 11, 5, 14, 24, pale, 21, .85, phase, f.lite, gold);
+        emberCinders(ctx, clamp(p * 1.4), f.lite ? 3 : 6, 22, 21);
+        ctx.restore();
+        return;
+    }
+    // 落点：环先向外撑开再收回来，中心留空；昭神再加两圈断续金线暗示闭环
+    ctx.save();
+    ctx.globalAlpha *= 1 - clamp((p - .72) / .28);
+    const rx = 40 + ease(clamp(p / .3)) * 16 - ease(clamp((p - .5) / .45)) * 12;
+    // 砸地那一下：四道焦土裂纹从环心向外崩开，半秒内收干净
+    const crackA = (1 - clamp((p - .3) / .3)) * clamp((p - .04) / .06);
+    if (crackA > .02) {
+        const grow = ease(clamp((p - .04) / .3));
+        ctx.save();
+        ctx.globalAlpha *= crackA * .85;
+        for (let i = 0; i < 4; i++) {
+            const a = i * 1.62 + .5;
+            const r1 = 22 + grow * 22;
+            const pts = [
+                [Math.cos(a) * 11, 14 + Math.sin(a) * 4.5],
+                [Math.cos(a + .2) * (11 + r1) * .52, 14 + Math.sin(a + .2) * (4.5 + r1 * .4) * .5],
+                [Math.cos(a) * r1, 14 + Math.sin(a) * r1 * .4],
+            ];
+            stroke(ctx, WENREN_INK.char, 2.4, pts);
+            stroke(ctx, 'rgba(168,58,32,.7)', 1, pts);
+        }
+        ctx.restore();
+        emberCinders(ctx, clamp(p / .3), f.lite ? 2 : 5, 15, 41);
+    }
+    emberGroundRing(ctx, rx, rx * .33, gold ? 11 : 10, 26, gold ? 48 : 40, pale, 3, .95, phase, f.lite, gold);
+    if (gold) emberGoldLoop(ctx, rx, rx * .33, p);
+    emberCinders(ctx, clamp(p * 1.15), f.lite ? 6 : 13, 42, 5);
+    ctx.restore();
+}
+
+function wenrenReap(ctx: Ctx, f: CraftedFrame, p: number) {
+    const gold = f.theme === 'wenren-reap-zhaoshen';
+    const pale = gold ? '#fff7cf' : WENREN_INK.pale;
+    const phase = f.time / 55;
+    if (f.variant === 'caster') {
+        // 起手：暗红余烬从外圈向内收，再交给 target 那一份爆发
+        if (p > .55) return;
+        ctx.save();
+        ctx.globalAlpha *= 1 - clamp(p / .55);
+        for (let i = 0; i < (f.lite ? 3 : 5); i++) {
+            const a = i * 1.38 + .4 + noise(i + 2 + Math.floor(phase) * 3.71) * .12;
+            const r = 38 * (1 - ease(p / .55)) + 8;
+            const x = Math.cos(a) * r, y = Math.sin(a) * r * .55;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.quadraticCurveTo(x * .45, y * .45 - 8, 0, -2);
+            ctx.strokeStyle = i % 2 ? WENREN_INK.umber : WENREN_INK.red;
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+            glow(ctx, x, y, 7, gold ? '#e8a24a' : '#a83a20', .32);
+        }
+        ctx.restore();
+        return;
+    }
+    if (f.variant === 'impact') {
+        // 燎原打到的每个敌人：一簇被火环扫过的短焰
+        ctx.save();
+        ctx.globalAlpha *= .92;
+        emberGroundRing(ctx, 34, 12, 5, 14, 26, pale, 27, .85, phase, f.lite, gold);
+        emberCinders(ctx, clamp(p * 1.3), f.lite ? 3 : 7, 24, 31);
+        ctx.restore();
+        return;
+    }
+    // target：贴地裂焰一圈，中心留白；环撑到最宽后向内塌缩，昭神再叠反向断续金线
+    ctx.save();
+    ctx.globalAlpha *= 1 - clamp((p - .74) / .26);
+    const ringR = 66 + ease(clamp(p / .22)) * 7 - ease(clamp((p - .55) / .45)) * 9;
+    emberGroundRing(ctx, ringR, ringR * .34, gold ? 14 : 12, 24, gold ? 48 : 38, pale, 7, .95, phase, f.lite, gold);
+    if (gold) emberGoldLoop(ctx, ringR, ringR * .34, p, true);
+    emberCinders(ctx, clamp(p * 1.2), f.lite ? 7 : 15, 46, 13);
+    ctx.restore();
+}
+
 /** Coordinates are in cell units: 100 px is one cell. No gameplay state is changed. */
 export function drawCraftedFrame(ctx: Ctx, f: CraftedFrame) {
     if(f.time<0 || f.time>f.duration) return;
@@ -336,5 +717,7 @@ export function drawCraftedFrame(ctx: Ctx, f: CraftedFrame) {
         case 'moon-double':moon(ctx,f,p);break;
         case 'dread-arrow':case 'dread-curse':dread(ctx,f,p);break;
         case 'wind-vortex':case 'wind-corridor':wind(ctx,f,p);break;
+        case 'wenren-leap':case 'wenren-leap-zhaoshen':wenrenLeap(ctx,f,p);break;
+        case 'wenren-reap':case 'wenren-reap-zhaoshen':wenrenReap(ctx,f,p);break;
     }ctx.restore();
 }

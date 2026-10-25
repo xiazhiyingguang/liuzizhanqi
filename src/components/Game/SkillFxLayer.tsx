@@ -40,6 +40,7 @@ import '../../styles/wukong-skill-fx.css';
 import '../../styles/zhiyuan-skill-fx.css';
 import '../../styles/xihuan-skill-fx.css';
 import '../../styles/jiangtaigong-skill-fx.css';
+import '../../styles/xiyueci-skill-fx.css';
 import '../../styles/huanongying-skill-fx.css';
 import '../../styles/jinghong-skill-fx.css';
 import '../../styles/aoyuan-dragon-fx.css';
@@ -535,6 +536,32 @@ function JiangtaigongCastFx() {
             <i className="fxjtg-hook" />
             <i className="fxjtg-ripple" />
             <i className="fxjtg-ripple fxjtg-ripple-b" />
+        </span>
+    );
+}
+
+/** 夕月辞·辞光散影：贴地月环自她足下旋开，两瓣反向弧光扫过周身一圈，月尘跟着被掀起来 */
+function XiyueciSweepFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxxyc-moonsweep" />
+            <i className="fxxyc-moonsweep fxxyc-moonsweep-b" />
+            <i className="fxxyc-flash" />
+            <i className="fxxyc-dust" />
+            <i className="fxxyc-dust" />
+        </span>
+    );
+}
+
+/** 夕月辞·明灯照影：灯自上方落下，落地推开两圈光晕，光里朝两侧拖出被拉长的影子 */
+function XiyueciLampFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxxyc-lamp" />
+            <i className="fxxyc-halo" />
+            <i className="fxxyc-halo fxxyc-halo-b" />
+            <i className="fxxyc-streak" />
+            <i className="fxxyc-streak fxxyc-streak-b" />
         </span>
     );
 }
@@ -2069,6 +2096,10 @@ function TargetFx({ event, atPos }: { event: SkillFxEvent; atPos?: Position }) {
             return <XihuanLevelFx />;
         case 'jiangtaigong-cast':
             return <JiangtaigongCastFx />;
+        case 'moonlight-sweep':
+            return <XiyueciSweepFx />;
+        case 'lamp-lighting':
+            return <XiyueciLampFx />;
         case 'jiangtaigong-throw':
             return <JiangtaigongThrowFx />;
         case 'jiangtaigong-whalefall':
@@ -2265,10 +2296,13 @@ export const SkillFxVisual = memo(function SkillFxVisual({
     event,
     variant,
     atPos,
+    emphasis,
 }: {
     event: SkillFxEvent;
     variant: 'caster' | 'target' | 'impact' | 'area' | 'splash' | 'chain';
     atPos?: Position;
+    /** echo：同格已有更新的命中主效，本份缩进格角当回声（由 Board 的格内仲裁决定） */
+    emphasis?: 'main' | 'echo';
 }) {
     const [started, setStarted] = useState(() => Date.now() >= event.bornAt);
     const clockRoot = useRef<HTMLSpanElement>(null);
@@ -2423,6 +2457,7 @@ export const SkillFxVisual = memo(function SkillFxVisual({
                 'skill-fx',
                 `skill-fx-kind-${event.profile.kind}`,
                 variantClass,
+                emphasis === 'echo' ? 'is-fx-echo' : '',
                 event.owner === 'player1' ? 'skill-fx-owner-p1' : 'skill-fx-owner-p2',
                 // 低画质挂这个类：只藏"撒出去的散件"，主体轮廓照常播（见 quality-low.css）
                 isLowQuality() ? 'fx-lite' : '',
@@ -2463,6 +2498,7 @@ export const SkillFxVisual = memo(function SkillFxVisual({
         </span>
     );
 }, (previous, next) => previous.event === next.event && previous.variant === next.variant
+    && previous.emphasis === next.emphasis
     && previous.atPos?.[0] === next.atPos?.[0] && previous.atPos?.[1] === next.atPos?.[1]);
 
 /* ============================================================

@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AVAILABLE_HERO_IDS } from '../../src/data/heroes';
-import { chooseComputerDeployment, setComputerAiDifficulty } from '../../src/core/computer-ai';
+import { chooseComputerDeployment, createSeededRandom, setComputerAiDifficulty } from '../../src/core/computer-ai';
 import { battleActorFor, runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
 import { getPendingActionCells, useGameStore } from '../../src/store/game-store';
 import { HeroState, Player } from '../../src/types/game';
@@ -58,8 +58,9 @@ function shuffle<T>(values: readonly T[], random: () => number): T[] {
 }
 
 function deploymentFor(team: string[], side: Player) {
-    const rotation = team.reduce((sum, id) => sum + [...id].reduce((s, c) => s + c.charCodeAt(0), 0), 0) % 6;
-    return chooseComputerDeployment(team, []).map(item => ({
+    const seed = team.reduce((sum, id) => sum + [...id].reduce((s, c) => s + c.charCodeAt(0), 0), 0);
+    const rotation = seed % 6;
+    return chooseComputerDeployment(team, [], createSeededRandom(seed)).map(item => ({
         heroId: item.heroId,
         position: [
             (item.position[0] + rotation) % 6,

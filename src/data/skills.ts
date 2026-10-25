@@ -5,6 +5,7 @@ import { GameEngine } from '../core/game-engine';
 import { createMirrorClone, getMirrorOwnerIdFromCloneId, GUYING_DUANXUE, spendZhenxiaoBlood } from '../data/heroes';
 import { MovementSystem } from '../core/movement-system';
 import { enterNightowlStealth } from '../core/nightowl-stealth';
+import { enemiesOnCells } from '../core/lamp-shadow';
 import { hasZhizhi, zhizhiValue } from '../core/hero-zhizhi';
 import { EXTENDED_SKILLS } from './extended-skills';
 import { createHuifengStrikeContext, executeHuifengCombo, huifengMarkStrike, pickHuifengMarkTargets, HUIFENG_COMBO_BASE, HUIFENG_MARK_BASE, type HuifengStrikeContext } from '../core/huifeng-marks';
@@ -1036,21 +1037,17 @@ export const mirrorSkill2: Skill = {
                 if (Math.abs(r1 - r2) === Math.abs(c1 - c2)) {
                     const dr = r2 > r1 ? 1 : -1;
                     const dc = c2 > c1 ? 1 : -1;
-                    let currR = r1 + dr;
-                    let currC = c1 + dc;
+                    const beamCells: Position[] = [];
+                    for (let currR = r1 + dr, currC = c1 + dc; currR !== r2 && currC !== c2; currR += dr, currC += dc) {
+                        if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) beamCells.push([currR, currC]);
+                    }
                     DamageCalculator.asOneAttack(() => {
-                        while (currR !== r2 && currC !== c2) {
-                            if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
-                                const h = gameState.board[currR][currC];
-                                if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                                    const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
-                                    DamageCalculator.applyDamage(h, realDmg, caster, gameState);
-                                    result.damageDealt?.push(realDmg.finalDamage);
-                                    // 数额交给引擎的 damage 日志
-                                }
-                            }
-                            currR += dr;
-                            currC += dc;
+                        // 对角束扫过的格子里，灯影也照样挨一下（本体只吃半刀）
+                        for (const h of enemiesOnCells(gameState, caster, beamCells)) {
+                            const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
+                            DamageCalculator.applyDamage(h, realDmg, caster, gameState);
+                            result.damageDealt?.push(realDmg.finalDamage);
+                            // 数额交给引擎的 damage 日志
                         }
                     });
                 }
@@ -1099,22 +1096,18 @@ export const mirrorSkill2: Skill = {
                 const dr = r2 > r1 ? 1 : -1;
                 const dc = c2 > c1 ? 1 : -1;
                 
-                let currR = r1 + dr;
-                let currC = c1 + dc;
+                const beamCells: Position[] = [];
+                for (let currR = r1 + dr, currC = c1 + dc; currR !== r2 && currC !== c2; currR += dr, currC += dc) {
+                    if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) beamCells.push([currR, currC]);
+                }
                 
                 DamageCalculator.asOneAttack(() => {
-                    while (currR !== r2 && currC !== c2) {
-                        if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
-                            const h = gameState.board[currR][currC];
-                            if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                                const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
-                                DamageCalculator.applyDamage(h, realDmg, caster, gameState);
-                                result.damageDealt?.push(realDmg.finalDamage);
-                                // 数额交给引擎的 damage 日志
-                            }
-                        }
-                        currR += dr;
-                        currC += dc;
+                    // 与收回镜像那一束同一口径：扫过的格子里灯影也挨半刀
+                    for (const h of enemiesOnCells(gameState, caster, beamCells)) {
+                        const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
+                        DamageCalculator.applyDamage(h, realDmg, caster, gameState);
+                        result.damageDealt?.push(realDmg.finalDamage);
+                        // 数额交给引擎的 damage 日志
                     }
                 });
             }
@@ -1398,14 +1391,16 @@ export const guyingSkill1: Skill = {
         const duanxue = EffectManager.hasEffect(caster, GUYING_DUANXUE);
         const struck: Hero[] = [firstEnemy];
         if (duanxue) {
+            const rayCells: Position[] = [];
             for (let dist = 1; dist <= 5; dist++) {
                 const r = cr + step[0] * dist;
                 const c = cc + step[1] * dist;
                 if (r < 0 || r >= 6 || c < 0 || c >= 6) break;
-                const h = gameState.board[r][c];
-                if (h && h.state === HeroState.ALIVE && h.owner !== caster.owner && !struck.includes(h)) {
-                    struck.push(h);
-                }
+                rayCells.push([r, c]);
+            }
+            // 剑光扫过的格子里灯影也算被斩到（本体只吃半刀）；先手定位那位仍要真站在射线上
+            for (const enemy of enemiesOnCells(gameState, caster, rayCells)) {
+                if (!struck.includes(enemy)) struck.push(enemy);
             }
         }
 
@@ -1521,9 +1516,8 @@ export const hanjiangxueSkill1: Skill = {
         const center: Position = [Math.floor(encoded / 6), encoded % 6];
 
         const positions = MovementSystem.getAreaPositions(center, 3).concat([center]);
-        const targets = positions
-            .map(([r, c]) => gameState.board[r][c])
-            .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
+        // 按格索敌统一走灯影口径：影格盖在爆点里也算打到了那个人（本体只吃半刀）
+        const targets = enemiesOnCells(gameState, caster, positions);
         if (targets.length === 0) return { success: false, log: [`${caster.name}的技能1范围内没有敌人`] };
 
         const result: SkillExecuteResult = {

@@ -1,7 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { BattleReplayPanel } from '../../src/components/Game/BattleReplayModal';
-import type { BattleReplay, ReplayFrame, ReplayStatic, ReplayUnit } from '../../src/core/battle-replay';
+import ReplayBoard from '../../src/components/Game/ReplayBoard';
+import { nextPlaybackToggle } from '../../src/core/replay-playback';
+import type { BattleReplay, ReplayArea, ReplayDelta, ReplayFrame, ReplayStatic, ReplayUnit } from '../../src/core/battle-replay';
 import type { BattleLogEntry } from '../../src/types/game';
 
 function unit(def: number, r: number, c: number, hp: number, effects: Array<[string, number]> = []): ReplayUnit {
@@ -141,5 +143,147 @@ describe('对局回放面板', () => {
         expect(html).toContain('replay-log-scroll');
         expect(html).toContain('replay-action-count');
         expect(html).toContain('replay-roster');
+    });
+
+    it('存活数不把暂亡单位算进去', () => {
+        const tempDead: ReplayUnit = { def: 1, r: -1, c: -1, hp: 0, shield: 0, state: 1, effects: [], counters: [] };
+        const html = renderToStaticMarkup(
+            <BattleReplayPanel
+                replay={{ ...REPLAY, frames: [frame([unit(0, 2, 2, 40), tempDead], {}, 0)] }}
+                onClose={() => { }}
+            />
+        );
+        expect(html).toContain('存活 0/1');
+        expect(html).toContain('暂亡');
+    });
+
+    it('返场节点有自己的图例与刻度，不再借用补员', () => {
+        const html = renderToStaticMarkup(
+            <BattleReplayPanel
+                replay={{ ...REPLAY, marks: [{ frame: 0, kind: 'return', label: '墨阑返场' }] }}
+                onClose={() => { }}
+            />
+        );
+        expect(html).toContain('返场');
+        expect(html).toContain('replay-event replay-mark-return');
+    });
+
+    it('末帧按播放会从头重播', () => {
+        expect(nextPlaybackToggle(false, 5, 5)).toEqual({ playing: true, restartAt: 0 });
+        expect(nextPlaybackToggle(false, 2, 5)).toEqual({ playing: true });
+        expect(nextPlaybackToggle(true, 2, 5)).toEqual({ playing: false });
+    });
+});
+
+describe('回放棋盘', () => {
+    const BOARD_STATICS: ReplayStatic[] = [
+        { heroId: 'a-player1-1', templateId: 'moran', name: '墨阑', className: '武曲', owner: 'player1', maxHp: 40, passiveId: 'moran_passive' },
+        { heroId: 'b-player2-2', templateId: 'baize', name: '白泽', className: '天师', owner: 'player2', maxHp: 40, passiveId: 'baize_passive' },
+        { heroId: 'c-player1-3', templateId: 'jetzmi', name: '杰茨米', className: '武曲', owner: 'player1', maxHp: 60, passiveId: 'jetzmi_passive' },
+    ];
+
+    function boardFrame(overrides: Partial<ReplayFrame>): ReplayFrame {
+        return {
+            index: 0, round: 1, player: 'player1', actions: 0, required: 8, actor: 0,
+            units: [], areas: [], logFrom: 0, logTo: 0, sig: 'board', ended: false,
+            ...overrides,
+        };
+    }
+
+    function area(type: ReplayArea['type'], r: number, c: number, extra: Partial<ReplayArea> = {}): ReplayArea {
+        return { type, r, c, owner: 'player1', duration: 2, ...extra };
+    }
+
+    it('完全被护盾挡下的伤害也会显示“挡下”', () => {
+        const html = renderToStaticMarkup(
+            <ReplayBoard
+                frame={boardFrame({ units: [unit(0, 2, 2, 40)] })}
+                statics={BOARD_STATICS}
+                deltas={[{ def: 0, hp: 0, shield: -10, r: 2, c: 2, died: false }]}
+            />
+        );
+        expect(html).toContain('挡下 10');
+    });
+
+    it('死亡格的击杀数字与阵亡标记不随棋子离场消失', () => {
+        const html = renderToStaticMarkup(
+            <ReplayBoard
+                frame={boardFrame({ units: [unit(1, 3, 3, 40)] })}
+                statics={BOARD_STATICS}
+                deltas={[{ def: 0, hp: -7, shield: 0, r: 2, c: 2, died: true }]}
+            />
+        );
+        expect(html).toContain('-7');
+        expect(html).toContain('阵亡');
+    });
+
+    it('全部场地效果都有专属外观，水泽/暗夜/沙丘按真实范围铺开', () => {
+        const html = renderToStaticMarkup(
+            <ReplayBoard
+                frame={boardFrame({
+                    units: [],
+                    areas: [
+                        area('water-marsh', 2, 2, { owner: 'player2', radius: 2 }),
+                        area('dark-circle', 2, 2),
+                        area('sand-dune', 3, 3),
+                        area('water-moon', 5, 0),
+                        area('moon-seat', 5, 5),
+                        area('shadow-mark', 3, 0),
+                        area('light-prism', 3, 5),
+                        area('fish-hook', 4, 2),
+                        area('lightning-rod', 4, 3),
+                        area('lit-lamp', 1, 3),
+                        area('brush', 2, 4),
+                    ],
+                })}
+                statics={BOARD_STATICS}
+            />
+        );
+
+        expect((html.match(/data-replay-area="water-marsh"/g) ?? [])).toHaveLength(25);
+        expect((html.match(/data-replay-area="dark-circle"/g) ?? [])).toHaveLength(9);
+        expect((html.match(/data-replay-area="sand-dune"/g) ?? [])).toHaveLength(9);
+        for (const type of ['water-moon', 'moon-seat', 'shadow-mark', 'light-prism', 'fish-hook', 'lightning-rod', 'lit-lamp', 'brush']) {
+            expect(html, type).toContain(`data-replay-area="${type}"`);
+        }
+        expect(html).toContain('bf-water-moon');
+        expect(html).toContain('bf-moon-seat');
+        expect(html).toContain('bf-shadow-mark');
+        expect(html).toContain('bf-prism');
+        expect(html).toContain('bf-fish-hook');
+        expect(html).toContain('bf-rod');
+        expect(html).toContain('bf-lamp');
+        expect(html).toContain('bf-brush');
+    });
+
+    it('灯影、英雄连线和时空停滞残影都能在回放里看到', () => {
+        const enemy: ReplayUnit = { def: 1, r: 2, c: 3, hp: 40, shield: 0, state: 0, effects: [], counters: [] };
+        const html = renderToStaticMarkup(
+            <ReplayBoard
+                frame={boardFrame({
+                    units: [enemy],
+                    areas: [area('lit-lamp', 2, 2)],
+                    links: [{ from: [2, 3], to: [4, 3], kind: 'rage', length: 2, angleDeg: 90 }],
+                    ghosts: [{ def: 2, r: 4, c: 4 }],
+                })}
+                statics={BOARD_STATICS}
+            />
+        );
+        expect(html).toContain('bf-lamp-shadow');
+        expect(html).toContain('hero-link hero-link-rage');
+        expect(html).toContain('dai-stasis-ghost');
+        expect(html).toContain('杰茨米');
+    });
+
+    it('机制徽章按被动与原始计数器还原', () => {
+        const king: ReplayUnit = {
+            def: 2, r: 2, c: 2, hp: 60, shield: 0, state: 0, effects: [], counters: [],
+            rawCounters: { jetzmi_form: 1 },
+        };
+        const html = renderToStaticMarkup(
+            <ReplayBoard frame={boardFrame({ units: [king] })} statics={BOARD_STATICS} />
+        );
+        expect(html).toContain('hero-mechanism-state');
+        expect(html).toContain('data-mechanism-state="king"');
     });
 });

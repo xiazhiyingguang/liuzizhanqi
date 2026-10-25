@@ -17,7 +17,7 @@ import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { AVAILABLE_HERO_IDS, getHeroInfo } from '../../src/data/heroes';
 import { isWeaponImplemented } from '../../src/data/weapon-codex';
-import { chooseComputerDeployment, setComputerAiDifficulty } from '../../src/core/computer-ai';
+import { chooseComputerDeployment, createSeededRandom, setComputerAiDifficulty } from '../../src/core/computer-ai';
 import { battleActorFor, runComputerBattleStep } from '../../src/hooks/useComputerOpponent';
 import { useGameStore } from '../../src/store/game-store';
 import { HeroState, Player } from '../../src/types/game';
@@ -66,8 +66,9 @@ function teamHash(team: Team): number {
 }
 
 function deploymentFor(team: Team, side: Player): { heroId: string; position: [number, number] }[] {
-    const rotation = teamHash(team) % 6;
-    return chooseComputerDeployment(team, []).map(item => ({
+    const seed = teamHash(team);
+    const rotation = seed % 6;
+    return chooseComputerDeployment(team, [], createSeededRandom(seed)).map(item => ({
         heroId: item.heroId,
         position: [
             (item.position[0] + rotation) % 6,

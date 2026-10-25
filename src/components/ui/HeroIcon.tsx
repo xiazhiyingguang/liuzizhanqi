@@ -590,6 +590,18 @@ function JinghuaIcon() {
     );
 }
 
+function WenrenIcon() {
+    // 闻人翊悬 — 越过友军的一跃：虚线是飞越轨迹，圈点是中途踏板，身后落点烧起一簇火
+    return (
+        <Stroke>
+            <path d="M5 24 Q14 7 25 21" strokeWidth={1} opacity={0.42} strokeDasharray="3 3" />
+            <circle cx={14.5} cy={15.5} r={2.2} strokeWidth={1.4} />
+            <path d="M24 27 Q20.6 22 24.2 18.2 Q24.8 21 26.8 21.6 Q28.4 23.6 27.2 25.8 Q26 28 24 27Z" strokeWidth={1.4} />
+            <path d="M9 27 Q5.5 25.5 4.6 22" strokeWidth={1} opacity={0.4} />
+        </Stroke>
+    );
+}
+
 function HuanongyingIcon() {
     // 花弄影 — 一枝花斜倚，月下投出一枚斜长的影子，影尖还带一点回勾
     return (
@@ -728,6 +740,33 @@ function JiangtaigongIcon() {
     );
 }
 
+function XiyueciIcon() {
+    // 夕月辞 — 一盏明灯拖着地上一截影子：灯罩里一点焰，影子斜伸向右下、末端回勾
+    return (
+        <Stroke>
+            <path d="M13.2 5.4 h5.6" strokeWidth={1.4} />
+            <path d="M16 5.4 v2.4" strokeWidth={1.2} opacity={0.8} />
+            <path d="M11.4 8.8 h9.2 l-1.6 9.4 h-6 z" strokeWidth={1.7} />
+            <path d="M16 11.4 c1.5 1.7 2.2 2.9 2.2 3.9 a2.2 2.2 0 0 1-4.4 0 c0-1 .7-2.2 2.2-3.9z" strokeWidth={1.3} opacity={0.9} />
+            <path d="M12.8 20.8 h6.4" strokeWidth={1.4} />
+            <path d="M14.6 24 Q19.2 24.8 22.8 27.6" strokeWidth={1.5} opacity={0.75} />
+            <path d="M22.8 27.6 q1.8 1.2 3.6 0.4" strokeWidth={1.2} opacity={0.55} />
+        </Stroke>
+    );
+}
+
+function ShuangfeiyanIcon() {
+    // 双飞燕 — 两枚回旋镖交错成燕翼，中心一点作镖心
+    return (
+        <Stroke>
+            <path d="M5 9 Q12 4 20 9 Q14 12 9 19 Q8 14 5 9 Z" strokeWidth={1.6} />
+            <path d="M27 23 Q20 28 12 23 Q18 20 23 13 Q24 18 27 23 Z" strokeWidth={1.6} />
+            <path d="M9 9 L12 12 M23 23 L20 20" strokeWidth={1.2} opacity={0.6} />
+            <Dot cx={16} cy={16} r={1.4} opacity={0.7} />
+        </Stroke>
+    );
+}
+
 /* 通用/默认图标 */
 function DefaultIcon() {
     return (
@@ -802,6 +841,7 @@ const iconMap: Record<string, () => JSX.Element> = {
     daier: () => <DaiIcon />,
     yousun: () => <YoujunIcon />,
     xuanyuan: () => <XuanyuanIcon />,
+    wenren: () => <WenrenIcon />,
     xubai: () => <XubaiIcon />,
     wangshu: () => <WangshuIcon />,
     lingxi: () => <LingxiIcon />,
@@ -819,6 +859,8 @@ const iconMap: Record<string, () => JSX.Element> = {
     aoyuan: () => <AoyuanIcon />,
     yunxiu: () => <YunxiuIcon />,
     daizong: () => <DaizongIcon />,
+    shuangfeiyan: () => <ShuangfeiyanIcon />,
+    xiyueci: () => <XiyueciIcon />,
 };
 
 /** 已拥有专属线性图标的英雄模板 id；新增英雄必须补一个，否则测试会拦住通用兜底图标 */

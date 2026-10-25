@@ -1,7 +1,7 @@
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
 import { zhizhiValue } from './hero-zhizhi';
-import { AVAILABLE_HERO_IDS, getHeroInfo, getZhenxiaoDamageBonus } from '../data/heroes';
+import { AVAILABLE_HERO_IDS, createHero, getHeroInfo, getZhenxiaoDamageBonus } from '../data/heroes';
 import { getHeroAbilityRatings, type HeroAbilityRatings } from '../data/hero-ratings';
 import { getSkill } from '../data/skills';
 import { EffectManager } from './effect-manager';
@@ -27,9 +27,39 @@ import {
 } from './thunder-cloud';
 import { MOUNTAIN_COUNTER, directionFromCell, guardsCell, hasStance, mountainPressure, stanceDirection, threatensFrom } from './mountain-stance';
 import { isJinghongReleaseWindow, findHnyShadow, findWaterMoon, findMoonSeat } from '../data/extended-heroes';
-import { getGMovePlans, getGStartCell, gStartCodeFromCell, isXuanyuan, isZhaoShen } from './xuanyuan-form';
-import { findFlyingSwordAt } from './flying-sword';
+import { isXuanyuan, isZhaoShen, getXiangStepMovePlans } from './xuanyuan-form';
+import {
+    LAMP_AURA_RANGE,
+    XIYUECI_RING_DAMAGE,
+    XIYUECI_RING_DAMAGE_TALENT,
+    chebyshev,
+    findLampAt,
+    litLamps,
+    shadowCellOf,
+} from './lamp-shadow';
+import {
+    WENREN_SKILL1_ID,
+    WENREN_SKILL2_ID,
+    getAllWenrenLeapPlans,
+    getWenrenLandingPlans,
+    getWenrenPos,
+    getWenrenWaypoint,
+    isWenren,
+    isWenrenZhaoShen,
+    setWenrenWaypoint,
+    wenrenRingCells,
+} from './wenren-form';
 import { getHnyReplayForm, getJinghuaSwapDestinations, pickYunyingTianweiLanding, pickZhiguangTianweiLanding, runWithoutSkillFx, traceZhiguangBeam, XUBAI_ORB_HEAL, XUBAI_ORB_MAX, ZHIGUANG_DIRECTION_DELTAS } from '../data/extended-skills';
+import {
+    SHUANGFEIYAN_SKILL1_ID,
+    SHUANGFEIYAN_SKILL2_ID,
+    chebyshevDistance,
+    getShuangfeiyanBoomerangs,
+    getShuangfeiyanPickupCells,
+    getShuangfeiyanThrowCells,
+    getShuangfeiyanTriangleArea2,
+    getShuangfeiyanTriangleCells,
+} from './boomerang';
 
 export interface ComputerDeployment {
     heroId: string;
@@ -57,6 +87,9 @@ const BENCH_SIZE = 2;
 const SKILL_REPEAT_PENALTY = 5;
 /** 斩杀优先奖励：模拟中确认击杀一名敌人时附加的评分，压过其他一切收益，让 AI 追着残血杀。 */
 const KILL_SCORE_BONUS = 205;
+/** 闻人翊悬：每层破妄的成长价值；踏入昭神另记一笔形态价值（再动由 extraActionBonus 另计）。 */
+const WENREN_POS_VALUE = 2;
+const WENREN_ZHAOSHEN_VALUE = 26;
 /** 把敌人打成暂时阵亡的奖励（敌方可能拥有复活，故低于真实击杀）。 */
 const TEMP_DEAD_SCORE_BONUS = 45;
 /**
@@ -156,6 +189,16 @@ const BOUNTY_FOLLOWUP_DAMAGE = 4;
 /** 绯雪连枝：被结契队友每次主动命中追加 6 点，持续 2 回合，按能打中两次估。 */
 const LIANZHI_FOLLOWUP_VALUE = 12;
 /**
+ * 双飞燕的镖位账：AI 要的是“把三角撑开罩到人”，不是把两把镖叠在同一格顺手挠两下。
+ * 每罩住一名敌人按未来那一发 7 点的折扣价记账，再给镖间距与三角面积一点小额奖励。
+ */
+const SHUANGFEIYAN_AI_FOE_VALUE = 4.2;
+const SHUANGFEIYAN_AI_AREA_VALUE_PER_CELL = 0.25;
+const SHUANGFEIYAN_AI_AREA_VALUE_CAP = 4;
+const SHUANGFEIYAN_AI_GAP_VALUE_PER_CELL = 1.5;
+const SHUANGFEIYAN_AI_GAP_VALUE_CAP = 3;
+const SHUANGFEIYAN_AI_COLLINEAR_PENALTY = 8;
+/**
  * 铺路型技能：这一手的收益主要落在**还没行动的队友**身上，所以她在回合内必须先动。
  * 只收"给队友创造条件"的招，给自己上姿态的不算（那些是自用增益，不涉及顺序）。
  */
@@ -166,6 +209,7 @@ const SETUP_FIRST_SKILLS = new Set([
     'xubai_skill2',      // 黑白凝珠：队友开局残血时自动回血
     'nanfeng_skill2',    // 风道：队友的羽化/击退要顺着这条轴才吃得到
     'daizong_skill1',    // 镇守：先立起半区护持，后面的队友才有人替他挨打攒岳势
+    'xiyueci_skill2',    // 明灯：队友要打得着灯影里的本体，这一手才有意义
 ]);
 /** 每有一个本回合还能出手、且此刻确有可用方案的队友，铺路者的排序分加这么多。 */
 const SETUP_ORDER_VALUE_PER_ALLY = 18;
@@ -242,6 +286,11 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
         }
         case 'youjun_skill2':
             return 4;
+        // 蹈火·跃阵：普通态固定 8 点；昭神态额外附带飞跃距离（0~5），威胁估算取中段
+        case WENREN_SKILL1_ID:
+            return zhizhiValue(caster, 2, 8, 10) + (isWenrenZhaoShen(caster) ? 3 : 0);
+        case WENREN_SKILL2_ID:
+            return Math.max(1, getWenrenPos(caster));
         // 御剑·贯阵：沿途与周圈两段伤害的均值粗估；昭神态数字更高
         case 'xuanyuan_skill1':
             return isZhaoShen(caster) ? 8 : 6;
@@ -297,6 +346,12 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
             return HOOK_THROW_DAMAGE;
         // 渭水垂竿不造成伤害，价值在拖拽、铺泽与"用技能也算一次出手"的鲸落档（走下面的专属静态计分）
         case 'jiangtaigong_skill2':
+            return 0;
+        // 辞光·散影：伤害写在 execute 里，威胁基线得自己报一份，否则对面把她读成零输出近身位
+        case 'xiyueci_skill1':
+            return zhizhiValue(caster, 2, XIYUECI_RING_DAMAGE, XIYUECI_RING_DAMAGE_TALENT);
+        // 明灯·照影不产生即时伤害，价值全在场地（走下面的专属静态计分）
+        case 'xiyueci_skill2':
             return 0;
         default:
             return null;
@@ -391,7 +446,11 @@ function pickWithBlunder<T extends { score: number }>(candidates: T[], tolerance
 }
 
 /** 温度采样：按 exp((score-max)/temperature) 加权随机，分数越高越可能被选但低分也有机会。 */
-function softmaxPick<T extends { score: number }>(items: T[], temperature: number): T | undefined {
+function softmaxPick<T extends { score: number }>(
+    items: T[],
+    temperature: number,
+    random: () => number = Math.random
+): T | undefined {
     if (items.length === 0) return undefined;
     if (temperature <= 0) {
         return [...items].sort((left, right) => right.score - left.score)[0];
@@ -399,7 +458,7 @@ function softmaxPick<T extends { score: number }>(items: T[], temperature: numbe
     const maxScore = Math.max(...items.map(item => item.score));
     const weights = items.map(item => Math.exp((item.score - maxScore) / temperature));
     const total = weights.reduce((sum, weight) => sum + weight, 0);
-    let roll = Math.random() * total;
+    let roll = random() * total;
     for (let index = 0; index < items.length; index++) {
         roll -= weights[index];
         if (roll <= 0) return items[index];
@@ -665,33 +724,317 @@ function rowThreatFromOpponent(row: number, opponentHeroes: Hero[]): number {
     }, 0);
 }
 
-/** 让耐久/控制英雄顶在前排，输出与支援根据玩家布阵选择对应行。 */
-export function chooseComputerDeployment(heroIds: string[], opponentHeroes: Hero[]): ComputerDeployment[] {
-    const heroes = heroIds.map(id => ({ id, ratings: ratingsForHeroId(id) }));
-    const unassigned = [...heroes];
-    const takeBest = (score: (item: typeof heroes[number]) => number) => {
-        unassigned.sort((left, right) => score(right) - score(left));
-        return unassigned.shift()!;
+interface DeploymentProfile {
+    id: string;
+    frontness: number;
+    survival: number;
+    control: number;
+    mobility: number;
+    support: number;
+    output: number;
+    coverage: number;
+}
+
+interface DeploymentFormationSlot {
+    column: 3 | 4 | 5;
+    rowOffset: number;
+}
+
+interface DeploymentPlan {
+    slots: Position[];
+    score: number;
+    assignment: DeploymentProfile[];
+}
+
+/**
+ * 九种布阵骨架：列固定为前/中/后三档，行偏移相对锚点展开。
+ * 每副骨架都强制占满四行——四个单位挤在相邻三行会像一坨，拉开后
+ * 既不容易被一条线/一块区域一锅端，也能让玩家看清每个角色站在哪条线上。
+ */
+const DEPLOY_FORMATIONS: readonly (readonly DeploymentFormationSlot[])[] = [
+    [{ column: 3, rowOffset: 0 }, { column: 4, rowOffset: -1 }, { column: 4, rowOffset: 3 }, { column: 5, rowOffset: 1 }],
+    [{ column: 3, rowOffset: 0 }, { column: 3, rowOffset: 2 }, { column: 4, rowOffset: 1 }, { column: 5, rowOffset: 4 }],
+    [{ column: 3, rowOffset: -2 }, { column: 3, rowOffset: 2 }, { column: 4, rowOffset: 0 }, { column: 5, rowOffset: 1 }],
+    [{ column: 3, rowOffset: 0 }, { column: 4, rowOffset: 2 }, { column: 4, rowOffset: -2 }, { column: 5, rowOffset: 1 }],
+    [{ column: 3, rowOffset: 0 }, { column: 4, rowOffset: 1 }, { column: 5, rowOffset: -1 }, { column: 5, rowOffset: 3 }],
+    [{ column: 3, rowOffset: 1 }, { column: 3, rowOffset: -1 }, { column: 4, rowOffset: 0 }, { column: 5, rowOffset: 3 }],
+    // 纵深阵：前排压锚点侧，后排退到棋盘另一侧，专门兑现"前排迎重兵、后排避重兵"
+    [{ column: 3, rowOffset: 0 }, { column: 4, rowOffset: 1 }, { column: 4, rowOffset: 2 }, { column: 5, rowOffset: 4 }],
+    [{ column: 3, rowOffset: 0 }, { column: 3, rowOffset: 2 }, { column: 4, rowOffset: 3 }, { column: 5, rowOffset: 5 }],
+    [{ column: 3, rowOffset: 0 }, { column: 4, rowOffset: 2 }, { column: 4, rowOffset: 3 }, { column: 5, rowOffset: 5 }],
+];
+
+/** 前压值的目标：第 3 列要最能扛/控，第 5 列给支援与脆皮，第 4 列留给两者之间。 */
+const DEPLOY_DEPTH_TARGETS: Record<3 | 4 | 5, number> = { 3: 5, 4: -1.5, 5: -6 };
+const DEPLOY_DEPTH_WEIGHT = 1.15;
+/** 前排必须真的迎向敌人重兵行：权重低了会出现"敌人全在上半区、前排却有一个缩在底部"。 */
+const DEPLOY_FRONT_LANE_WEIGHT = 2;
+/** 首发职责分接近到该窗口内才轮换：不为了随机把明显更合适的人按在替补席。 */
+const DEPLOY_STARTER_TIE_WINDOW = 4;
+const DEPLOY_STARTER_TEMPERATURE = 2.5;
+const DEPLOY_PLAN_TEMPERATURE = 4;
+/** 只从距最佳方案这么近的阵型里抽，保证随机不会抽到"奶妈顶前排"的废案。 */
+const DEPLOY_PLAN_SCORE_WINDOW = 12;
+
+const deploymentProfileCache = new Map<string, DeploymentProfile>();
+
+/**
+ * 把英雄面板折成布阵用的前压倾向：
+ * 生存/控制决定敢不敢站前，支援/覆盖决定该不该缩后，血量补一点肉度，
+ * 机动高且脆的英雄另给边路倾向（从侧面绕，而不是在敌人重兵行正面排队）。
+ */
+function deploymentProfileOf(heroId: string): DeploymentProfile {
+    const cached = deploymentProfileCache.get(heroId);
+    if (cached) return cached;
+
+    const ratings = ratingsForHeroId(heroId);
+    const hero = createHero(heroId, 'player2');
+    const hpShift = Math.max(-1, Math.min(3, (hero.maxHp - 45) * 0.12));
+    const front = ratings.生存 * 1.25
+        + ratings.控制 * 0.9 * (ratings.生存 / 10)
+        + hpShift;
+    const back = ratings.支援 * 1.1
+        + ratings.覆盖 * 0.6
+        + (10 - ratings.生存) * 0.4
+        + (ratings.机动 <= 5 ? 0.4 : 0);
+    const profile: DeploymentProfile = {
+        id: heroId,
+        frontness: front - back + Math.max(0, ratings.机动 - 6) * 0.6,
+        survival: ratings.生存,
+        control: ratings.控制,
+        mobility: ratings.机动,
+        support: ratings.支援,
+        output: ratings.输出,
+        coverage: ratings.覆盖,
     };
+    deploymentProfileCache.set(heroId, profile);
+    return profile;
+}
 
-    const vanguard = takeBest(item => item.ratings.生存 * 1.4 + item.ratings.控制 + item.ratings.输出 * 0.25);
-    const striker = takeBest(item => item.ratings.输出 * 1.3 + item.ratings.机动 + item.ratings.控制 * 0.4);
-    const support = takeBest(item => item.ratings.支援 * 1.5 + item.ratings.覆盖 + item.ratings.生存 * 0.3);
-    const flex = unassigned[0];
+/** 职责分接近的候选取温度采样；只有明显更优时才固定取第一。 */
+function takeDeploymentRole(
+    unassigned: DeploymentProfile[],
+    scoreOf: (profile: DeploymentProfile) => number,
+    random: () => number
+): DeploymentProfile {
+    const ranked = unassigned
+        .map(item => ({ item, score: scoreOf(item) }))
+        .sort((left, right) => right.score - left.score);
+    const floor = ranked[0].score - DEPLOY_STARTER_TIE_WINDOW;
+    const picked = softmaxPick(
+        ranked.filter(entry => entry.score >= floor),
+        DEPLOY_STARTER_TEMPERATURE,
+        random
+    )?.item ?? ranked[0].item;
+    unassigned.splice(unassigned.indexOf(picked), 1);
+    return picked;
+}
 
-    const rows = [0, 1, 2, 3, 4, 5]
-        .sort((left, right) => rowThreatFromOpponent(right, opponentHeroes) - rowThreatFromOpponent(left, opponentHeroes));
-    const primaryRow = rows[0] ?? 2;
-    const secondaryRow = rows.find(row => Math.abs(row - primaryRow) >= 2) ?? (primaryRow <= 2 ? 4 : 1);
-    const supportRow = Math.max(1, Math.min(4, Math.round((primaryRow + secondaryRow) / 2)));
-    const flexRow = [1, 2, 3, 4].find(row => row !== primaryRow && row !== secondaryRow && row !== supportRow) ?? 3;
+/** 敌人在每条行上的压力（按输出/控制加权并归一化），用来决定前排顶哪、后排躲哪。 */
+function deploymentLanePressure(opponentHeroes: Hero[]): number[] {
+    const pressures = Array.from({ length: BOARD_SIZE }, (_, row) => rowThreatFromOpponent(row, opponentHeroes));
+    const peak = Math.max(...pressures);
+    return peak > 0 ? pressures.map(value => value / peak) : pressures.map(() => 0);
+}
 
-    return [
-        { heroId: vanguard.id, position: [primaryRow, 3] },
-        { heroId: striker.id, position: [secondaryRow, 3] },
-        { heroId: flex.id, position: [flexRow, 4] },
-        { heroId: support.id, position: [supportRow, 5] },
-    ];
+function opponentHasAoe(opponentHeroes: Hero[]): boolean {
+    return opponentHeroes.some(hero => hero.state === HeroState.ALIVE && ratingsForHero(hero).覆盖 >= 8);
+}
+
+function buildDeploymentSlots(
+    formation: readonly DeploymentFormationSlot[],
+    anchorRow: number,
+    mirror: boolean
+): Position[] {
+    const rows = formation.map(slot => anchorRow + (mirror ? -slot.rowOffset : slot.rowOffset));
+    const lowest = Math.min(...rows);
+    const highest = Math.max(...rows);
+    // 整体平移而不是逐格夹紧，保持骨架间距不变
+    const shift = lowest < 0 ? -lowest : highest >= BOARD_SIZE ? BOARD_SIZE - 1 - highest : 0;
+    return formation.map((slot, index) => [rows[index] + shift, slot.column] as Position);
+}
+
+function deploymentLaneScore(
+    profile: DeploymentProfile,
+    row: number,
+    column: number,
+    lanePressure: readonly number[]
+): number {
+    const pressure = lanePressure[row] ?? 0;
+    if (column === 3) {
+        // 前排主动迎向敌人重兵行，替后排把线卡住；肉度权重必须压过控制，
+        // 否则 38 血的远程控制手会因为"控制分高"被推到最前面
+        return pressure * (profile.survival * 1.2 + profile.control * 0.25) * DEPLOY_FRONT_LANE_WEIGHT;
+    }
+    if (column === 5) {
+        // 后排既躲高压行，也在低压行拿一点安全奖励
+        return -pressure * (profile.support * 0.9 + (10 - profile.survival) * 0.35)
+            + (1 - pressure) * (profile.support * 0.5 + (10 - profile.survival) * 0.2);
+    }
+    let score = pressure * (profile.control * 0.35 + profile.output * 0.25);
+    if (profile.mobility >= 8 && profile.survival <= 6) {
+        score += Math.abs(row - 2.5) * profile.mobility * 0.35;
+        score -= pressure * 1.5;
+    }
+    return score;
+}
+
+function deploymentSupportScore(assignment: readonly DeploymentProfile[], slots: readonly Position[]): number {
+    let score = 0;
+    for (let index = 0; index < assignment.length; index++) {
+        const profile = assignment[index];
+        if (profile.support < 7) continue;
+        let nearest = Infinity;
+        for (let other = 0; other < assignment.length; other++) {
+            if (other === index) continue;
+            const [row, column] = slots[index];
+            const [otherRow, otherColumn] = slots[other];
+            nearest = Math.min(nearest, Math.abs(row - otherRow) + Math.abs(column - otherColumn));
+        }
+        score += Math.max(0, 4 - nearest) * profile.support * 0.45;
+    }
+    return score;
+}
+
+function deploymentRowSpacingScore(rows: readonly number[], opponentAoe: boolean): number {
+    const counts = new Map<number, number>();
+    for (const row of rows) counts.set(row, (counts.get(row) ?? 0) + 1);
+    let pairs = 0;
+    for (const count of counts.values()) pairs += count * (count - 1) / 2;
+    // 对面有覆盖型群攻时，同排叠人会多送一份伤害；否则紧凑阵型也是正当选择
+    return -pairs * (opponentAoe ? 2.2 : 0.6);
+}
+
+function deploymentAssignmentScore(
+    assignment: readonly DeploymentProfile[],
+    slots: readonly Position[],
+    lanePressure: readonly number[],
+    opponentAoe: boolean
+): number {
+    let score = 0;
+    const rows: number[] = [];
+    for (let index = 0; index < assignment.length; index++) {
+        const profile = assignment[index];
+        const [row, column] = slots[index];
+        rows.push(row);
+        score -= Math.abs(profile.frontness - DEPLOY_DEPTH_TARGETS[column as 3 | 4 | 5]) * DEPLOY_DEPTH_WEIGHT;
+        score += deploymentLaneScore(profile, row, column, lanePressure);
+    }
+    score += deploymentSupportScore(assignment, slots);
+    score += deploymentRowSpacingScore(rows, opponentAoe);
+    return score;
+}
+
+/** 四个英雄只有 24 种分法，直接穷举比贪心更稳，也不会把"辅助该后排"让给排序误差。 */
+function bestDeploymentAssignment(
+    slots: readonly Position[],
+    profiles: readonly DeploymentProfile[],
+    lanePressure: readonly number[],
+    opponentAoe: boolean
+): { score: number; assignment: DeploymentProfile[] } {
+    const order: number[] = [];
+    const used = profiles.map(() => false);
+    let bestScore = -Infinity;
+    let bestAssignment = [...profiles];
+
+    const visit = () => {
+        if (order.length === profiles.length) {
+            const assignment = order.map(index => profiles[index]);
+            const score = deploymentAssignmentScore(assignment, slots, lanePressure, opponentAoe);
+            if (score > bestScore) {
+                bestScore = score;
+                bestAssignment = assignment;
+            }
+            return;
+        }
+        for (let index = 0; index < profiles.length; index++) {
+            if (used[index]) continue;
+            used[index] = true;
+            order.push(index);
+            visit();
+            order.pop();
+            used[index] = false;
+        }
+    };
+    visit();
+    return { score: bestScore, assignment: bestAssignment };
+}
+
+/**
+ * 布阵：先按职责挑出首发四人（职责分接近时轮换），
+ * 再把四种英雄分法代入九种阵型骨架 × 六条锚点行 × 左右镜像，
+ * 从接近最优的方案里温度采样。随机只发生在"都合理"的阵型之间。
+ */
+export function chooseComputerDeployment(
+    heroIds: string[],
+    opponentHeroes: Hero[],
+    random: () => number = Math.random
+): ComputerDeployment[] {
+    const unassigned = heroIds.map(deploymentProfileOf);
+    const vanguard = takeDeploymentRole(
+        unassigned,
+        profile => profile.survival * 1.4 + profile.control + profile.output * 0.25,
+        random
+    );
+    const striker = takeDeploymentRole(
+        unassigned,
+        profile => profile.output * 1.3 + profile.mobility + profile.control * 0.4,
+        random
+    );
+    const support = takeDeploymentRole(
+        unassigned,
+        profile => profile.support * 1.5 + profile.coverage + profile.survival * 0.3,
+        random
+    );
+    const flex = takeDeploymentRole(
+        unassigned,
+        profile => profile.output + profile.mobility * 0.7 + profile.control * 0.5 + profile.support * 0.4,
+        random
+    );
+    const starters = [vanguard, striker, support, flex];
+
+    const lanePressure = deploymentLanePressure(opponentHeroes);
+    const opponentAoe = opponentHasAoe(opponentHeroes);
+    const plans: DeploymentPlan[] = [];
+    const seenLayouts = new Set<string>();
+
+    for (const formation of DEPLOY_FORMATIONS) {
+        for (let anchorRow = 0; anchorRow < BOARD_SIZE; anchorRow++) {
+            for (const mirror of [false, true]) {
+                const slots = buildDeploymentSlots(formation, anchorRow, mirror);
+                const layoutKey = slots.map(([row, column]) => `${row},${column}`).join('|');
+                if (seenLayouts.has(layoutKey)) continue;
+                seenLayouts.add(layoutKey);
+                const { score, assignment } = bestDeploymentAssignment(
+                    slots,
+                    starters,
+                    lanePressure,
+                    opponentAoe
+                );
+                plans.push({ slots, score, assignment });
+            }
+        }
+    }
+
+    const bestScore = Math.max(...plans.map(plan => plan.score));
+    const viablePlans = plans.filter(plan => plan.score >= bestScore - DEPLOY_PLAN_SCORE_WINDOW);
+    const picked = softmaxPick(viablePlans, DEPLOY_PLAN_TEMPERATURE, random) ?? plans[0];
+    return picked.assignment.map((profile, index) => ({
+        heroId: profile.id,
+        position: picked.slots[index],
+    }));
+}
+
+/** 给跑批/测试固定布阵随机序列（mulberry32）；实战默认走 Math.random。 */
+export function createSeededRandom(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+        state = (state + 0x6d2b79f5) >>> 0;
+        let t = state;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
 }
 
 /**
@@ -723,36 +1066,107 @@ export function chooseComputerReinforcement(state: GameState, player: Player): s
     return best?.id ?? bench[0];
 }
 
+const DEPLOY_REINFORCEMENT_TEMPERATURE = 5;
+const DEPLOY_REINFORCEMENT_SCORE_WINDOW = 10;
+/** 补员不是躲猫猫：最上和最下一行往往离战线隔着一整条边，默认先扣一点。 */
+const DEPLOY_REINFORCEMENT_EDGE_PENALTY = 2.5;
+/** 补员的深浅偏好：辅助/后排别为了贴队友站到第 3 列最前线，近战前排也别缩在第 5 列。 */
+const DEPLOY_REINFORCEMENT_DEPTH_PENALTY = 3;
+
 /**
  * 替补制补员：为上场英雄挑选本方半场的落位。
- * 规则：到所有存活敌人的距离和越大越安全，优先远离火线的格子。
+ * 不再只看"离敌人最远"——那套算法会把补员固定塞进角落。
+ * 现在复用战斗走位的评分（技能覆盖、威胁、照应、扎堆），再按角色补上
+ * 边角惩罚和队友接应；只在接近最优的几个空格里加权抽一个。
  */
-export function chooseComputerReinforcementPosition(state: GameState, player: Player): Position | null {
+export function chooseComputerReinforcementPosition(
+    state: GameState,
+    player: Player,
+    random: () => number = Math.random
+): Position | null {
     const halfCols = player === 'player1' ? [0, 1, 2] : [3, 4, 5];
-    const enemies = heroesFor(state, player === 'player1' ? 'player2' : 'player1')
-        .filter(hero => hero.state === HeroState.ALIVE && hero.position);
-
-    let best: Position | null = null;
-    let bestScore = -Infinity;
+    const emptyCells: Position[] = [];
     for (let row = 0; row < BOARD_SIZE; row++) {
         for (const col of halfCols) {
-            if (state.board[row][col]) continue;
-            let score = 0;
-            if (enemies.length > 0) {
-                for (const enemy of enemies) {
-                    score += Math.abs(enemy.position![0] - row) + Math.abs(enemy.position![1] - col);
-                }
-            } else {
-                // 无存活敌人（理论不出现）：倾向中后排
-                score = (player === 'player1' ? col >= 1 : col <= 4) ? 10 : 0;
-            }
-            if (score > bestScore) {
-                bestScore = score;
-                best = [row, col];
-            }
+            if (!state.board[row][col]) emptyCells.push([row, col]);
         }
     }
-    return best;
+    if (emptyCells.length === 0) return null;
+
+    const heroId = state.reinforcementSelectableHeroId;
+    if (!heroId) {
+        // 没点选替补英雄时兜底：仍优先远离敌人，但同分格随机，且不奖励贴边行
+        const enemies = heroesFor(state, player === 'player1' ? 'player2' : 'player1')
+            .filter(hero => hero.state === HeroState.ALIVE && hero.position);
+        const scored = emptyCells.map(position => {
+            const [row] = position;
+            const distance = enemies.reduce((total, enemy) =>
+                total + Math.abs(enemy.position![0] - row) + Math.abs(enemy.position![1] - position[1]), 0);
+            return {
+                position,
+                score: distance - (row === 0 || row === BOARD_SIZE - 1 ? DEPLOY_REINFORCEMENT_EDGE_PENALTY : 0),
+            };
+        });
+        return softmaxPick(scored, DEPLOY_REINFORCEMENT_TEMPERATURE, random)?.position ?? emptyCells[0];
+    }
+
+    const hero = createHero(heroId, player);
+    const benchHp = (player === 'player1' ? state.player1BenchHp : state.player2BenchHp)?.[heroId];
+    if (benchHp && benchHp > 0) hero.currentHp = Math.min(hero.maxHp, benchHp);
+    const profile = deploymentProfileOf(heroId);
+    const prefersBackline = profile.support >= 7 || profile.frontness <= -4;
+    // 短手前排补员要能接战：像长离这种全场技炮台留后排没问题，血契/风铃这种
+    // 贴身单位补到远端会白走两回合，所以只给"前压且不是辅助、近战"的角色加接敌分。
+    const wantsContact = !prefersBackline
+        && profile.frontness >= 2
+        && profile.support < 7
+        && preferredStandoff(hero) <= 2;
+
+    const allies = heroesFor(state, player)
+        .filter(ally => ally.state === HeroState.ALIVE && ally.position);
+    const enemies = heroesFor(state, player === 'player1' ? 'player2' : 'player1')
+        .filter(enemy => enemy.state === HeroState.ALIVE && enemy.position);
+
+    const candidates = emptyCells.map(position => {
+        const [row, column] = position;
+        // 让评分知道"如果站在这格"：鱼钩线、自身周围效果等判据都读 hero.position
+        hero.position = position;
+        let score = scoreComputerPosition(state, hero, position);
+        if (row === 0 || row === BOARD_SIZE - 1) score -= DEPLOY_REINFORCEMENT_EDGE_PENALTY;
+        if (prefersBackline) {
+            score -= Math.max(0, 5 - column) * DEPLOY_REINFORCEMENT_DEPTH_PENALTY;
+        } else if (wantsContact) {
+            score -= Math.max(0, column - 3) * DEPLOY_REINFORCEMENT_DEPTH_PENALTY;
+        }
+
+        // 补员当轮就能行动：离己方单位太远会白走一两步，给一点接应分。
+        // 支援型在 scoreComputerPosition 里已经有更重的照应分，这里只做普适兜底。
+        let nearestAlly = Infinity;
+        for (const ally of allies) {
+            nearestAlly = Math.min(
+                nearestAlly,
+                Math.abs(ally.position![0] - row) + Math.abs(ally.position![1] - position[1])
+            );
+        }
+        if (Number.isFinite(nearestAlly)) {
+            score += Math.max(0, 3 - nearestAlly) * 0.8;
+        }
+
+        if (wantsContact) {
+            const nearestEnemy = enemies.reduce((nearest, enemy) => Math.min(
+                nearest,
+                Math.abs(enemy.position![0] - row) + Math.abs(enemy.position![1] - position[1])
+            ), Infinity);
+            if (Number.isFinite(nearestEnemy)) {
+                score += Math.max(0, 5 - nearestEnemy) * 1.5;
+            }
+        }
+        return { position, score };
+    });
+
+    const bestScore = Math.max(...candidates.map(candidate => candidate.score));
+    const viable = candidates.filter(candidate => candidate.score >= bestScore - DEPLOY_REINFORCEMENT_SCORE_WINDOW);
+    return (softmaxPick(viable, DEPLOY_REINFORCEMENT_TEMPERATURE, random) ?? candidates[0]).position;
 }
 
 function allHeroes(state: GameState): Hero[] {
@@ -1010,6 +1424,21 @@ function targetPriority(state: GameState, caster: Hero, skill: Skill, position: 
 function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position[][] {
     if (!caster.position) return [];
 
+    // 双飞燕技能一：手里还有镖时枚举八方向 3 格内、且没有叠在自己镖位上的落点；
+    // 两把镖都已掷出时只剩“点自己”结三角——把镖叠回同一格撑不出第二段，方案里直接不给。
+    if (skill.id === SHUANGFEIYAN_SKILL1_ID) {
+        const out = getShuangfeiyanBoomerangs(state, caster);
+        if (out.length >= 2) return [[caster.position]];
+        return getShuangfeiyanThrowCells(caster.position)
+            .filter(cell => out.every(effect => chebyshevDistance(cell, effect.position) >= 2))
+            .map(cell => [cell]);
+    }
+
+    // 双飞燕技能二：只枚举空格上的自镖，被敌人或队友占住的镖位点了也是白放
+    if (skill.id === SHUANGFEIYAN_SKILL2_ID) {
+        return getShuangfeiyanPickupCells(state, caster).map(cell => [cell]);
+    }
+
     if (
         skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2'
         || skill.id === 'zuizhendao_skill1' || skill.id === 'yunying_skill2'
@@ -1018,21 +1447,41 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
     }
 
-    // 轩辕神君・昭神「御剑连破」：两段式点击——第一步点周身正方向一格定 G 的起笔（旋向），
-    // 第二步点那一笔描得到、踩着自己飞剑的空格。枚举所有 (起笔, 落点) 配对。
-    if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && isZhaoShen(caster)) {
+    // 闻人翊悬「蹈火·跃阵」：一次决策就是"中途点 → 落点"的整条飞跃方案。
+    // 第一步已点过友军时锁定该中途点，只枚举他身后的落点；否则枚举全部友军×落点。
+    // 普通态落点受棋盘边界限制，昭神态才按闭环展开；同一落点保留距离最长的那条。
+    if (skill.id === WENREN_SKILL1_ID) {
+        const locked = getWenrenWaypoint(caster);
+        const plans = locked
+            ? getWenrenLandingPlans(caster, state, locked)
+            : getAllWenrenLeapPlans(caster, state);
+        const isFoeAt = (row: number, col: number) => {
+            const unit = state.board[row]?.[col];
+            return !!unit && unit.owner !== caster.owner && unit.state === HeroState.ALIVE;
+        };
+        const ringFoes = (plan: { to: Position }) =>
+            wenrenRingCells(plan.to).filter(([row, col]) => isFoeAt(row, col)).length;
+        const sorted = [...plans].sort((left, right) =>
+            ringFoes(right) - ringFoes(left) || right.distance - left.distance);
         const sets: Position[][] = [];
-        for (let dir = 0; dir < 4; dir++) {
-            const startCell = getGStartCell(caster.position, dir);
-            if (!startCell) continue;
-            for (const plan of getGMovePlans(caster.position, dir)) {
-                const landing = plan.to;
-                if (state.board[landing[0]][landing[1]] !== null) continue;
-                if (!findFlyingSwordAt(state, landing, caster.id)) continue;
-                sets.push([startCell, landing]);
-            }
+        const seenLandings = new Set<string>();
+        for (const plan of sorted) {
+            const key = `${plan.to[0]},${plan.to[1]}`;
+            if (seenLandings.has(key)) continue;
+            seenLandings.add(key);
+            sets.push([plan.allyPosition, plan.to]);
+            if (sets.length >= 36) break;
         }
         return sets;
+    }
+
+    // 轩辕神君・昭神「御剑连破」：单击即跃——落点是周身对角一格或两格的空格，
+    // 飞剑只是这一跳的产物与顺带收走的对象，不再是起手的门槛。
+    if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && isZhaoShen(caster)) {
+        return getXiangStepMovePlans(caster.position)
+            .map(plan => plan.to)
+            .filter(landing => state.board[landing[0]][landing[1]] === null)
+            .map(landing => [landing]);
     }
 
     // 折光「棱光千折」：周身八格都是方向标（含斜向），每个方向各成一个方案
@@ -1251,11 +1700,6 @@ function configureSimulationChoices(
         caster.counters['__nanfeng_skill2_dir'] =
             direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
     }
-    if (skill.id === 'xuanyuan_skill1' && caster.position && targetPositions.length >= 2) {
-        // 两段式点击：第一步的 G 起笔格换算成旋向编码，供技能结算沿那一笔描
-        const dirCode = gStartCodeFromCell(caster.position, targetPositions[0]);
-        if (dirCode !== null) caster.counters['__xuanyuan_leap_start'] = dirCode;
-    }
     if (skill.id === 'baize_skill2') {
         const dead = heroesFor(state, caster.owner)
             .filter(hero => hero.state === HeroState.DEAD)
@@ -1269,6 +1713,10 @@ function configureSimulationChoices(
         if (landing && isBoardPosition(landing) && state.board[landing[0]][landing[1]] === null) {
             state.daiReviveHeroId = chooseComputerStasisReviveTarget(state, caster.owner)?.id;
         }
+    }
+    if (skill.id === WENREN_SKILL1_ID && targetPositions.length >= 2) {
+        // 跃阵两段点击：方案首点是中途友军，末点才是落点（引擎会把它写进 __extended_target）
+        setWenrenWaypoint(caster, targetPositions[0]);
     }
     if (skill.id === 'jetzmi_skill2') {
         const dead = heroesFor(state, caster.owner)
@@ -1466,6 +1914,24 @@ function simulateSkillPlan(
             };
         }
 
+        if (skill.id === 'xiyueci_skill2') {
+            // 明灯不产生即时伤害，价值全在场地，所以静态计分：灯只照敌方，数的是"圈里几个敌人的影子
+            // 真的落在盘内"（贴边那一侧的影子会出界，出了界这一盏就白点），再加她自己能不能躲进灯下吃免伤。
+            const cell = targetPositions[targetPositions.length - 1];
+            if (!cell || !isBoardPosition(cell) || simulated.board[cell[0]][cell[1]] !== null) return null;
+            if (findLampAt(simulated, cell)) return null;
+            const lit = enemiesFor(simulated, simulatedCaster.owner).filter(enemy =>
+                enemy.position && shadowCellOf(cell, enemy.position) !== null).length;
+            const sheltered = simulatedCaster.position
+                && chebyshev(simulatedCaster.position, cell) <= LAMP_AURA_RANGE;
+            const live = litLamps(simulated).filter(lamp => lamp.sourceHeroId === simulatedCaster.id).length;
+            return {
+                skillId: skill.id,
+                targetPositions,
+                score: 3 + lit * 4 + (sheltered ? 3 : 0) - Math.max(0, live - 1) * 4,
+            };
+        }
+
         if (skill.id === 'yunxiu_skill1') {
             // 云是"这一拍压住谁、下一拍还压谁"的场地，不是即时伤害：
             // 通用模拟只看得到点中的那一格有没有人，会把她当成只会挠一下的近战。
@@ -1540,7 +2006,6 @@ function simulateSkillPlan(
             };
         }
 
-        // 克隆盘上的假想施法不许留下特效与音效：队列是模块级全局，不随克隆盘一起丢弃
         const result = runWithoutSkillFx(() =>
             SkillSystem.executeSkill(simulatedCaster, skill, targetPositions, simulated));
         if (!result.success) return null;
@@ -1569,6 +2034,15 @@ function simulateSkillPlan(
                     ((simulatedCaster.counters['朔'] ?? 0) + (simulatedCaster.counters['望'] ?? 0)) * getWangshuMultiplier(simulatedCaster)
                     - ((caster.counters['朔'] ?? 0) + (caster.counters['望'] ?? 0)) * getWangshuMultiplier(caster))))
             : 0;
+        // 闻人翊悬：破妄是昭神的门票，涨层本身有价值；踏入昭神另给形态分。
+        // 技能二会花掉一半破妄，按层从收益里扣回一点，避免 AI 只会攒不会放。
+        let wenrenBonus = 0;
+        if (isWenren(caster)) {
+            const gained = getWenrenPos(simulatedCaster) - getWenrenPos(caster);
+            const enteredZhaoShen = isWenrenZhaoShen(simulatedCaster) && !isWenrenZhaoShen(caster);
+            wenrenBonus = Math.max(-6, gained * WENREN_POS_VALUE)
+                + (enteredZhaoShen ? WENREN_ZHAOSHEN_VALUE : 0);
+        }
         const meaningfulResult = Math.abs(afterScore - beforeScore) > 0.25 || damage > 0 || healing > 0 || effectValue > 0 || moonValue > .25;
         const lastSkillIndex = caster.counters['__ai_last_skill_index'];
         const skillIndex = caster.skill1Id === skill.id ? 0 : 1;
@@ -1860,6 +2334,55 @@ function simulateSkillPlan(
                 ? extraActionValue(beneficiary)
                 : 0);
         }, 0);
+        // 双飞燕的三角收口：AI 看的是“掷完这手之后，两把镖能不能把一片敌人罩进第二段”，
+        // 不是这一挠打了几点。叠镖位已在 buildTargetSets 拦掉，这里再拦空三角与空放。
+        let boomerangBonus = 0;
+        if (skill.id === SHUANGFEIYAN_SKILL1_ID && caster.position) {
+            const outBefore = getShuangfeiyanBoomerangs(state, caster).length;
+            if (outBefore >= 2) {
+                if ((result.damageDealt?.length ?? 0) === 0) return null;
+            } else {
+                const outAfter = getShuangfeiyanBoomerangs(simulated, simulatedCaster);
+                if (outAfter.length < 2) {
+                    if (damage === 0) return null;
+                } else if (simulatedCaster.position) {
+                    const [first, second] = outAfter;
+                    const area2 = getShuangfeiyanTriangleArea2(
+                        simulatedCaster.position,
+                        first.position,
+                        second.position
+                    );
+                    if (area2 > 0) {
+                        const triangleCells = getShuangfeiyanTriangleCells(
+                            simulatedCaster.position,
+                            first.position,
+                            second.position
+                        );
+                        const foes = enemiesFor(simulated, caster.owner).filter(enemy =>
+                            enemy.state === HeroState.ALIVE && enemy.position &&
+                            triangleCells.some(([row, col]) =>
+                                row === enemy.position![0] && col === enemy.position![1])
+                        ).length;
+                        if (foes === 0 && damage === 0) return null;
+                        boomerangBonus = foes * SHUANGFEIYAN_AI_FOE_VALUE
+                            + Math.min(
+                                SHUANGFEIYAN_AI_AREA_VALUE_CAP,
+                                triangleCells.length * SHUANGFEIYAN_AI_AREA_VALUE_PER_CELL
+                            )
+                            + Math.min(
+                                SHUANGFEIYAN_AI_GAP_VALUE_CAP,
+                                chebyshevDistance(first.position, second.position) * SHUANGFEIYAN_AI_GAP_VALUE_PER_CELL
+                            );
+                    } else if (damage === 0) {
+                        return null;
+                    } else {
+                        // 双镖同线也能用“三角”那一手刮过去，但那只是退化的一条线：
+                        // 轻罚一下，逼 AI 优先把两把镖撑成真正的第二段的范围。
+                        boomerangBonus = -SHUANGFEIYAN_AI_COLLINEAR_PENALTY;
+                    }
+                }
+            }
+        }
         const score = afterScore - beforeScore
             + damage * AGGRESSION.damageWeight
             + healing * AGGRESSION.healingWeight
@@ -1880,7 +2403,9 @@ function simulateSkillPlan(
             + buffValueBonus
             + zoneMarkBonus
             + moonValue
+            + wenrenBonus
             + extraActionBonus
+            + boomerangBonus
             + (meaningfulResult ? skillTypeBias(skill) : 0)
             // 技能轮换：最近一次用过的技能减分，促使 AI 换着放技能
             - (lastSkillIndex === skillIndex ? SKILL_REPEAT_PENALTY : 0);

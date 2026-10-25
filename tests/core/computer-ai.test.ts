@@ -7,8 +7,10 @@ import {
     chooseComputerDeployment,
     chooseComputerHero,
     chooseComputerMove,
+    chooseComputerReinforcementPosition,
     chooseComputerSkillPlan,
     chooseComputerTeam,
+    createSeededRandom,
     resetCachedComputerTeam,
     scoreComputerPosition,
 } from '../../src/core/computer-ai';
@@ -424,5 +426,251 @@ describe('亡灵体系代价型技能的 AI 适配', () => {
         expect(linedPlan!.score).toBeGreaterThan(0);
         // 方案落点与她之间必须真的隔着那个敌人
         expect(linedPlan!.targetPositions[0]).toEqual([2, 3]);
+    });
+});
+
+function deploymentLayoutKey(deployment: { heroId: string; position: [number, number] }[]): string {
+    return deployment
+        .map(item => `${item.heroId}@${item.position.join(',')}`)
+        .sort()
+        .join('|');
+}
+
+function deployedColumn(deployment: { heroId: string; position: [number, number] }[], heroId: string): number | null {
+    return deployment.find(item => item.heroId === heroId)?.position[1] ?? null;
+}
+
+describe('AI 布阵随机化与角色落位', () => {
+    it('同一套阵容反复布阵会给出多种合法阵型', () => {
+        const state = makeGameState();
+        addHero(state, 'moran', 'player1', [2, 0]);
+        addHero(state, 'huifeng', 'player1', [3, 1]);
+        const team = ['changli', 'liuli', 'baize', 'nightowl'];
+        const random = createSeededRandom(20261024);
+        const layouts = new Set<string>();
+
+        for (let round = 0; round < 80; round++) {
+            const deployment = chooseComputerDeployment(team, state.player1Heroes, random);
+
+            expect(deployment).toHaveLength(4);
+            expect(new Set(deployment.map(item => item.heroId))).toEqual(new Set(team));
+            expect(new Set(deployment.map(item => item.position.join(','))).size).toBe(4);
+            expect(deployment.every(item => item.position[1] >= 3 && item.position[1] < 6)).toBe(true);
+            layouts.add(deploymentLayoutKey(deployment));
+        }
+
+        // 同一套英雄、同一份对手阵型，也不能每局摆出同一副骨架
+        expect(layouts.size).toBeGreaterThanOrEqual(6);
+    });
+
+    it('站位会铺开到四行，不会总挤在相邻三行里', () => {
+        const state = makeGameState();
+        addHero(state, 'moran', 'player1', [2, 0]);
+        addHero(state, 'huifeng', 'player1', [3, 1]);
+        const cases = [
+            { seed: 13579, team: ['changli', 'liuli', 'baize', 'nightowl'] },
+            { seed: 97531, team: ['changli', 'nightowl', 'fengling', 'xueqi'] },
+        ];
+
+        for (const { seed, team } of cases) {
+            const random = createSeededRandom(seed);
+            let fourRowRounds = 0;
+            let pairDistance = 0;
+            const rounds = 100;
+
+            for (let round = 0; round < rounds; round++) {
+                const deployment = chooseComputerDeployment(team, state.player1Heroes, random);
+                const rows = deployment.map(item => item.position[0]);
+                if (new Set(rows).size === 4) fourRowRounds++;
+                for (let left = 0; left < rows.length; left++) {
+                    for (let right = left + 1; right < rows.length; right++) {
+                        pairDistance += Math.abs(rows[left] - rows[right]);
+                    }
+                }
+            }
+
+            expect(fourRowRounds / rounds, `${team.join(',')} 四行占比`).toBeGreaterThanOrEqual(0.5);
+            expect(pairDistance / (rounds * 6), `${team.join(',')} 平均跨行距离`).toBeGreaterThan(1.7);
+        }
+    });
+
+    it('固定种子重复开局会得到同一串布阵，跑批基线可复现', () => {
+        const state = makeGameState();
+        addHero(state, 'moran', 'player1', [2, 0]);
+        addHero(state, 'huifeng', 'player1', [3, 1]);
+        const team = ['changli', 'liuli', 'baize', 'nightowl'];
+        const first = createSeededRandom(24680);
+        const second = createSeededRandom(24680);
+        const layoutsOf = (random: () => number) => Array.from({ length: 10 }, () =>
+            deploymentLayoutKey(chooseComputerDeployment(team, state.player1Heroes, random)));
+
+        const firstRun = layoutsOf(first);
+        expect(layoutsOf(second)).toEqual(firstRun);
+        // 同一串种子内部也要真的在换阵，而不是每拍都走同一条固定分支
+        expect(new Set(firstRun).size).toBeGreaterThan(1);
+    });
+
+    it('脆皮控制手沉后排，不会因为输出分高就被顶到前排', () => {
+        // 旧口径把莉莉丝按输出职责放到右侧第 3 列；她是 38 血、生存 2 的远手，
+        // 新口径应把前排让给惊鸿/墨阑，自己优先占后排。
+        const state = makeGameState();
+        addHero(state, 'moran', 'player1', [2, 0]);
+        addHero(state, 'baize', 'player1', [3, 1]);
+        const team = ['jetzmi', 'jinghong', 'moran', 'lilith'];
+        const random = createSeededRandom(77123);
+        let front = 0;
+        let back = 0;
+
+        for (let round = 0; round < 120; round++) {
+            const deployment = chooseComputerDeployment(team, state.player1Heroes, random);
+            const column = deployedColumn(deployment, 'lilith');
+            if (column === 3) front++;
+            if (column === 5) back++;
+        }
+
+        expect(back).toBeGreaterThan(front);
+        expect(back).toBeGreaterThanOrEqual(72);
+    });
+
+    it('后排会避开敌人重兵所在的行', () => {
+        const team = ['changli', 'liuli', 'baize', 'nightowl'];
+        const topState = makeGameState();
+        [[0, 0], [0, 1], [1, 0], [1, 1]].forEach(([row, col], index) =>
+            addHero(topState, ['moran', 'huifeng', 'zhenxiao', 'mowen'][index], 'player1', [row, col]));
+        const bottomState = makeGameState();
+        [[4, 0], [4, 1], [5, 0], [5, 1]].forEach(([row, col], index) =>
+            addHero(bottomState, ['moran', 'huifeng', 'zhenxiao', 'mowen'][index], 'player1', [row, col]));
+
+        const averageRows = (opponents: typeof topState.player1Heroes, seed: number) => {
+            const random = createSeededRandom(seed);
+            let supportTotal = 0;
+            let supportSamples = 0;
+            let frontTotal = 0;
+            let frontSamples = 0;
+            for (let round = 0; round < 120; round++) {
+                const deployment = chooseComputerDeployment(team, opponents, random);
+                const support = deployment.find(item => item.heroId === 'baize');
+                if (support) {
+                    supportTotal += support.position[0];
+                    supportSamples++;
+                }
+                for (const item of deployment) {
+                    if (item.position[1] !== 3) continue;
+                    frontTotal += item.position[0];
+                    frontSamples++;
+                }
+            }
+            return {
+                support: supportTotal / supportSamples,
+                front: frontTotal / frontSamples,
+            };
+        };
+
+        const top = averageRows(topState.player1Heroes, 501);
+        const bottom = averageRows(bottomState.player1Heroes, 502);
+
+        // 敌人压上半区时，白泽不能还停在敌人重兵行；压下半区时同理
+        expect(top.support).toBeGreaterThan(2);
+        expect(bottom.support).toBeLessThan(4);
+        // 后排要始终比前排更靠安全侧，而不是两边一起往敌人堆里挤
+        expect(top.support - top.front).toBeGreaterThan(0.8);
+        expect(bottom.front - bottom.support).toBeGreaterThan(0.8);
+        // 敌人换边时，前排的主战线也要跟着换边，不能只让后排躲
+        expect(bottom.front - top.front).toBeGreaterThan(1.5);
+    });
+
+    it('六人池里职责分接近时，首发四人会轮换而不是每局同一套', () => {
+        const state = makeGameState();
+        addHero(state, 'moran', 'player1', [2, 0]);
+        addHero(state, 'huifeng', 'player1', [3, 1]);
+        // 六名近战/半肉职责分互相咬得很紧，正是应该轮换的阵容
+        const team = ['moran', 'zhenxiao', 'mowen', 'nightowl', 'fengling', 'xueqi'];
+        const random = createSeededRandom(9090);
+        const starterSets = new Set<string>();
+
+        for (let round = 0; round < 60; round++) {
+            const deployment = chooseComputerDeployment(team, state.player1Heroes, random);
+            const starters = deployment.map(item => item.heroId);
+            expect(starters).toHaveLength(4);
+            expect(new Set(starters).size).toBe(4);
+            expect(starters.every(id => team.includes(id))).toBe(true);
+            starterSets.add([...starters].sort().join(','));
+        }
+
+        expect(starterSets.size).toBeGreaterThanOrEqual(2);
+    });
+});
+
+describe('AI 补员落点', () => {
+    function makeReinforcementState(
+        reinforcementId: string,
+        allyIds: [string, string] = ['changli', 'nightowl']
+    ) {
+        const state = makeGameState();
+        addHero(state, allyIds[0], 'player2', [2, 3]);
+        addHero(state, allyIds[1], 'player2', [2, 4]);
+        addHero(state, 'moran', 'player1', [2, 0]);
+        addHero(state, 'huifeng', 'player1', [3, 1]);
+        state.reinforcingPlayer = 'player2';
+        state.reinforcementSelectableHeroId = reinforcementId;
+        state.player2BenchHeroIds = [reinforcementId];
+        return state;
+    }
+
+    it('辅助补员不会缩进角落，会落在队友附近', () => {
+        const state = makeReinforcementState('baize');
+        const allies: [number, number][] = [[2, 3], [2, 4]];
+        const random = createSeededRandom(86420);
+        const positions = new Set<string>();
+        const rounds = 100;
+        let nearestAllyTotal = 0;
+        let edgeRows = 0;
+        let backColumns = 0;
+
+        for (let round = 0; round < rounds; round++) {
+            const position = chooseComputerReinforcementPosition(state, 'player2', random);
+            expect(position).not.toBeNull();
+            const [row, col] = position!;
+            expect(col).toBeGreaterThanOrEqual(3);
+            expect(state.board[row][col]).toBeNull();
+            positions.add(position!.join(','));
+            nearestAllyTotal += Math.min(...allies.map(([allyRow, allyCol]) =>
+                Math.abs(allyRow - row) + Math.abs(allyCol - col)));
+            if (row === 0 || row === 5) edgeRows++;
+            if (col >= 4) backColumns++;
+        }
+
+        expect(positions.size).toBeGreaterThanOrEqual(3);
+        expect(nearestAllyTotal / rounds).toBeLessThanOrEqual(3);
+        expect(edgeRows).toBeLessThan(rounds * 0.25);
+        // 辅助补员大多仍应留在中后排，而不是为了贴队友站到最前线
+        expect(backColumns).toBeGreaterThanOrEqual(rounds * 0.75);
+    });
+
+    it('前排坦克补员会往战线靠，不会总站在远端角落', () => {
+        // 用短手近战的血契，而不是全场技的长离：长离本来就可以站后排输出
+        const state = makeReinforcementState('xueqi', ['baize', 'liuli']);
+        const enemies: [number, number][] = [[2, 0], [3, 1]];
+        const random = createSeededRandom(97531);
+        const positions = new Set<string>();
+        const rounds = 100;
+        let nearestEnemyTotal = 0;
+        let edgeRows = 0;
+
+        for (let round = 0; round < rounds; round++) {
+            const position = chooseComputerReinforcementPosition(state, 'player2', random);
+            expect(position).not.toBeNull();
+            const [row, col] = position!;
+            expect(col).toBeGreaterThanOrEqual(3);
+            expect(state.board[row][col]).toBeNull();
+            positions.add(position!.join(','));
+            nearestEnemyTotal += Math.min(...enemies.map(([enemyRow, enemyCol]) =>
+                Math.abs(enemyRow - row) + Math.abs(enemyCol - col)));
+            if (row === 0 || row === 5) edgeRows++;
+        }
+
+        expect(positions.size).toBeGreaterThanOrEqual(3);
+        expect(nearestEnemyTotal / rounds).toBeLessThanOrEqual(3.5);
+        expect(edgeRows).toBeLessThan(rounds * 0.4);
     });
 });

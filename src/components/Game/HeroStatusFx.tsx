@@ -292,6 +292,14 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                     <Rise count={2} />
                 </>
             );
+        case 'zhaoshen':
+            // 昭神：灼金火环常驻 + 两点上升余烬，和冰系/护盾类状态一眼区分
+            return (
+                <>
+                    <i className="sfx-ring sfx-zhaoshen-ring" />
+                    <Rise count={2} />
+                </>
+            );
         case 'guard':
             return (
                 <>

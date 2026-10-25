@@ -1,5 +1,6 @@
 import type { BattleLogEntry, BoardEffect, GameState, Hero, Player, Position } from '../types/game';
 import { HeroState } from '../types/game';
+import { resolveHeroLinks } from './hero-link-view';
 
 /**
  * 对局回放的数据层（纯函数 + 纯类型，不依赖 store，便于单测）。
@@ -20,8 +21,7 @@ export const MAX_REPLAY_NARRATION = 4000;
 export const CRITICAL_HP_RATIO = 0.25;
 /** 从该值以上跌破濒死线才算一次新事件，避免残血单位每步都打点 */
 const CRITICAL_PREVIOUS_FLOOR = 0.5;
-/** 单帧内每个单位最多保留的状态/计数器条数，控制体积 */
-const MAX_UNIT_EFFECTS = 6;
+/** 单帧内每个单位最多保留的玩家可读计数器条数，控制体积 */
 const MAX_UNIT_COUNTERS = 4;
 
 export interface ReplayStatic {
@@ -33,6 +33,8 @@ export interface ReplayStatic {
     className: string;
     owner: Player;
     maxHp: number;
+    /** 被动 id：机制徽章（月相/王冠/复生…）按它解析 */
+    passiveId?: string;
 }
 
 export interface ReplayUnit {
@@ -49,6 +51,8 @@ export interface ReplayUnit {
     effects: Array<[string, number]>;
     /** 玩家可见的中文计数器（破锋/潮汐/暗夜星火…） */
     counters: Array<[string, number]>;
+    /** 原始计数器（含机制用英文键）：仅供机制徽章与状态解析，不直接展示 */
+    rawCounters?: Record<string, number>;
 }
 
 export interface ReplayArea {
@@ -58,6 +62,24 @@ export interface ReplayArea {
     owner: Player;
     duration: number;
     direction?: BoardEffect['direction'];
+    /** 水泽等区域的半径：1=3×3，2=5×5 */
+    radius?: number;
+}
+
+/** 棋盘上的持久连线（阴阳线/血契/连枝），按帧快照保存，避免回放时重造英雄对象 */
+export interface ReplayLink {
+    from: [number, number];
+    to: [number, number];
+    kind: 'yang' | 'yin' | 'rage' | 'frost';
+    length: number;
+    angleDeg: number;
+}
+
+/** 时空停滞残影：阵亡但时间被凝固的单位，仍躺在其死亡格上 */
+export interface ReplayGhost {
+    def: number;
+    r: number;
+    c: number;
 }
 
 export interface ReplayFrame {
@@ -70,6 +92,10 @@ export interface ReplayFrame {
     actor: number;
     units: ReplayUnit[];
     areas: ReplayArea[];
+    /** 英雄之间的持久连线 */
+    links?: ReplayLink[];
+    /** 时空停滞残影 */
+    ghosts?: ReplayGhost[];
     /** 本帧对应的战报区间（指向主叙列表，半开区间） */
     logFrom: number;
     logTo: number;
@@ -79,7 +105,7 @@ export interface ReplayFrame {
     winner?: Player;
 }
 
-export type ReplayMarkKind = 'kill' | 'tianwei' | 'reinforce' | 'critical' | 'round' | 'end';
+export type ReplayMarkKind = 'kill' | 'tianwei' | 'reinforce' | 'return' | 'critical' | 'round' | 'end';
 
 export interface ReplayMark {
     frame: number;
@@ -155,6 +181,7 @@ export function createInterner(): ReplayInterner {
                 className: hero.class,
                 owner: hero.owner,
                 maxHp: hero.maxHp,
+                passiveId: hero.passiveId,
             });
             byHeroId.set(hero.id, index);
             return index;
@@ -168,37 +195,73 @@ function heroStateCode(hero: Hero): 0 | 1 | 2 {
     return 2;
 }
 
-/** 帧签名的组成：只读原始字段，约 30 次访问，可以在每次 store 提交时廉价调用 */
+/** 机制徽章需要、但不在玩家可读中文计数器里的键 */
+const MECHANISM_COUNTER_KEYS = new Set(['jetzmi_form', 'wangshu_moon_phase', 'xuanxiao_danger_armed']);
+
+function signatureCounters(hero: Hero): string {
+    const parts: string[] = [];
+    for (const [name, value] of Object.entries(hero.counters)) {
+        if (name.startsWith('__') || !Number.isFinite(value)) continue;
+        if (!MECHANISM_COUNTER_KEYS.has(name) && !(value > 0 && /[\u3400-\u9fff]/.test(name))) continue;
+        parts.push(`${name}${value}`);
+    }
+    return parts.join(',');
+}
+
+function signatureEffects(hero: Hero): string {
+    return hero.effects
+        .filter(effect => !effect.name.startsWith('__'))
+        .map(effect => `${effect.name}:${effect.stackCount ?? 1}`)
+        .join(',');
+}
+
+function signatureAreas(effects: BoardEffect[] | undefined): string {
+    return (effects ?? [])
+        .map(effect => `${effect.type}@${effect.position[0]},${effect.position[1]}:`
+            + `${effect.owner}:${effect.duration}:${effect.direction ?? ''}:${effect.radius ?? ''}`)
+        .sort()
+        .join(';');
+}
+
+/**
+ * 帧签名的组成：逐单位记录棋盘格坐标、生命、护盾、状态与可见效果。
+ * 不能用血量/坐标的“总和”：两人互换位置、一伤一疗同值、换一个场地效果，
+ * 总和都可能不变，回放就会整步漏录。这里改为逐单位令牌串，代价仍然只有几十次访问。
+ */
 export function stepSignature(state: GameState): string {
     const parts: string[] = [
         state.phase,
         String(state.roundNumber),
         state.currentPlayer,
         String(state.actionsThisTurn),
-        String(state.boardEffects?.length ?? 0),
+        String(state.actionsRequiredThisTurn),
         String(state.deathCounters?.totalDead ?? 0),
         state.reinforcingPlayer ?? '-',
         state.performingExtraAction ? '1' : '0',
+        state.winner ?? '-',
     ];
-    let hpSum = 0;
-    let posSum = 0;
-    let actorId = '-';
-    for (const row of state.board) {
-        for (const cell of row) {
-            if (!cell) continue;
-            hpSum += cell.currentHp + cell.shield;
-            posSum += cell.position ? cell.position[0] * 6 + cell.position[1] + 1 : 0;
+    const units: string[] = [];
+    const onBoard = new Set<string>();
+    for (let row = 0; row < state.board.length; row++) {
+        for (let col = 0; col < (state.board[row]?.length ?? 0); col++) {
+            const hero = state.board[row][col];
+            if (!hero) continue;
+            onBoard.add(hero.id);
+            units.push(`${hero.id}@${row},${col}:${hero.currentHp}:${hero.shield}:${hero.state}`
+                + `:${signatureEffects(hero)}:${signatureCounters(hero)}`);
         }
     }
     for (const hero of [...state.player1Heroes, ...state.player2Heroes]) {
-        if (!hero.position) {
-            hpSum += hero.currentHp + hero.shield;
-            posSum += 997;
-        }
+        if (onBoard.has(hero.id)) continue;
+        units.push(`${hero.id}@off:${hero.currentHp}:${hero.shield}:${hero.state}`
+            + `:${signatureEffects(hero)}:${signatureCounters(hero)}`);
     }
+    units.sort();
     const actor = state.activeHero ?? state.selectedHero;
-    if (actor) actorId = `${actor.id}@${actor.position ? `${actor.position[0]},${actor.position[1]}` : '-'}`;
-    parts.push(String(hpSum), String(posSum), actorId);
+    const actorId = actor
+        ? `${actor.id}@${actor.position ? `${actor.position[0]},${actor.position[1]}` : '-'}`
+        : '-';
+    parts.push(units.join('|'), signatureAreas(state.boardEffects), actorId);
     return parts.join('|');
 }
 
@@ -248,8 +311,35 @@ function readableCounters(hero: Hero): Array<[string, number]> {
 function readableEffects(hero: Hero): Array<[string, number]> {
     return hero.effects
         .filter(effect => !effect.name.startsWith('__'))
-        .slice(0, MAX_UNIT_EFFECTS)
         .map(effect => [effect.name, effect.stackCount ?? 1] as [string, number]);
+}
+
+/** 机制徽章与状态解析需要的原始计数器；`__` 内部标记仍不保留 */
+function rawCounters(hero: Hero): Record<string, number> {
+    const entries: Record<string, number> = {};
+    for (const [name, value] of Object.entries(hero.counters)) {
+        if (name.startsWith('__') || !Number.isFinite(value)) continue;
+        entries[name] = value;
+    }
+    return entries;
+}
+
+/** 时空停滞残影：阵亡但时间被凝固、且死亡格还空着的单位 */
+function stasisGhosts(state: GameState, interner: ReplayInterner): ReplayGhost[] {
+    const ghosts: ReplayGhost[] = [];
+    for (const hero of [...state.player1Heroes, ...state.player2Heroes]) {
+        if (hero.state !== HeroState.DEAD || !hero.position) continue;
+        if (hero.class === '通灵') continue;
+        if (hero.counters['__isClone'] === 1 || hero.counters['__isSummon'] === 1) continue;
+        if (hero.counters['__dai_revived_once']) continue;
+        const until = hero.counters['__dai_stasis_until'];
+        if (until === undefined || state.roundNumber > until) continue;
+        const [row, col] = hero.position;
+        if (row < 0 || col < 0 || row >= state.board.length || col >= (state.board[row]?.length ?? 0)) continue;
+        if (state.board[row][col]) continue;
+        ghosts.push({ def: interner.indexOf(hero), r: row, c: col });
+    }
+    return ghosts;
 }
 
 /**
@@ -277,6 +367,7 @@ export function buildFrame(
             state: heroStateCode(hero),
             effects: readableEffects(hero),
             counters: readableCounters(hero),
+            rawCounters: rawCounters(hero),
         };
     });
     // 按登记顺序排序，保证同一帧序列里 units 的次序稳定，便于跨帧比对
@@ -292,7 +383,16 @@ export function buildFrame(
         owner: effect.owner,
         duration: effect.duration,
         direction: effect.direction,
+        radius: effect.radius,
     }));
+    const links: ReplayLink[] = resolveHeroLinks(state.board).map(link => ({
+        from: [link.from[0], link.from[1]],
+        to: [link.to[0], link.to[1]],
+        kind: link.kind,
+        length: link.length,
+        angleDeg: link.angleDeg,
+    }));
+    const ghosts = stasisGhosts(state, interner);
 
     return {
         index,
@@ -303,6 +403,8 @@ export function buildFrame(
         actor,
         units,
         areas,
+        links,
+        ghosts,
         logFrom,
         logTo,
         sig,
@@ -373,9 +475,13 @@ export function detectKeyMoments(frames: ReplayFrame[], statics: ReplayStatic[],
         for (const unit of current.units) {
             if (unit.r < 0) continue;
             const before = previous.units.find(candidate => candidate.def === unit.def);
-            // 补员/新单位上场：上一帧不在场上，且不是召唤物/分身（其 id 含分隔符）
-            if (before && before.r < 0 && !statics[unit.def]?.heroId.includes('|')) {
-                push(i, 'reinforce', `${statics[unit.def]?.name ?? '单位'}替补上场`);
+            const isSummon = statics[unit.def]?.heroId.includes('|');
+            // 补员是"整局第一次出现"的新单位（替补席里的英雄在上场那一刻才创建）；
+            // 老单位从离场状态回到棋盘则是复活/唤回/归位，不能冒充补员。
+            if (!isSummon) {
+                const name = statics[unit.def]?.name ?? '单位';
+                if (!before) push(i, 'reinforce', `${name}替补上场`);
+                else if (before.r < 0) push(i, 'return', `${name}返场`);
             }
             // 濒死：从安全区首次跌破阈值
             const ratio = hpRatioOf(current, unit.def, statics);
@@ -394,15 +500,18 @@ export function detectKeyMoments(frames: ReplayFrame[], statics: ReplayStatic[],
 
     // 击杀与它触发的天威是同一次事件的两半，合成一枚标签：
     // 两者都落在同一帧上，分开的话右下角成对刷屏、时间轴刻度也叠在同一个位置。
-    const tianweiByFrame = new Map<number, ReplayMark>();
+    const tianweiByFrame = new Map<number, ReplayMark[]>();
     for (const mark of marks) {
-        if (mark.kind === 'tianwei') tianweiByFrame.set(mark.frame, mark);
+        if (mark.kind !== 'tianwei') continue;
+        const queue = tianweiByFrame.get(mark.frame) ?? [];
+        queue.push(mark);
+        tianweiByFrame.set(mark.frame, queue);
     }
     const absorbed = new Set<ReplayMark>();
     for (const mark of marks) {
         if (mark.kind !== 'kill') continue;
-        const twin = tianweiByFrame.get(mark.frame);
-        if (!twin || absorbed.has(twin)) continue;
+        const twin = tianweiByFrame.get(mark.frame)?.shift();
+        if (!twin) continue;
         mark.label = `${mark.label}；${twin.label}`;
         absorbed.add(twin);
     }
@@ -416,20 +525,31 @@ export interface ReplayDelta {
     def: number;
     hp: number;
     shield: number;
+    /** 数字要落下的格子：优先取当前格；已离场时取上一帧的格子 */
+    r: number;
+    c: number;
+    /** 本步是否从存活转为真实阵亡（离场单位的击杀数字也要能落在死亡格） */
+    died: boolean;
 }
 
 /** 相邻两帧的血量/护盾变化：v1 用它代替特效重放，在格子上标注本步挨了多少打、回了多少 */
 export function computeFrameDeltas(prevFrame: ReplayFrame | null, frame: ReplayFrame): ReplayDelta[] {
     if (!prevFrame) return [];
     const previousDefs = new Map(prevFrame.units.map(unit => [unit.def, unit]));
+    const currentDefs = new Map(frame.units.map(unit => [unit.def, unit]));
+    const defs = new Set([...previousDefs.keys(), ...currentDefs.keys()]);
     const deltas: ReplayDelta[] = [];
-    for (const unit of frame.units) {
-        const before = previousDefs.get(unit.def);
+    for (const def of [...defs].sort((left, right) => left - right)) {
+        const before = previousDefs.get(def);
         if (!before) continue;
-        const hp = unit.hp - before.hp;
-        const shield = unit.shield - before.shield;
-        if (hp === 0 && shield === 0) continue;
-        deltas.push({ def: unit.def, hp, shield });
+        const after = currentDefs.get(def);
+        const hp = (after?.hp ?? 0) - before.hp;
+        const shield = (after?.shield ?? 0) - before.shield;
+        const died = !after || (after.state === 2 && before.state !== 2);
+        if (hp === 0 && shield === 0 && !died) continue;
+        const spot = after && after.r >= 0 ? after : before.r >= 0 ? before : null;
+        if (!spot) continue;
+        deltas.push({ def, hp, shield, r: spot.r, c: spot.c, died });
     }
     return deltas;
 }

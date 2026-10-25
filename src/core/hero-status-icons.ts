@@ -48,6 +48,7 @@ const KIND_GLYPH: Record<HeroStatusFxKind, StatusGlyphId> = {
     inlay: 'mirror',
     longshi: 'bloom',
     duanxue: 'blade',
+    zhaoshen: 'seal',
     guard: 'shield',
     'ice-armor': 'ice',
     harmony: 'chime',
@@ -92,7 +93,9 @@ const NAME_GLYPH: Record<string, StatusGlyphId> = {
     盈照: 'sun', 金乌: 'sun', 玄龟: 'shield', 水月: 'moon', 月座: 'moon', 月相: 'moon',
     朔: 'moon', 望: 'moon', 镜影: 'mirror', 镜湖双照: 'mirror', 破镜之刃: 'mirror',
     花间一舞: 'flower', 花谢影不落: 'flower', 弄影: 'veil', 影子: 'veil', 重演: 'hourglass',
+    明灯: 'flame', 灯影: 'veil', 身后留灯: 'bloom',
     血偿: 'drop', 禁血: 'drop', 血诏: 'drop', 血契锁: 'lock', 血誓横扫: 'drop',
+    破妄: 'flame', 破妄暴击率: 'spark', 昭神: 'seal',
     天神震怒: 'lock', 震怒: 'lock', 震怒眩晕: 'stun', 束缚: 'lock', 援护: 'shield',
     暗夜法阵: 'seal', 缚魂轮转: 'bone', 骸骨王座: 'bone', 终焉王座: 'bone',
     恐惧情绪能量: 'fear', 恐惧蔓延: 'fear', 生死叠加: 'atom', 叠加态: 'atom',
@@ -200,7 +203,9 @@ const TERM_GLYPH: Record<string, StatusGlyphId> = {
     // 云岫的三件场地物：云是天象（字形表里没有云，取最接近的风）、针与息都是雷
     雷云: 'wind', 引雷针: 'bolt', 霆息: 'bolt',
     // 轩辕神君：飞剑是刃、免伤是盾、金痕是盖在敌人身上的刻痕、昭神是印绶加身
-    飞剑: 'blade', 御剑免伤: 'shield', 金痕: 'notch', 昭神: 'seal',
+    飞剑: 'blade', 御剑免伤: 'shield', 金痕: 'notch', 昭神: 'seal', 剑随气走: 'wind',
+    // 闻人翊悬：破妄与两式技能都是火行
+    破妄: 'flame', 蹈火·跃阵: 'flame', 破妄·燎原: 'flame',
     // 全场节奏规则：越到后期刀越重，用火焰表示"烧起来了"
     激战: 'flame',
 };
