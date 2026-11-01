@@ -11,6 +11,8 @@ import {
 } from '../core/skill-fx';
 import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
 import { MovementSystem } from '../core/movement-system';
+import { getShuangfeiyanBoomerangs } from '../core/boomerang';
+import type { HnyFxDetails } from '../core/huanongying-fx';
 import { getSkill } from '../data/skills';
 import { collapseCoalescedSkillFxRequests } from '../data/extended-skills';
 import type { PendingSkillFxRequest } from '../data/extended-skills';
@@ -157,6 +159,9 @@ export function applyServerGameState(gameState: any) {
 
 /** 一次待确认的施法表现回放：记录行动方施法瞬间本地 store 里才有的信息 */
 export interface OnlineCastReplay {
+    hny?: HnyFxDetails;
+    fxVariant?: string;
+    swallow?: { slot?: number; vertices?: Position[] };
     skillId: string;
     sourceHeroId?: string;
     owner: Player;
@@ -181,9 +186,22 @@ export function prepareOnlineCastReplay(action: any): OnlineCastReplay | null {
 
     const state = useGameStore.getState();
     const hero = [...state.player1Heroes, ...state.player2Heroes].find(h => h.id === heroId);
+    const blades = hero?.passiveId === 'shuangfeiyan_passive' ? getShuangfeiyanBoomerangs(state, hero) : [];
+    const triangle = skillId === 'shuangfeiyan_skill1' && blades.length === 2 && hero?.position;
+    const hnyFan = skillId === 'huanongying_skill1' && hero?.position;
+    const hnyDr = hero?.position ? targetPos[0] - hero.position[0] : 0;
+    const hnyDc = hero?.position ? targetPos[1] - hero.position[1] : 0;
+    const hnyDirection = hero?.counters['__hny_dir'] ?? (hnyDr < 0 ? 0 : hnyDr > 0 ? 1 : hnyDc < 0 ? 2 : 3);
 
     return {
         skillId,
+        hny: hnyFan ? { form: 'fan', direction: hnyDirection } : skillId === 'huanongying_skill2' ? { form: 'ring' } : undefined,
+        fxVariant: triangle ? 'shuangfeiyan_triangle' : undefined,
+        swallow: hero?.passiveId === 'shuangfeiyan_passive' ? triangle
+            ? { vertices: [[...hero.position!] as Position, ...blades.map(blade => [...blade.position] as Position)] }
+            : { slot: skillId === 'shuangfeiyan_skill2'
+                ? blades.find(blade => blade.position[0] === targetPos[0] && blade.position[1] === targetPos[1])?.boomerangSlot
+                : [0, 1].find(slot => !blades.some(blade => blade.boomerangSlot === slot)) } : undefined,
         sourceHeroId: hero?.id,
         owner: hero?.owner ?? state.currentPlayer,
         // 瞬移/位移类技能会改写 hero.position，必须在快照落地前读起始格
@@ -235,8 +253,9 @@ export function commitOnlineCastReplay(replay: OnlineCastReplay | null): void {
     // 对端按其专属技能日志（"击碎了…的冰冻"）识别同一形态并同步铺 3x3 爆震范围。
     const shatteredFrozen = replay.skillId === 'feixue_skill1' &&
         freshLogs.some(entry => entry.type === 'skill' && /击碎了.+的冰冻/.test(entry.message));
-    const profile = extras?.fxVariant && SKILL_FX_PROFILES[extras.fxVariant]
-        ? SKILL_FX_PROFILES[extras.fxVariant]
+    const fxVariant = extras?.fxVariant ?? replay.fxVariant;
+    const profile = fxVariant && SKILL_FX_PROFILES[fxVariant]
+        ? SKILL_FX_PROFILES[fxVariant]
         : shatteredFrozen
         ? (SKILL_FX_PROFILES.feixue_shatter ?? resolveSkillFx(replay.skillId))
         : resolveSkillFx(replay.skillId);
@@ -254,6 +273,9 @@ export function commitOnlineCastReplay(replay: OnlineCastReplay | null): void {
             : ownLogs.map(entry => entry.id),
         damagePositions: impacts.damagePositions ?? [],
         empowered: extras?.empowered,
+        swallow: extras?.swallow ?? replay.swallow,
+        hny: extras?.hny ?? (replay.hny ? { ...replay.hny,
+            shadowPos: state.boardEffects?.find(effect => effect.type === 'shadow-mark' && effect.sourceHeroId === replay.sourceHeroId)?.position } : undefined),
         owner: replay.owner,
         fromPos,
         targetPos,

@@ -160,6 +160,19 @@ describe('游隼完整机制', () => {
         expect(state.board[2][3]).toBe(youjun);
     });
 
+    it('落点停在敌人前面时不穿人：1格冲刺没有中间格', () => {
+        const state = makeGameState();
+        const youjun = addHero(state, 'youjun', 'player1', [2, 0]);
+        const enemyBehindLanding = addHero(state, 'baize', 'player2', [2, 2]);
+
+        const result = SkillSystem.executeSkill(youjun, youjunSkill1, [[2, 1]], state);
+
+        expect(result.success).toBe(true);
+        expect(youjun.position).toEqual([2, 1]);
+        expect(enemyBehindLanding.currentHp).toBe(enemyBehindLanding.maxHp);
+        expect(result.log.join('')).toContain('路径上没有敌人');
+    });
+
     it('疾掠常规超出3格被拒绝', () => {
         const state = makeGameState();
         const youjun = addHero(state, 'youjun', 'player1', [2, 0]);

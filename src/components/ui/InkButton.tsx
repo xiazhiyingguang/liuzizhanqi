@@ -26,7 +26,10 @@ const variantClasses = {
         'disabled:opacity-40 disabled:grayscale disabled:pointer-events-none',
     ].join(' '),
     ghost: [
-        'bg-transparent text-ink-light border border-transparent',
+        // 边框宽度必须和 primary/secondary 一致：盒子高度是 auto 的，
+        // 换个变体就少 1px 边框会让整块版面上下位移（AI 接管按钮切到 primary 时
+        // 正好触发这个，上方横幅与棋盘会一起往下顶 2px）
+        'bg-transparent text-ink-light border-2 border-transparent',
         'hover:text-ink hover:border-ink/15 hover:bg-ink-ghost',
         'disabled:opacity-30 disabled:pointer-events-none',
     ].join(' '),

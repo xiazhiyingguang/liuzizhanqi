@@ -6,8 +6,9 @@ let seq = 0;
  * 同一毫秒生成的两条日志 id 相同，store 特效包装层按 id 集合差分"本次施法新增日志"
  * 时会把新日志误判成旧日志，整次施法的特效派发凭空消失（表现为偶发的"最后一个事件不是它"）。
  */
-export function nextBattleLogId(): string {
-    return `log-${Date.now()}-${(++seq).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+export function nextBattleLogId(randomize = true): string {
+    // 纯表现锚点不能消耗战斗随机序列；保留同一个全局递增序号，仍可排序和去重。
+    return `log-${Date.now()}-${(++seq).toString(36)}-${randomize ? Math.random().toString(36).slice(2, 8) : 'fx'}`;
 }
 
 /**

@@ -3,8 +3,8 @@ import { GameEngine } from '../../src/core/game-engine';
 import { DamageCalculator } from '../../src/core/damage-calculator';
 import { EffectManager } from '../../src/core/effect-manager';
 import { SkillSystem } from '../../src/core/skill-system';
-import { getDilanFeatherStacks } from '../../src/data/extended-heroes';
-import { zhiyuanSkill1, zhiyuanSkill2 } from '../../src/data/extended-skills';
+import { addDilanFeather, getDilanFeatherStacks } from '../../src/data/extended-heroes';
+import { dilanSkill2, zhiyuanSkill1, zhiyuanSkill2 } from '../../src/data/extended-skills';
 import { grantZhizhi } from '../../src/core/hero-zhizhi';
 import { getHeroInfo } from '../../src/data/heroes';
 import {
@@ -38,11 +38,13 @@ function enemy(state: ReturnType<typeof makeGameState>, position: [number, numbe
     return unit;
 }
 
-/** 一次普通出手：走引擎的"出手组"，纸鸢的追击与计数才按实战口径推进 */
+/** 主动技能的一次攻击段：与技能入口及出手组使用相同的追击资格。 */
 function attackOnce(attacker: Hero, target: Hero, state: ReturnType<typeof makeGameState>, amount = 5) {
-    const hit = DamageCalculator.calculate(attacker, target, amount, false);
-    DamageCalculator.asOneAttack(() => DamageCalculator.applyDamage(target, hit, attacker, state));
-    return hit.finalDamage;
+    return DamageCalculator.withActiveSkill(attacker, () => {
+        const hit = DamageCalculator.calculate(attacker, target, amount, false);
+        DamageCalculator.asOneAttack(() => DamageCalculator.applyDamage(target, hit, attacker, state));
+        return hit.finalDamage;
+    });
 }
 
 describe('纸鸢 · 面板与线轴', () => {
@@ -189,6 +191,93 @@ describe('纸鸢 · 技能二「断线·冲天」', () => {
 });
 
 describe('纸鸢 · 被动「牵丝」与击飞', () => {
+    it('真实主动技能入口：帝兰风压及其羽化移动伤害，只追主动攻击一次', () => {
+        const { state, kite } = scene();
+        const dilan = addHero(state, 'dilan', 'player1', [1, 1]);
+        const target = enemy(state, [1, 2]);
+        dilan.counters.__dilan_skill2_dir = 3;
+        addDilanFeather(target, dilan);
+        expect(SkillSystem.executeSkill(dilan, dilanSkill2, [[1, 2]], state).success).toBe(true);
+        expect(getSpoolStacks(target, kite.id)).toBe(1);
+        expect(kite.counters.__zhiyuan_attacks).toBe(1);
+    });
+    it('普通攻击或脱离主动施放的伤害不触发追击', () => {
+        const { state, kite } = scene(), target = enemy(state, [2, 4]);
+        const ally = addHero(state, 'moran', 'player1', [1, 1]);
+        DamageCalculator.applyDamage(target, DamageCalculator.calculate(ally, target, 5, false), ally, state);
+        expect(getSpoolStacks(target, kite.id)).toBe(0);
+    });
+    it('即使在主动施放中，只有羽化或持续伤害也不触发追击', () => {
+        const { state, kite } = scene(), target = enemy(state, [2, 4]);
+        const dilan = addHero(state, 'dilan', 'player1', [1, 1]);
+        addDilanFeather(target, dilan);
+        DamageCalculator.withActiveSkill(dilan, () => {
+            DamageCalculator.applyDilanMovementDamage(target, 1, state);
+            DamageCalculator.applyDamage(target, DamageCalculator.calculate(dilan, target, 2, false, true, { logTag: 'burn' }), dilan, state);
+        });
+        expect(getSpoolStacks(target, kite.id)).toBe(0);
+    });
+    it.each(['dilan', 'nanfeng', 'youjun', 'zhiyuan'])('%s 施加的羽化移动伤害不触发追击', sourceId => {
+        const { state, kite } = scene();
+        const source = sourceId === 'zhiyuan' ? kite : addHero(state, sourceId, 'player1', [1, 1]);
+        const target = enemy(state, [2, 4]);
+        addDilanFeather(target, source);
+        const before = target.currentHp;
+        const movedDamage = DamageCalculator.applyDilanMovementDamage(target, 2, state);
+        expect(movedDamage).toBe(sourceId === 'zhiyuan' ? 0 : 2);
+        expect(before - target.currentHp).toBe(movedDamage);
+        expect(getSpoolStacks(target, kite.id)).toBe(0);
+        expect(kite.counters.__zhiyuan_attacks).toBe(0);
+        expect(state.battleLog.filter(e => e.message.includes('顺线追出'))).toHaveLength(0);
+    });
+    it('主动技能夹带羽化，只为主动技能追一次', () => {
+        const { state, kite } = scene();
+        const ally = addHero(state, 'moran', 'player1', [1, 1]);
+        const target = enemy(state, [2, 4]);
+        const dilan = addHero(state, 'dilan', 'player1', [0, 0]);
+        addDilanFeather(target, dilan);
+        DamageCalculator.withActiveSkill(ally, () => DamageCalculator.asOneAttack(() => {
+            DamageCalculator.applyDamage(target, DamageCalculator.calculate(ally, target, 5, false), ally, state);
+            DamageCalculator.applyDilanMovementDamage(target, 1, state, 'player1');
+        }));
+        expect(getSpoolStacks(target, kite.id)).toBe(1);
+        expect(kite.counters.__zhiyuan_attacks).toBe(1);
+    });
+    it('纸鸢自己的主动攻击及羽化都不触发追击', () => {
+        const { state, kite } = scene(), target = enemy(state, [2, 4]);
+        addDilanFeather(target, kite);
+        DamageCalculator.asOneAttack(() => {
+            DamageCalculator.applyDamage(target, DamageCalculator.calculate(kite, target, 5, false), kite, state);
+            DamageCalculator.applyDilanMovementDamage(target, 1, state);
+        });
+        expect(getSpoolStacks(target, kite.id)).toBe(0);
+        expect(kite.counters.__zhiyuan_attacks).toBe(1);
+    });
+    it('队友的持续伤害不触发追击', () => {
+        const { state, kite } = scene(), target = enemy(state, [2, 4]);
+        const ally = addHero(state, 'moran', 'player1', [1, 1]);
+        DamageCalculator.applyDamage(target, DamageCalculator.calculate(ally, target, 2, false, true, { canCrit: false, logTag: 'burn' }), ally, state);
+        expect(getSpoolStacks(target, kite.id)).toBe(0);
+    });
+    it('连枝先结算也不会覆盖原攻击的追击记录', () => {
+        const { state, kite } = scene(), target = enemy(state, [2, 4]);
+        const ally = addHero(state, 'moran', 'player1', [1, 1]);
+        const feixue = addHero(state, 'feixue', 'player1', [0, 1]);
+        EffectManager.addEffect(ally, { type: 'buff', name: '连枝', duration: 2, sourceHeroId: feixue.id });
+        attackOnce(ally, target, state);
+        // 只为主动技能追一次，绯雪的被动追击不能再触发。
+        expect(getSpoolStacks(target, kite.id)).toBe(1);
+        expect(kite.counters.__zhiyuan_attacks).toBe(1);
+    });
+    it('敌方效果伤害不触发我方纸鸢', () => {
+        const { state, kite } = scene();
+        const source = addHero(state, 'dilan', 'player2', [0, 0]);
+        const target = addHero(state, 'moran', 'player1', [2, 3]);
+        addDilanFeather(target, source);
+        DamageCalculator.applyDilanMovementDamage(target, 1, state);
+        expect(kite.counters.__zhiyuan_attacks).toBe(0);
+        expect(state.battleLog.some(e => e.message.includes('顺线追出'))).toBe(false);
+    });
     it('友方出手后纸鸢追出4点并挂一层线轴，一次出手只追一次', () => {
         const { state, kite } = scene();
         const ally = addHero(state, 'moran', 'player1', [2, 1]);
@@ -222,7 +311,7 @@ describe('纸鸢 · 被动「牵丝」与击飞', () => {
         const second = enemy(state, [1, 4]);
         const totalBefore = first.currentHp + second.currentHp;
 
-        const hit = DamageCalculator.calculate(ally, first, 5, false);
+        const hit = DamageCalculator.withActiveSkill(ally, () => DamageCalculator.calculate(ally, first, 5, false));
         DamageCalculator.asOneAttack(() => {
             DamageCalculator.applyDamage(first, hit, ally, state);
             DamageCalculator.applyDamage(second, hit, ally, state);

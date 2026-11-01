@@ -14,6 +14,8 @@ import { resolveHeroStatusFx, type HeroStatusFxKind } from '../../core/hero-stat
 import { dragonOrbitIndex, scaleLayers } from '../../core/dragon-orbit';
 import { dragonCoilBearingDeg } from '../../core/dragon-sweep-fx';
 import { DragonArt } from './AoyuanDragonArt';
+import { StanceEmblem } from './TianweiStanceFx';
+import { XiangyuGuardEmblem } from './XiangyuGuardFx';
 import { HeroMechanismState } from './HeroMechanismState';
 
 /** 环绕点：n 粒沿圆环均分布点并整体旋转 */
@@ -99,6 +101,7 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                 </>
             );
         case 'stealth':
+            if (hero?.tianweiId === 'nightowl_tianwei') return null;
             return (
                 <>
                     <i className="sfx-shell sfx-veil" />
@@ -200,6 +203,16 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                 </>
             );
         }
+        case 'vajra': {
+            // 金刚：绕身金粒数=层数（封顶 4 层），外圈一道护体环
+            const layers = Math.max(1, Math.min(4, hero!.counters['金刚'] ?? 0));
+            return (
+                <>
+                    <Orbit count={layers} className="sfx-orbit-vajra" />
+                    <i className="sfx-ring sfx-vajra-ring" />
+                </>
+            );
+        }
         case 'thundermark':            // 引雷印：两道错开的雷纹压在印环上，读得出"这人身上有靶子"
             return (
                 <>
@@ -263,13 +276,7 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
         case 'feather':
             return <Drop count={2} />;
         case 'duanxue':
-            return (
-                <>
-                    <Orbit count={4} className="sfx-orbit-snow" />
-                    <i className="sfx-ring sfx-duanxue-ring" />
-                    <Blink count={2} />
-                </>
-            );
+            return <StanceEmblem snow />;
         case 'inlay':
             return (
                 <>
@@ -289,6 +296,14 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
                         aria-hidden="true"
                         draggable={false}
                     />
+                    <Rise count={2} />
+                </>
+            );
+        case 'zhaoshen':
+            // 昭神：灼金火环常驻 + 两点上升余烬，和冰系/护盾类状态一眼区分
+            return (
+                <>
+                    <i className="sfx-ring sfx-zhaoshen-ring" />
                     <Rise count={2} />
                 </>
             );
@@ -395,11 +410,17 @@ function partsFor(kind: HeroStatusFxKind, hero?: Hero): ReactNode {
     }
 }
 
-export function HeroStatusFx({ hero }: { hero: Hero }) {
-    const kinds = resolveHeroStatusFx(hero);
+export function HeroStatusFx({ hero, suppressFrozen = false }: { hero: Hero; suppressFrozen?: boolean }) {
+    const kinds = resolveHeroStatusFx(hero).filter(kind => (!suppressFrozen || kind !== 'frozen') &&
+        !(kind === 'stealth' && hero.tianweiId === 'nightowl_tianwei'));
+    // 细剑/墨羽是身份标记，不因通用两层特效预算被挤掉。
+    const stance = hero.effects.some(e => e.name === '断雪') ? 'duanxue' : undefined;
+    if (stance && !kinds.includes(stance)) kinds.push(stance);
     return (
         <>
             <HeroMechanismState hero={hero} />
+            {hero.tianweiId === 'xiangyu_tianwei' && hero.effects.some(e => e.name === '霸王镇守') &&
+                <span className="xyg-wait" aria-hidden="true"><XiangyuGuardEmblem /></span>}
             {kinds.map(kind => (
                 <span key={kind} className={`status-fx sfx-${kind}`} aria-hidden="true">
                     {partsFor(kind, hero)}

@@ -1,0 +1,26 @@
+.martial-scene { position:absolute; inset:0; pointer-events:none; --martial-ink:#81653d; --martial-edge:#e4ce9b; }
+.martial-overlord { --martial-ink:#542b29; --martial-edge:#cba879; }
+.martial-board { position:absolute; width:calc(600% + 30px); height:calc(600% + 30px); max-width:none; left:calc(var(--martial-c)*(-100% - 6px)); top:calc(var(--martial-r)*(-100% - 6px)); overflow:hidden; }
+.martial-solid { fill:var(--martial-ink); stroke:#332d26; stroke-width:1.2; }
+.martial-edge { fill:none; stroke:var(--martial-edge); stroke-width:1.8; stroke-linejoin:bevel; }
+.martial-rut { fill:none; stroke:var(--martial-ink); stroke-width:12; opacity:0; stroke-dasharray:100; animation:martial-rut 800ms both; }
+.martial-ram { animation:martial-ram 650ms both; }
+.martial-push { fill:none; stroke:#9b8b6a; stroke-width:3; stroke-dasharray:100; animation:martial-rut 700ms 180ms both; }
+.martial-contact { animation:martial-contact 430ms var(--martial-delay) both; transform-origin:0 0; }
+.martial-impact-strokes { stroke:var(--martial-edge); stroke-width:2; fill:none; }
+.martial-punch:nth-child(even) { rotate:-12deg; }
+.martial-wall-crack { fill:none; stroke:#625546; stroke-width:2.5; animation:martial-crack 650ms 240ms both; }
+.martial-stones { fill:#9b8a70; stroke-width:1; }
+.martial-sweep-bed { fill:#63342e; animation:martial-bed 850ms both; }
+.martial-blade-body { fill:#612e2b; animation:martial-blade 850ms both; transform-origin:0 0; }
+.martial-blade-edge { fill:none; stroke:#dbbd88; stroke-width:3; stroke-dasharray:100; animation:martial-edge 850ms both; }
+.martial-blade-grain { fill:none; stroke:#b5805c; stroke-width:1.3; animation:martial-blade 850ms both; }
+@keyframes martial-rut { 0% { opacity:0; stroke-dashoffset:100; } 35% { opacity:.35; stroke-dashoffset:0; } 100% { opacity:0; stroke-dashoffset:0; } }
+@keyframes martial-ram { 0% { opacity:0; transform:translateX(-14px) scaleX(.85); } 14% { opacity:.9; } 40% { opacity:.95; transform:translateX(var(--martial-distance)) scaleX(1); } 61%,100% { opacity:0; transform:translateX(var(--martial-distance)) scaleX(.92); } }
+@keyframes martial-contact { 0% { opacity:0; transform:scale(.72) translateX(-9px); } 16% { opacity:1; transform:scale(1.05); } 40% { opacity:.9; transform:scale(1); } 100% { opacity:0; transform:scale(1.08) translateX(3px); } }
+@keyframes martial-crack { 0% { opacity:0; transform:scale(.7); } 14%,35% { opacity:.9; transform:scale(1); } 100% { opacity:0; transform:scale(1.1); } }
+@keyframes martial-bed { 0%,18% { opacity:0; } 40% { opacity:.09; } 100% { opacity:0; } }
+@keyframes martial-blade { 0%,10% { opacity:0; transform:scaleX(.18) rotate(-16deg); } 35% { opacity:.72; transform:scaleX(1); } 57% { opacity:.4; } 100% { opacity:0; transform:scaleX(1.02) rotate(5deg); } }
+@keyframes martial-edge { 0%,12% { opacity:0; stroke-dashoffset:100; } 36% { opacity:1; stroke-dashoffset:0; } 75%,100% { opacity:0; stroke-dashoffset:-10; } }
+.fx-lite .martial-blade-grain, .fx-lite .martial-stones { display:none; }
+@media(prefers-reduced-motion:reduce) { .martial-scene { display:none; } }

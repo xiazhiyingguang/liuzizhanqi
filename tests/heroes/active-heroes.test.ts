@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DamageCalculator } from '../../src/core/damage-calculator';
 import { EffectManager } from '../../src/core/effect-manager';
 import { SkillSystem } from '../../src/core/skill-system';
-import { MovementSystem } from '../../src/core/movement-system';
 import { GameEngine } from '../../src/core/game-engine';
 import {
     createMirrorClone,
@@ -888,77 +887,78 @@ describe('Hanjiangxue', () => {
         expect(EffectManager.hasEffect(enemy, '冰冻')).toBe(true);
     });
 
-    it('skill 1 covering a friendly ice crystal grants ice armor and an extra action', () => {
+    it('skill 2 opens a 5x5 domain at her feet for two turns', () => {
         const state = makeGameState();
         const caster = addHero(state, 'hanjiangxue', 'player1', [2, 2]);
-        const enemy = addHero(state, 'baize', 'player2', [2, 4]);
-        // 冰晶放在 (2,3)，技能1 中心 (2,4) 的 3x3 覆盖它
-        expect(SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[2, 3]], state).success).toBe(true);
 
-        const result = SkillSystem.executeSkill(caster, hanjiangxueSkill1, [[2, 4]], state);
+        const result = SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[2, 2]], state);
 
         expect(result.success).toBe(true);
-        expect(EffectManager.hasEffect(caster, '冰甲')).toBe(true);
-        expect(state.pendingExtraActionHeroIds?.['player1']).toBe(caster.id);
-        // 冰晶被消耗后消失
-        expect(state.boardEffects?.some(effect =>
-            effect.type === 'ice-crystal' &&
-            effect.position[0] === 2 && effect.position[1] === 3
-        )).toBe(false);
+        const domain = state.boardEffects?.find(effect => effect.type === 'hanjiangxue-domain');
+        expect(domain?.position).toEqual([2, 2]);
+        expect(domain?.duration).toBe(2);
+        expect(result.fxCoveredPositions).toHaveLength(25);
     });
 
-    it('skill 1 covering a crystal does not grant ice armor twice', () => {
+    it('domain gives a single-target attack one extra hantian on a 25% roll', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
         const state = makeGameState();
         const caster = addHero(state, 'hanjiangxue', 'player1', [2, 2]);
-        const enemy = addHero(state, 'baize', 'player2', [2, 4]);
-        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[2, 3]], state);
-        EffectManager.addIceArmor(caster, caster.id);
+        const ally = addHero(state, 'moran', 'player1', [1, 2]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 3]);
+        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[2, 2]], state);
 
-        SkillSystem.executeSkill(caster, hanjiangxueSkill1, [[2, 4]], state);
+        DamageCalculator.asOneAttack(() => {
+            const damage = DamageCalculator.calculate(ally, enemy, 5, false, false, { canCrit: false });
+            DamageCalculator.applyDamage(enemy, damage, ally, state);
+        });
 
-        // 已有冰甲时不再触发再动
-        expect(state.pendingExtraActionHeroIds?.['player1']).toBeUndefined();
+        expect(DamageCalculator.getHantianStackCount(enemy)).toBe(1);
     });
 
-    it('ice crystal blocks enemy movement but lets friendly heroes reach it for ice armor', () => {
+    it('domain adds nothing when the 25% roll fails', () => {
         const state = makeGameState();
         const caster = addHero(state, 'hanjiangxue', 'player1', [2, 2]);
-        const ally = addHero(state, 'moran', 'player1', [2, 3]);
-        const enemy = addHero(state, 'baize', 'player2', [0, 3]);
-        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[1, 3]], state);
+        const ally = addHero(state, 'moran', 'player1', [1, 2]);
+        const enemy = addHero(state, 'baize', 'player2', [2, 3]);
+        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[2, 2]], state);
 
-        // 敌方不能移动到冰晶位置
-        const enemyMoves = MovementSystem.getMovablePositions(enemy, state);
-        expect(enemyMoves.some(([row, col]) => row === 1 && col === 3)).toBe(false);
+        DamageCalculator.asOneAttack(() => {
+            const damage = DamageCalculator.calculate(ally, enemy, 5, false, false, { canCrit: false });
+            DamageCalculator.applyDamage(enemy, damage, ally, state);
+        });
 
-        // 友方可以移动到达并获得冰甲，冰晶随即消失
-        const allyMoves = MovementSystem.getMovablePositions(ally, state);
-        expect(allyMoves.some(([row, col]) => row === 1 && col === 3)).toBe(true);
-        expect(MovementSystem.moveHero(ally, [1, 3], state)).toBe(true);
-        expect(EffectManager.hasEffect(ally, '冰甲')).toBe(true);
-        expect(state.boardEffects?.some(effect =>
-            effect.type === 'ice-crystal' &&
-            effect.position[0] === 1 && effect.position[1] === 3
-        )).toBe(false);
+        expect(DamageCalculator.getHantianStackCount(enemy)).toBe(0);
     });
 
-    it('moving onto a crystal consumes it even when the hero already has ice armor', () => {
+    it('domain picks only one target for a group attack', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
         const state = makeGameState();
         const caster = addHero(state, 'hanjiangxue', 'player1', [2, 2]);
-        const ally = addHero(state, 'moran', 'player1', [2, 3]);
-        const enemy = addHero(state, 'baize', 'player2', [0, 3]);
-        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[1, 3]], state);
-        // 模拟被动雪誓已附加冰甲
-        EffectManager.addIceArmor(ally, caster.id);
+        const ally = addHero(state, 'moran', 'player1', [1, 2]);
+        const first = addHero(state, 'baize', 'player2', [2, 3]);
+        const second = addHero(state, 'liuli', 'player2', [3, 3]);
+        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[2, 2]], state);
 
-        expect(MovementSystem.moveHero(ally, [1, 3], state)).toBe(true);
+        DamageCalculator.asOneAttack(() => {
+            for (const enemy of [first, second]) {
+                const damage = DamageCalculator.calculate(ally, enemy, 5, false, false, { canCrit: false });
+                DamageCalculator.applyDamage(enemy, damage, ally, state);
+            }
+        });
 
-        // 冰甲保持，冰晶被拾取消失
-        expect(EffectManager.hasEffect(ally, '冰甲')).toBe(true);
-        expect(state.boardEffects?.some(effect =>
-            effect.type === 'ice-crystal' &&
-            effect.position[0] === 1 && effect.position[1] === 3
-        )).toBe(false);
+        expect(DamageCalculator.getHantianStackCount(first) + DamageCalculator.getHantianStackCount(second)).toBe(1);
+    });
+
+    it('domain expires after two rounds', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'hanjiangxue', 'player1', [2, 2]);
+        SkillSystem.executeSkill(caster, hanjiangxueSkill2, [[2, 2]], state);
+
+        GameEngine.startNewTurn(state);
+        expect(state.boardEffects?.find(effect => effect.type === 'hanjiangxue-domain')?.duration).toBe(1);
+        GameEngine.startNewTurn(state);
+        expect(state.boardEffects?.some(effect => effect.type === 'hanjiangxue-domain')).toBe(false);
     });
 
     it('ice armor reduces incoming damage by 20% and gives the attacker one hantian stack', () => {

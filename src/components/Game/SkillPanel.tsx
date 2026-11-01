@@ -3,6 +3,7 @@ import { GameEngine } from '../../core/game-engine';
 import { getSkill } from '../../data/skills';
 import { getHeroInfo } from '../../data/heroes';
 import { heroXRedirectCost } from '../../core/hero-zhizhi';
+import { isXuanyuan } from '../../core/xuanyuan-form';
 import HeroAvatar from '../ui/HeroAvatar';
 
 export default function SkillPanel() {
@@ -134,6 +135,8 @@ export default function SkillPanel() {
     // 李太白被动链：等待瞬移时禁用技能按钮；整个链期间禁用普通移动/撤回
     const libaiChainActive = !!libaiChainState && libaiChainState.heroId === selectedHero.id;
     const libaiChainWaiting = libaiChainActive && !!libaiChainState?.awaitingPosition;
+    // 御剑·贯阵本身就是一跳位移：移动过之后这一格只能置灰，面板上把原因写出来
+    const xuanyuanLeapLocked = isXuanyuan(selectedHero) && selectedHero.hasMovedThisTurn;
     // 笔走龙蛇冲刺链进行中禁止撤回移动（撤回会破坏冲刺落点与命中记录）
     const shangguanDashActive = !!shangguanDashState && shangguanDashState.heroId === selectedHero.id;
     const deadAllies = (selectedHero.owner === 'player1' ? player1Heroes : player2Heroes)
@@ -230,7 +233,7 @@ export default function SkillPanel() {
                 {skill1 && (
                     <button
                         data-testid={`skill-button-${skill1.id}`}
-                        disabled={selectedHero.hasActedThisTurn || libaiChainWaiting}
+                        disabled={selectedHero.hasActedThisTurn || libaiChainWaiting || xuanyuanLeapLocked}
                         onClick={() => selectSkill(skill1.id)}
                         className="skill-btn skill-btn-skill"
                     >
@@ -248,6 +251,11 @@ export default function SkillPanel() {
                         <p className="text-[11px] text-ink-faint font-body leading-relaxed pl-5">
                             {skill1.description}
                         </p>
+                        {xuanyuanLeapLocked && (
+                            <p className="mt-1 text-[11px] text-vermillion font-body pl-5">
+                                本回合已经移动过，这一击自带位移，只能用技能二
+                            </p>
+                        )}
                     </button>
                 )}
 

@@ -15,7 +15,6 @@ import { useCareerStatisticsRecorder } from './hooks/useCareerStatisticsRecorder
 import { useBgmController } from './hooks/useBgmController';
 import { installClickSounds } from './audio/click-sound';
 import BgmControl from './components/ui/BgmControl';
-import QualityControl from './components/ui/QualityControl';
 import FullscreenControl from './components/ui/FullscreenControl';
 import { OrientationGuide } from './components/Game/OrientationGuide';
 import { isGameFullscreen, isStandaloneGame } from './core/game-fullscreen';
@@ -66,10 +65,9 @@ function App() {
             {phase === 'battle' && <BattleScene />}
             {phase === 'ended' && <BattleScene />}
             <div className={`app-game-controls${settingsOpen ? ' mobile-settings-open' : ''}`}>
-                <button className="compact-settings-toggle" aria-expanded={settingsOpen} aria-label="音乐与画质设置"
+                <button className="compact-settings-toggle" aria-expanded={settingsOpen} aria-label="音乐设置"
                     onClick={() => setSettingsOpen(value => !value)}>设置</button>
                 <BgmControl />
-                <QualityControl />
                 <FullscreenControl />
             </div>
             <OrientationGuide />

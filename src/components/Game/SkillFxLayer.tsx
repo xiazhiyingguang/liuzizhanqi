@@ -27,26 +27,28 @@ import { WangshuMoonFx } from './WangshuMoonFx';
 import { LingxiRippleFx, LingxiWaterTouchFx } from './LingxiRippleFx';
 import { LingxiTideCastFx, LingxiTideImpactFx } from './LingxiTideFx';
 import { MechanismSkillFx } from './MechanismSkillFx';
-import {
-    HuanongyingFanAreaFx,
-    HuanongyingFanCasterFx,
-    HuanongyingFanImpactFx,
-    HuanongyingReplayImpactFx,
-    HuanongyingReplaySourceFx,
-    HuanongyingSwapCasterFx,
-    HuanongyingSwapTargetFx,
-} from './HuanongyingFx';
+import { HuanongyingSceneFx } from './HuanongyingSceneFx';
+import { isHnyFx } from '../../core/huanongying-fx';
 import '../../styles/wukong-skill-fx.css';
 import '../../styles/zhiyuan-skill-fx.css';
 import '../../styles/xihuan-skill-fx.css';
 import '../../styles/jiangtaigong-skill-fx.css';
-import '../../styles/huanongying-skill-fx.css';
+import '../../styles/xiyueci-skill-fx.css';
 import '../../styles/jinghong-skill-fx.css';
 import '../../styles/aoyuan-dragon-fx.css';
 import { DragonArt } from './AoyuanDragonArt';
 import '../../styles/yunxiu-cloud-fx.css';
 import { YunxiuCloudStrikeFx } from './YunxiuCloudStrikeFx';
 import { isYunxiuCloudFx } from '../../core/yunxiu-cloud-fx';
+import { isSwallowFx } from '../../core/swallow-fx';
+import { SwallowSkillFx } from './SwallowSkillFx';
+import { BladeChoreographyFx } from './BladeChoreographyFx';
+import { TianweiStanceFx } from './TianweiStanceFx';
+import { TianweiArrivalFx } from './TianweiArrivalFx';
+import { isMartialSkill } from '../../core/martial-fx';
+import { MartialSkillFx } from './MartialSkillFx';
+import { DamoChargeCasterFx, DamoChargeImpactFx, DamoFlurryCasterFx, DamoFlurryImpactFx } from './DamoSkillFx';
+import '../../styles/damo-skill-fx.css';
 import { BOARD_SIZE } from '../../types/game';
 import type { Position, SkillAreaBounds, SkillFxEvent, SkillFxKind } from '../../core/skill-fx';
 import { computeFxAngleDeg, computeFxCellDelayMs, computeFxImpactDelayMs, computeFxTravelMs, computeFxTailMs, isPerTargetFxKind, PRISM_BEAM_STEP_MS, resolveAreaFxKind } from '../../core/skill-fx';
@@ -138,6 +140,8 @@ function HairGlyph() {
 function CasterFx({ event }: { event: SkillFxEvent }) {
     const themed = SkillThemeCasterFx({ event });
     if (themed) return themed;
+    if (event.skillId === 'damo_skill1') return <DamoChargeCasterFx event={event} />;
+    if (event.skillId === 'damo_skill2') return <DamoFlurryCasterFx event={event} />;
     switch (event.profile.kind) {
         case 'mirror-blades':
             return <MirrorBladeLaunchFx event={event} />;
@@ -235,11 +239,9 @@ function CasterFx({ event }: { event: SkillFxEvent }) {
                 </span>
             );
         case 'huanongying-fan':
-            return <HuanongyingFanCasterFx />;
         case 'huanongying-swap':
-            return <HuanongyingSwapCasterFx />;
         case 'huanongying-replay':
-            return <HuanongyingReplaySourceFx />;
+            return null;
         case 'lingxi-wave':
             return <LingxiRippleFx event={event} />;
         case 'lingxi-fan':
@@ -535,6 +537,32 @@ function JiangtaigongCastFx() {
             <i className="fxjtg-hook" />
             <i className="fxjtg-ripple" />
             <i className="fxjtg-ripple fxjtg-ripple-b" />
+        </span>
+    );
+}
+
+/** 夕月辞·辞光散影：贴地月环自她足下旋开，两瓣反向弧光扫过周身一圈，月尘跟着被掀起来 */
+function XiyueciSweepFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxxyc-moonsweep" />
+            <i className="fxxyc-moonsweep fxxyc-moonsweep-b" />
+            <i className="fxxyc-flash" />
+            <i className="fxxyc-dust" />
+            <i className="fxxyc-dust" />
+        </span>
+    );
+}
+
+/** 夕月辞·明灯照影：灯自上方落下，落地推开两圈光晕，光里朝两侧拖出被拉长的影子 */
+function XiyueciLampFx() {
+    return (
+        <span className="fx-anchor">
+            <i className="fxxyc-lamp" />
+            <i className="fxxyc-halo" />
+            <i className="fxxyc-halo fxxyc-halo-b" />
+            <i className="fxxyc-streak" />
+            <i className="fxxyc-streak fxxyc-streak-b" />
         </span>
     );
 }
@@ -1944,6 +1972,8 @@ function ChainBoltFx() {
 function TargetFx({ event, atPos }: { event: SkillFxEvent; atPos?: Position }) {
     const themed = SkillThemeTargetFx({ event });
     if (themed) return themed;
+    if (event.skillId === 'damo_skill1') return <DamoChargeImpactFx event={event} />;
+    if (event.skillId === 'damo_skill2') return <DamoFlurryImpactFx event={event} />;
     switch (event.profile.kind) {
         case 'wukong-clone':
             return <WukongCloneFx />;
@@ -2069,6 +2099,10 @@ function TargetFx({ event, atPos }: { event: SkillFxEvent; atPos?: Position }) {
             return <XihuanLevelFx />;
         case 'jiangtaigong-cast':
             return <JiangtaigongCastFx />;
+        case 'moonlight-sweep':
+            return <XiyueciSweepFx />;
+        case 'lamp-lighting':
+            return <XiyueciLampFx />;
         case 'jiangtaigong-throw':
             return <JiangtaigongThrowFx />;
         case 'jiangtaigong-whalefall':
@@ -2108,11 +2142,9 @@ function TargetFx({ event, atPos }: { event: SkillFxEvent; atPos?: Position }) {
         case 'phase-swap':
             return <PhaseSwapFx />;
         case 'huanongying-fan':
-            return <HuanongyingFanImpactFx />;
         case 'huanongying-swap':
-            return <HuanongyingSwapTargetFx />;
         case 'huanongying-replay':
-            return <HuanongyingReplayImpactFx />;
+            return null;
         case 'ground-zone':
             return <GroundZoneFx />;
         case 'cage-bind':
@@ -2280,14 +2312,21 @@ export const SkillFxVisual = memo(function SkillFxVisual({
         return () => clearTimeout(timer);
     }, [event.id, event.bornAt]);
     useEffect(() => {
-        if ((!isDragonFxKind(event.profile.kind) && !isYunxiuCloudFx(event.profile.kind)) || !clockRoot.current) return;
+        if ((!isMartialSkill(event.skillId) && !event.profile.stance && !event.profile.arrival && !event.profile.choreography && !isDragonFxKind(event.profile.kind) && !isYunxiuCloudFx(event.profile.kind) && !isSwallowFx(event.profile.kind) && !isHnyFx(event.profile.kind)) || !clockRoot.current) return;
         // Mount cost must not let the arrival avatar appear before its moving copy lands.
         const elapsed = Math.max(0, Date.now() - event.bornAt);
         const startTime = performance.now() - elapsed;
         for (const animation of clockRoot.current.getAnimations({ subtree: true })) animation.startTime = startTime;
     }, [event.id, event.bornAt, event.profile.kind, started]);
     if (!started && Date.now() < event.bornAt) return null;
+    // 兼容旧快照中的夜枭潜行演出：仅保留状态，不再显示墨影/羽片。
+    if (event.skillId === 'nightowl_tianwei') return null;
+    if (isMartialSkill(event.skillId) && variant !== 'caster') return null;
+    if ((event.profile.stance || event.profile.arrival) && variant !== 'caster') return null;
+    if (event.profile.choreography && (!event.choreography || variant !== 'caster')) return null;
     if (isYunxiuCloudFx(event.profile.kind) && variant !== 'target') return null;
+    if (isSwallowFx(event.profile.kind) && variant !== 'caster') return null;
+    if (isHnyFx(event.profile.kind) && variant !== 'caster') return null;
     const variantClass =
         variant === 'caster' ? 'skill-fx-caster' :
         variant === 'target' ? 'skill-fx-target' :
@@ -2431,7 +2470,7 @@ export const SkillFxVisual = memo(function SkillFxVisual({
             style={style}
             aria-hidden="true"
         >
-            {event.profile.moon ? <WangshuMoonFx event={event} variant={variant} /> : event.profile.crafted ? <CraftedSkillFx event={event} variant={variant} atPos={atPos} /> : event.profile.mechanism ? <MechanismSkillFx event={event} variant={variant} /> : event.profile.kind === 'coin-awaken' ? (variant === 'target' && <WangcaiAwakenFx />) : event.profile.spectral ? <SpectralSkillFx event={event} variant={variant} atPos={atPos} /> : <>
+            {isMartialSkill(event.skillId) ? <MartialSkillFx event={event} /> : event.profile.stance ? <TianweiStanceFx event={event} /> : event.profile.arrival ? <TianweiArrivalFx event={event} /> : event.profile.choreography ? <BladeChoreographyFx event={event} /> : isHnyFx(event.profile.kind) ? <HuanongyingSceneFx event={event} /> : isSwallowFx(event.profile.kind) ? <SwallowSkillFx event={event} /> : event.profile.moon ? <WangshuMoonFx event={event} variant={variant} /> : event.profile.crafted ? <CraftedSkillFx event={event} variant={variant} atPos={atPos} /> : event.profile.mechanism ? <MechanismSkillFx event={event} variant={variant} /> : event.profile.kind === 'coin-awaken' ? (variant === 'target' && <WangcaiAwakenFx />) : event.profile.spectral ? <SpectralSkillFx event={event} variant={variant} atPos={atPos} /> : <>
             {variant === 'caster' && <CasterFx event={event} />}
             {(variant === 'target' || perTargetMain) && <TargetFx event={event} atPos={atPos} />}
             {variant === 'impact' && !perTargetMain && (isDragonFxKind(event.profile.kind)
@@ -2844,6 +2883,7 @@ function AreaLightPathFx({ event }: { event: SkillFxEvent }) {
 
 /** AOE 整体特效渲染入口：渲染在棋盘网格层（跨格子绝对定位），每个事件一张 */
 export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
+    if (isHnyFx(event.profile.kind)) return null;
     if (event.profile.crafted || event.profile.spectral || event.profile.mechanism) return null;
     if (['yunying-sweep', 'lingxi-wave', 'lingxi-fan'].includes(event.profile.kind)) return null;
     const bounds = event.areaBounds;
@@ -2870,7 +2910,6 @@ export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
             {archetype === 'runearray' && <AreaRuneArrayFx />}
             {archetype === 'groundwave' && <AreaGroundwaveFx />}
             {archetype === 'slashwave' && <AreaSlashwaveFx />}
-            {archetype === 'petalfan' && <HuanongyingFanAreaFx event={event} bounds={bounds} />}
             {archetype === 'icespikes' && <AreaIceSpikesFx />}
             {archetype === 'iceshatter' && <AreaShatterFx />}
         </span>

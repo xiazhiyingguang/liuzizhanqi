@@ -231,14 +231,14 @@ describe('命中节奏与图鉴几何', () => {
         fx.damagePositions = [[2, 4]];
         expect(isDamageFxAt(fx, [2, 4])).toBe(true);
     });
-    it('完整预览包含折线区域，钱币攻击和冰晶在施法者之外', () => {
+    it('完整预览包含折线区域，钱币攻击在施法者之外，寒天领域以自身为中心', () => {
         const prism = buildSkillPreviewScene('zhiguang_skill2');
         expect(prism.cols).toBe(6);
         expect(prism.event.areaBounds).toBeDefined();
         expect(new Set(prism.event.coveredPositions?.map(pos => pos[0])).size).toBeGreaterThan(1);
-        for (const id of ['wangcai_skill1', 'hanjiangxue_skill2']) {
-            const scene = buildSkillPreviewScene(id);
-            expect(scene.event.targetPos).not.toEqual(scene.event.fromPos);
-        }
+        const coin = buildSkillPreviewScene('wangcai_skill1');
+        expect(coin.event.targetPos).not.toEqual(coin.event.fromPos);
+        const domain = buildSkillPreviewScene('hanjiangxue_skill2');
+        expect(domain.event.targetPos).toEqual(domain.event.fromPos);
     });
 });

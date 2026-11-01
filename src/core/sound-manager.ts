@@ -213,6 +213,8 @@ export class SoundManager {
 
     /** The FX event owns the clock and cancellation, for local, AI and remote casts alike. */
     playSkillFx(event: SkillFxEvent): void {
+        // 剑路是原技能的补充画面，沿用原施法声；漂移/回鞘不再额外叠一记打击音。
+        if (event.choreography) return;
         if (!event.skillId || this.muted || typeof window === 'undefined') return;
         if (typeof document !== 'undefined' && !this.visibilityListening) {
             this.visibilityListening = true;
@@ -224,7 +226,7 @@ export class SoundManager {
         if (!materialSoundId(event)) {
             const cloudStrike = isYunxiuCloudFx(event.profile.kind);
             if (cloudStrike && !(event.damagePositions ?? event.impactPositions)?.length) return;
-            const delay = event.bornAt + (cloudStrike ? event.profile.impactMs ?? 320 : 0) - Date.now();
+            const delay = event.bornAt + (cloudStrike || event.profile.arrival ? event.profile.impactMs ?? 320 : 0) - Date.now();
             if (delay > 0) {
                 if (!this.delayedSkillTimers.has(event.id)) this.delayedSkillTimers.set(event.id, setTimeout(() => {
                     this.delayedSkillTimers.delete(event.id);

@@ -1,4 +1,6 @@
 import { nextBattleLogId } from './battle-log-id';
+import { isXuanyuan } from './xuanyuan-form';
+import { fireAttachedSwords, hasAttachedSwords } from './flying-sword';
 import { requestMechanismFx } from './mechanism-fx';
 import { GameState, Hero, HeroState, BattleLogEntry, Player, Position } from '../types/game';
 import { MovementSystem } from './movement-system';
@@ -16,7 +18,9 @@ import { lanesAtPosition, windLaneNextCell } from './wind-lane';
 import { applyStillnessReward, consumeDaizongLamp } from './mountain-stance';
 import { advanceDragon, sustainDragonAtRoundStart } from './dragon-orbit';
 import { tickCloudsAtRoundStart } from './thunder-cloud';
+import { clearShuangfeiyanBoomerangState } from './boomerang';
 import { fierceAnnouncement } from './battle-tempo';
+import { healFromWakeLamps } from './lamp-shadow';
 
 /**
  * 对局回合上限：打满即强制结算，按场上存活人数判定胜负；
@@ -286,6 +290,10 @@ export class GameEngine {
                 if (hero.counters['dai_skill2_cd']) {
                     // 时空旅者·戴尔技能2「时空置换」冷却，与莫问同节奏按回合推进
                     hero.counters['dai_skill2_cd'] = Math.max(0, hero.counters['dai_skill2_cd'] - 1);
+                }
+                if (hero.counters['xiangyu_skill2_cd']) {
+                    // 西楚霸王·项羽技能二「盖世」冷却，用完这一手后隔一个完整回合再放
+                    hero.counters['xiangyu_skill2_cd'] = Math.max(0, hero.counters['xiangyu_skill2_cd'] - 1);
                 }
                 if (hero.passiveId === 'youjun_passive' && hero.state === HeroState.ALIVE && hero.position) {
                     // 上一轮累计位移定格为「上回合移动距离」（疾掠倍率读取项），重新开始累计；
@@ -607,6 +615,12 @@ export class GameEngine {
                         delete extraHero.counters['youjun_extra_move_only'];
                     }
                 }
+                // 双飞燕被动「比翼双飞」：自己登记的第二手只许放技能；
+                // 别人给的再动仍是完整行动
+                if (extraHero.passiveId === 'shuangfeiyan_passive' && extraHero.counters['__sfy_self_extra'] === 1) {
+                    extraHero.counters['sfy_extra_skill_only'] = 1;
+                    delete extraHero.counters['__sfy_self_extra'];
+                }
 
                 // 记录原本应该轮到的玩家（如果还没记录过，且当前不是已经在额外行动中）
                 // 逻辑：如果当前是 P1 正常行动 -> 触发额外 -> 应该在额外结束后切给 P2
@@ -907,9 +921,22 @@ export class GameEngine {
         for (const hero of allHeroes) {
             if (hero.state !== HeroState.ALIVE) continue;
 
+            // 双飞燕：回合初清掉上一轮可能遗留的双出手记账（正常路径会在第二手结束时清）
+            if (hero.passiveId === 'shuangfeiyan_passive') {
+                delete hero.counters['sfy_extra_skill_only'];
+                delete hero.counters['sfy_second_queued'];
+                delete hero.counters['__sfy_self_extra'];
+            }
+
             // 夺岁「血偿」：砍走的那笔血按轮次戳分两期还回来。
             // 走回合开始而不是效果时长衰减——被眩晕、被跳过、被换位都不该改掉还血节奏。
             settleXuechangAtTurnStart(hero, gameState);
+
+            // 轩辕神君・昭神：附着在友方身上的御剑在新回合开始时破空射出、落回棋盘。
+            // 口径（2026-10 与用户确认）：原「下次出手前」触发依赖出手时机不好判断，改为回合开始统一结算。
+            if (isXuanyuan(hero) && hasAttachedSwords(gameState, hero.owner)) {
+                fireAttachedSwords(hero, gameState);
+            }
 
             if (hero.passiveId === 'baize_passive') {
                 const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
@@ -1007,7 +1034,7 @@ export class GameEngine {
             }
         }
 
-        // 上官婉儿：行动结束后，她落下的毛笔朝自己移动1格（落笔当回合除外），经过的敌人受到固定伤害
+        // 上官婉儿：行动结束后，她落下的毛笔朝自己移动1格（落笔当回合除外），经过的敌人受到伤害
         if (hero.passiveId === 'shangguan_passive' && hero.position) {
             this.moveShangguanBrushes(hero, gameState);
         }
@@ -1021,6 +1048,12 @@ export class GameEngine {
             gameState.activeHero?.id === hero.id
         ) {
             delete hero.counters['youjun_extra_move_only'];
+        }
+
+        // 双飞燕：自己的第二手收尾时解除“仅技能”限制，并允许下一次行动重新登记第二手
+        if (hero.passiveId === 'shuangfeiyan_passive' && hero.counters['sfy_extra_skill_only'] === 1) {
+            delete hero.counters['sfy_extra_skill_only'];
+            delete hero.counters['sfy_second_queued'];
         }
 
         // 敖渊「游龙」：每次行动结束，绕身的龙影顺时针扫过半圈（含起点共 5 格）落一轮伤害。
@@ -1089,8 +1122,8 @@ export class GameEngine {
 
     /**
      * 上官婉儿的毛笔朝她移动1格（落笔当回合不推进，见 placedAtRound）；
-     * 移动到的格子若有敌人则造成 9 点固定伤害；毛笔抵达上官婉儿所在格时消失。
-     * 毛笔寿命最多3次移动（复用 duration 字段），耗尽后自动消散。毛笔为不可规避的固定伤害。
+     * 移动到的格子若有敌人则造成 9 点伤害；毛笔抵达上官婉儿所在格时消失。
+     * 毛笔寿命最多3次移动（复用 duration 字段），耗尽后自动消散。毛笔伤害为常规结算（吃护盾、防御与闪避）。
      */
     private static moveShangguanBrushes(hero: Hero, gameState: GameState): void {
         const brushes = (gameState.boardEffects ?? []).filter(
@@ -1122,7 +1155,7 @@ export class GameEngine {
 
             const occupant = gameState.board[nr][nc];
             if (occupant && occupant.owner !== hero.owner && occupant.state === HeroState.ALIVE) {
-                const dmg = DamageCalculator.calculate(hero, occupant, shangguanSkillDamage(hero, SHANGGUAN_BRUSH_DAMAGE), false, false, { fixedDamage: true, canCrit: false });
+                const dmg = DamageCalculator.calculate(hero, occupant, shangguanSkillDamage(hero, SHANGGUAN_BRUSH_DAMAGE), false, false, { canCrit: false });
                 DamageCalculator.applyDamage(occupant, dmg, hero, gameState);
                 this.addLog(gameState, {
                     type: 'passive',
@@ -1316,6 +1349,10 @@ export class GameEngine {
                 }
             }
         }
+
+        // 夕月辞的「身后留灯」：灯不问主人还在不在，到回合末就照着两格内的友方回血。
+        // 放在按人循环之外——她本人已经阵亡，不会进 allHeroes 里那一轮。
+        healFromWakeLamps(gameState);
     }
 
     /**
@@ -1439,6 +1476,9 @@ export class GameEngine {
         hero.counters['__temp_dead_hp'] = hero.currentHp;
         hero.state = HeroState.TEMP_DEAD;
         hero.currentHp = 0;
+        if (hero.passiveId === 'shuangfeiyan_passive') {
+            clearShuangfeiyanBoomerangState(hero, gameState);
+        }
         if (oldPosition && gameState.board[oldPosition[0]]?.[oldPosition[1]] === hero) {
             gameState.board[oldPosition[0]][oldPosition[1]] = null;
         }

@@ -6,6 +6,7 @@ import {
     xihuanSkill2,
     XIHUAN_LOW_HEAL,
     XIHUAN_LOW_HEAL_TALENT,
+    XIHUAN_OVERFLOW_SHIELD_CAP,
 } from '../../src/data/extended-skills';
 import { grantZhizhi } from '../../src/core/hero-zhizhi';
 import { getHeroInfo } from '../../src/data/heroes';
@@ -205,13 +206,24 @@ describe('羲和 · 技能二「盈照」', () => {
         expect(xihuan.counters['盈光']).toBe(surplus);
     });
 
-    it('吃不下的溢出部分凝成护盾', () => {
+    it('吃不下的溢出部分凝成护盾，但每次最多10点', () => {
         const { state, xihuan, target, surplus } = withSurplus();
+        expect(surplus).toBeGreaterThan(XIHUAN_OVERFLOW_SHIELD_CAP);
         target.currentHp = target.maxHp;      // 满血：整份都该变盾
 
         SkillSystem.executeSkill(xihuan, xihuanSkill2, [target.position!], state);
 
-        expect(target.shield).toBeGreaterThanOrEqual(surplus - 1);
+        expect(target.shield).toBe(XIHUAN_OVERFLOW_SHIELD_CAP);
+    });
+
+    it('溢出不足10点时按实际溢出转盾', () => {
+        const { state, xihuan, target } = withSurplus();
+        xihuan.counters['盈光'] = 6;
+        target.currentHp = target.maxHp;
+
+        SkillSystem.executeSkill(xihuan, xihuanSkill2, [target.position!], state);
+
+        expect(target.shield).toBe(6);
     });
 
     it('全场任意距离都能照，盈光为空时放不出来', () => {

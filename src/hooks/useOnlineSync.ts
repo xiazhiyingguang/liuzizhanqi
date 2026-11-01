@@ -13,6 +13,7 @@ import {
 import { getOrCreatePlayerIdentity, rememberRecentPlayer } from '../services/player-profile';
 import { applyResumePayload, applyServerGameState, commitOnlineTriggeredFx, applySnapshotAction } from '../services/online-state';
 import { audioManager } from '../audio/audio-manager';
+import { setWenrenWaypoint } from '../core/wenren-form';
 
 /**
  * 联机模式游戏同步Hook
@@ -148,6 +149,11 @@ export function useOnlineSync() {
                         if (hero) {
                             store.selectHeroForAction(hero);
                             store.selectSkill(action.data.skillId);
+                            // 闻人翊悬跃阵是两段选点：selectSkill 会把中途点清空，
+                            // 对端必须补回主机当时选的那名友军，才能复现同一路线与距离
+                            if (Array.isArray(action.data.wenrenWaypoint)) {
+                                setWenrenWaypoint(hero, action.data.wenrenWaypoint as [number, number]);
+                            }
                             if (action.data.reviveTargetHeroId) {
                                 store.selectBaizeReviveTarget(action.data.reviveTargetHeroId);
                             }

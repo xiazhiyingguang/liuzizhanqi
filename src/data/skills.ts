@@ -5,9 +5,15 @@ import { GameEngine } from '../core/game-engine';
 import { createMirrorClone, getMirrorOwnerIdFromCloneId, GUYING_DUANXUE, spendZhenxiaoBlood } from '../data/heroes';
 import { MovementSystem } from '../core/movement-system';
 import { enterNightowlStealth } from '../core/nightowl-stealth';
+import { enemiesOnCells } from '../core/lamp-shadow';
 import { hasZhizhi, zhizhiValue } from '../core/hero-zhizhi';
+import {
+    HANJIANGXUE_DOMAIN_DURATION,
+    HANJIANGXUE_DOMAIN_TYPE,
+    hanjiangxueDomainCells,
+} from '../core/hanjiangxue-domain';
 import { EXTENDED_SKILLS } from './extended-skills';
-import { createHuifengStrikeContext, executeHuifengCombo, huifengMarkStrike, pickHuifengMarkTargets, HUIFENG_COMBO_BASE, HUIFENG_MARK_BASE, type HuifengStrikeContext } from '../core/huifeng-marks';
+import { createHuifengStrikeContext, executeHuifengCombo, huifengMarkStrike, pickHuifengMarkTargets, publishHuifengFx, HUIFENG_COMBO_BASE, HUIFENG_MARK_BASE, type HuifengStrikeContext } from '../core/huifeng-marks';
 
 /**
  * 墨阑的技能
@@ -280,6 +286,7 @@ export const huifengSkill2: Skill = {
         for (const target of chosen) {
             huifengMarkStrike(caster, target, gameState, context);
         }
+        publishHuifengFx(caster, gameState, context);
         return huifengOutput(context);
     }
 };
@@ -1036,21 +1043,17 @@ export const mirrorSkill2: Skill = {
                 if (Math.abs(r1 - r2) === Math.abs(c1 - c2)) {
                     const dr = r2 > r1 ? 1 : -1;
                     const dc = c2 > c1 ? 1 : -1;
-                    let currR = r1 + dr;
-                    let currC = c1 + dc;
+                    const beamCells: Position[] = [];
+                    for (let currR = r1 + dr, currC = c1 + dc; currR !== r2 && currC !== c2; currR += dr, currC += dc) {
+                        if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) beamCells.push([currR, currC]);
+                    }
                     DamageCalculator.asOneAttack(() => {
-                        while (currR !== r2 && currC !== c2) {
-                            if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
-                                const h = gameState.board[currR][currC];
-                                if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                                    const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
-                                    DamageCalculator.applyDamage(h, realDmg, caster, gameState);
-                                    result.damageDealt?.push(realDmg.finalDamage);
-                                    // 数额交给引擎的 damage 日志
-                                }
-                            }
-                            currR += dr;
-                            currC += dc;
+                        // 对角束扫过的格子里，灯影也照样挨一下（本体只吃半刀）
+                        for (const h of enemiesOnCells(gameState, caster, beamCells)) {
+                            const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
+                            DamageCalculator.applyDamage(h, realDmg, caster, gameState);
+                            result.damageDealt?.push(realDmg.finalDamage);
+                            // 数额交给引擎的 damage 日志
                         }
                     });
                 }
@@ -1099,22 +1102,18 @@ export const mirrorSkill2: Skill = {
                 const dr = r2 > r1 ? 1 : -1;
                 const dc = c2 > c1 ? 1 : -1;
                 
-                let currR = r1 + dr;
-                let currC = c1 + dc;
+                const beamCells: Position[] = [];
+                for (let currR = r1 + dr, currC = c1 + dc; currR !== r2 && currC !== c2; currR += dr, currC += dc) {
+                    if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) beamCells.push([currR, currC]);
+                }
                 
                 DamageCalculator.asOneAttack(() => {
-                    while (currR !== r2 && currC !== c2) {
-                        if (currR >= 0 && currR < 6 && currC >= 0 && currC < 6) {
-                            const h = gameState.board[currR][currC];
-                            if (h && h.owner !== caster.owner && h.state === HeroState.ALIVE) {
-                                const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
-                                DamageCalculator.applyDamage(h, realDmg, caster, gameState);
-                                result.damageDealt?.push(realDmg.finalDamage);
-                                // 数额交给引擎的 damage 日志
-                            }
-                        }
-                        currR += dr;
-                        currC += dc;
+                    // 与收回镜像那一束同一口径：扫过的格子里灯影也挨半刀
+                    for (const h of enemiesOnCells(gameState, caster, beamCells)) {
+                        const realDmg = DamageCalculator.calculate(caster, h, pathDamage, true);
+                        DamageCalculator.applyDamage(h, realDmg, caster, gameState);
+                        result.damageDealt?.push(realDmg.finalDamage);
+                        // 数额交给引擎的 damage 日志
                     }
                 });
             }
@@ -1398,14 +1397,16 @@ export const guyingSkill1: Skill = {
         const duanxue = EffectManager.hasEffect(caster, GUYING_DUANXUE);
         const struck: Hero[] = [firstEnemy];
         if (duanxue) {
+            const rayCells: Position[] = [];
             for (let dist = 1; dist <= 5; dist++) {
                 const r = cr + step[0] * dist;
                 const c = cc + step[1] * dist;
                 if (r < 0 || r >= 6 || c < 0 || c >= 6) break;
-                const h = gameState.board[r][c];
-                if (h && h.state === HeroState.ALIVE && h.owner !== caster.owner && !struck.includes(h)) {
-                    struck.push(h);
-                }
+                rayCells.push([r, c]);
+            }
+            // 剑光扫过的格子里灯影也算被斩到（本体只吃半刀）；先手定位那位仍要真站在射线上
+            for (const enemy of enemiesOnCells(gameState, caster, rayCells)) {
+                if (!struck.includes(enemy)) struck.push(enemy);
             }
         }
 
@@ -1521,9 +1522,8 @@ export const hanjiangxueSkill1: Skill = {
         const center: Position = [Math.floor(encoded / 6), encoded % 6];
 
         const positions = MovementSystem.getAreaPositions(center, 3).concat([center]);
-        const targets = positions
-            .map(([r, c]) => gameState.board[r][c])
-            .filter((hero): hero is Hero => !!hero && hero.owner !== caster.owner && hero.state === HeroState.ALIVE);
+        // 按格索敌统一走灯影口径：影格盖在爆点里也算打到了那个人（本体只吃半刀）
+        const targets = enemiesOnCells(gameState, caster, positions);
         if (targets.length === 0) return { success: false, log: [`${caster.name}的技能1范围内没有敌人`] };
 
         const result: SkillExecuteResult = {
@@ -1567,41 +1567,39 @@ export const hanjiangxueSkill1: Skill = {
     }
 };
 
-// 寒江雪技能2：在周围2格范围内的一个位置释放冰晶（持续2回合，敌方视为障碍物）
+// 寒江雪技能2：在自己周围2格范围内展开寒天领域（5×5，持续2回合），
+// 领域期间友方每次攻击出手有25%概率给攻击范围内的一个敌人补1层寒天。
 export const hanjiangxueSkill2: Skill = {
     id: 'hanjiangxue_skill2',
-    name: '冰晶壁垒',
+    name: '寒天领域',
     type: 'special',
-    description: '在周围2格范围内的一个空位释放冰晶；冰晶持续2回合，对敌方是障碍物，友方到达可获得冰甲（冰晶被获得后消失）',
+    description: '在自己周围2格范围（5×5）内展开寒天领域，持续2回合：每次友方角色出手，有25%概率给本次攻击范围内的一个敌人额外施加1层寒天（单体攻击目标明确，群体攻击随机选一个）',
     rangeType: 'single',
-    range: 2,
-    targetType: 'empty',
+    range: 0,
+    targetType: 'self',
     targetCount: 1,
     execute: (caster: Hero, _targets: Hero[], gameState: GameState): SkillExecuteResult => {
-        const encoded = caster.counters['__extended_target'];
-        if (encoded === undefined) return { success: false, log: [`${caster.name}没有选择冰晶位置`] };
-        const target: Position = [Math.floor(encoded / 6), encoded % 6];
-
-        if (gameState.board[target[0]][target[1]] !== null) {
-            return { success: false, log: [`${caster.name}释放冰晶失败：该位置被占据`] };
-        }
-        if (gameState.boardEffects?.some(effect =>
-            effect.type === 'ice-crystal' &&
-            effect.position[0] === target[0] && effect.position[1] === target[1]
-        )) {
-            return { success: false, log: [`${caster.name}释放冰晶失败：该位置已有冰晶`] };
-        }
+        if (!caster.position) return { success: false, log: [`${caster.name}不在场上`] };
+        const center: Position = [...caster.position] as Position;
+        const covered = hanjiangxueDomainCells(center);
 
         gameState.boardEffects ??= [];
+        // 同一名寒江雪只保留最新的一片领域，重复施放刷新位置与持续时间
+        gameState.boardEffects = gameState.boardEffects.filter(effect =>
+            !(effect.type === HANJIANGXUE_DOMAIN_TYPE && effect.sourceHeroId === caster.id));
         gameState.boardEffects.push({
-            id: `ice-crystal-${Date.now()}-${Math.random()}`,
-            type: 'ice-crystal',
-            position: [...target],
+            id: `hanjiangxue-domain-${Date.now()}-${Math.random()}`,
+            type: HANJIANGXUE_DOMAIN_TYPE,
+            position: center,
             owner: caster.owner,
             sourceHeroId: caster.id,
-            duration: 2,
+            duration: HANJIANGXUE_DOMAIN_DURATION,
         });
-        return { success: true, log: [`${caster.name}在(${target[0] + 1},${target[1] + 1})释放了冰晶，持续2回合`] };
+        return {
+            success: true,
+            log: [`${caster.name}在(${center[0] + 1},${center[1] + 1})展开寒天领域，持续${HANJIANGXUE_DOMAIN_DURATION}回合`],
+            fxCoveredPositions: covered,
+        };
     }
 };
 

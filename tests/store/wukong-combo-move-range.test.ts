@@ -44,4 +44,28 @@ describe('大圣合击本体移动范围', () => {
         expect(enemy.currentHp).toBeLessThan(enemy.maxHp);
         expect(wukong.hasActedThisTurn).toBe(true);
     });
+
+    it('选了技能二但改放技能一：合击状态必须清掉，不能漂到对手回合', () => {
+        const state = loadBattleState();
+        const wukong = addHero(state, 'wukong', 'player1', [0, 0]);
+        addHero(state, 'baize', 'player2', [0, 3]);
+        useGameStore.setState({
+            board: state.board,
+            player1Heroes: state.player1Heroes,
+            player2Heroes: state.player2Heroes,
+            selectedHero: wukong,
+            activeHero: wukong,
+        });
+
+        useGameStore.getState().selectSkill('wukong_skill2');
+        expect(useGameStore.getState().wukongSkill2State?.phase).toBe('pickWukongTarget');
+
+        // 没真正出手就改选技能一：进入技能一前就该把合击状态收掉
+        useGameStore.getState().selectSkill('wukong_skill1');
+        expect(useGameStore.getState().wukongSkill2State).toBeUndefined();
+
+        useGameStore.getState().executeSkill([0, 1]);
+        expect(wukong.hasActedThisTurn).toBe(true);
+        expect(useGameStore.getState().wukongSkill2State).toBeUndefined();
+    });
 });

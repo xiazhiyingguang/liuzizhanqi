@@ -1,5 +1,7 @@
 import { nextBattleLogId } from '../core/battle-log-id';
 import { requestMechanismFx } from '../core/mechanism-fx';
+import { requestTianweiStance } from '../core/tianwei-stance-fx';
+import { requestTianweiArrival } from '../core/tianwei-arrival-fx';
 import { Hero, HeroState, Player, PassiveSkill, TianweiSkill, Position, GameState } from '../types/game';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
@@ -551,8 +553,10 @@ export const wukongTianwei: TianweiSkill = {
                 type: 'tianwei' as const,
                 player: hero.owner,
                 message: `${hero.name}触发天威，召唤了一个分身`,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                details: { kind: 'wukong-tianwei-clone', sourceHeroId: hero.id, targetHeroId: clone.id, position: [...summonPos] },
             });
+            requestTianweiArrival(hero, clone, 'wukong_tianwei', gameState, gameState.battleLog[gameState.battleLog.length - 1].id);
         }
     }
 };
@@ -700,6 +704,7 @@ export const guyingTianwei: TianweiSkill = {
                 message: `${hero.name}触发天威「断雪」，剑光断处不接两回合`,
                 timestamp: Date.now()
             });
+            requestTianweiStance(hero, 'guying_tianwei', gameState, gameState.battleLog[gameState.battleLog.length - 1].id);
         }
     }
 };

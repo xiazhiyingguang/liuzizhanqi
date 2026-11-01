@@ -1,4 +1,5 @@
 import { nextBattleLogId } from '../core/battle-log-id';
+import { requestBladeScene, type BladeStroke } from '../core/blade-choreography';
 import { EffectManager } from '../core/effect-manager';
 import { MovementSystem } from '../core/movement-system';
 import { DamageCalculator } from '../core/damage-calculator';
@@ -68,6 +69,11 @@ export const EXTENDED_HERO_IDS = [
     'daizong',
     'yunxiu',
     'xuanyuan',
+    'wenren',
+    'shuangfeiyan',
+    'xiyueci',
+    'damo',
+    'xiangyu',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -219,7 +225,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
     lilith: {
         name: '莉莉丝',
         class: '化识',
-        maxHp: 38,
+        maxHp: 44,
         moveRange: 3,
         baseAttack: 0,
         skill1Id: 'lilith_skill1',
@@ -351,7 +357,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
     lingxi: {
         name: '泠汐',
         class: '天师',
-        maxHp: 46,
+        maxHp: 50,
         moveRange: 2,
         baseAttack: 0,
         skill1Id: 'lingxi_skill1',
@@ -489,6 +495,27 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill2Id: 'yunxiu_skill2',
         passiveId: 'yunxiu_passive',
     },
+    damo: {
+        name: '达摩',
+        class: '霸魁',
+        maxHp: 50,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'damo_skill1',
+        skill2Id: 'damo_skill2',
+        passiveId: 'damo_passive',
+    },
+    xiangyu: {
+        name: '西楚霸王·项羽',
+        class: '霸魁',
+        maxHp: 60,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'xiangyu_skill1',
+        skill2Id: 'xiangyu_skill2',
+        passiveId: 'xiangyu_passive',
+        tianweiId: 'xiangyu_tianwei',
+    },
     tingyuan: {
         name: '霆渊',
         class: '天师',
@@ -510,8 +537,8 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         passiveId: 'jiangtaigong_passive',
         tianweiId: 'jiangtaigong_tianwei',
     },
-    // 轩辕神君（金行）：移动不走常规移动力，普通态象走田、昭神态 G 型外圈（见 core/xuanyuan-form）；
-    // 昭神顶替天威，没有 tianweiId，也没有独立被动（昭神触发挂在 DamageCalculator）
+    // 轩辕神君（金行）：普通态象走田，昭神态对角一格或两格；主动位移后飞剑随气漂移。
+    // 昭神顶替天威，没有 tianweiId；剑随气走的结算收口在 core/flying-sword。
     xuanyuan: {
         name: '轩辕神君',
         class: '霸魁',
@@ -521,6 +548,41 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'xuanyuan_skill1',
         skill2Id: 'xuanyuan_skill2',
         passiveId: 'xuanyuan_passive',
+    },
+    // 闻人翊悬（火行）：以友军为中途点直线飞跃，积【破妄】；满10点自动踏入【昭神】。
+    // 普通态不闭环、距离只换破妄；昭神才把棋盘接成环并让距离附伤（见 core/wenren-form）
+    wenren: {
+        name: '闻人翊悬',
+        class: '武曲',
+        maxHp: 48,
+        moveRange: 3,
+        baseAttack: 0,
+        skill1Id: 'wenren_skill1',
+        skill2Id: 'wenren_skill2',
+        passiveId: 'wenren_passive',
+    },
+    // 双飞燕：两把回旋镖各自独立计时，返航由 core/shuangfeiyan 按她的成功出手序号推进。
+    // 天威暂留空（不填 tianweiId），被动「比翼双飞」挂 skill-system 的额外行动队列。
+    shuangfeiyan: {
+        name: '双飞燕',
+        class: '武曲',
+        maxHp: 46,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'shuangfeiyan_skill1',
+        skill2Id: 'shuangfeiyan_skill2',
+        passiveId: 'shuangfeiyan_passive',
+    },
+    xiyueci: {
+        name: '夕月辞',
+        class: '天师',
+        maxHp: 53,
+        moveRange: 2,
+        baseAttack: 0,
+        skill1Id: 'xiyueci_skill1',
+        skill2Id: 'xiyueci_skill2',
+        passiveId: 'xiyueci_passive',
+        tianweiId: 'xiyueci_tianwei',
     },
 };
 
@@ -539,7 +601,7 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     feynman: { name: '逐光', class: '化识', description: '以粒子标记锁定双点，矩形整片引爆。生命40，移动力2' },
     wangcai: { name: '旺财', class: '通灵', description: '财气积累并通灵财神。生命42，移动力2' },
     schrodinger: { name: '量子观测者·薛定谔', class: '化识', description: '概率坍缩与量子纠缠。生命43，移动力2' },
-    lilith: { name: '莉莉丝', class: '化识', description: '恐惧控制与情绪能量。生命38，移动力3' },
+    lilith: { name: '莉莉丝', class: '化识', description: '恐惧控制与情绪能量。生命44，移动力3' },
     libai: { name: '李太白', class: '武曲', description: '醉意累积与脚印瞬移连击。生命40，移动力2' },
     zuizhendao: { name: '醉枕刀', class: '武曲', description: '醉掷寒锋、闪避反击。生命46，移动力2' },
     feixue: { name: '绯雪', class: '武曲', description: '破冰爆发、寒天收割。生命45，移动力2' },
@@ -551,7 +613,7 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     chenyuan: { name: '沉渊·镇岳', class: '霸魁', description: '极寒领域、拖拽承伤。生命60，移动力2' },
     dai: { name: '时空旅者·戴尔', class: '天师', description: '时空回溯、换位换血。生命45，移动力3' },
     xubai: { name: '叙白', class: '素问', description: '净化回血、抚育友军。生命55，移动力2' },
-    lingxi: { name: '泠汐', class: '天师', description: '延迟潮汐、攻守兼备。生命46，移动力2' },
+    lingxi: { name: '泠汐', class: '天师', description: '延迟潮汐、攻守兼备。生命50，移动力2' },
     xueqi: { name: '血契', class: '霸魁', description: '血誓横扫、替队挨打。生命58，移动力2' },
     yunying: { name: '云缨', class: '武曲', description: '叠祥瑞、引烈火燎原。生命45，移动力2' },
     jinghong: { name: '惊鸿·止水', class: '武曲', description: '攒惊鸿、决渊爆发。生命48，移动力2' },
@@ -565,8 +627,13 @@ export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; d
     daizong: { name: '岱宗', class: '霸魁', description: '面朝一侧镇守，替这半区的队友挨下所有攻击，挡下的份额攒成岳势再一次性砸回去；站着不动就越站越硬。生命58，移动力2' },
     aoyuan: { name: '游龙·敖渊', class: '武曲', description: '唤一尾游龙绕身盘旋，每次行动结束扫过半圈；越扫越多的龙鳞把他推成攻守一体的滚雪球。生命46，移动力3' },
     yunxiu: { name: '云岫', class: '天师', description: '在两格外布一团会自己挪窝的雷云，每回合开始先走一格再落一次雷；一针钉下去把整片云往人堆里拽，越打越厚的霆息让她又肉又能贴。生命50，移动力2' },
+    damo: { name: '达摩', class: '霸魁', description: '一肩把贴身的敌人顺着一头撞出去，撞上山壁还要再吃一发并晕到下一回合；转身四拳把人朝外甩，推得越远金刚越厚，身子越硬、血回得越多。生命50，移动力2' },
+    xiangyu: { name: '西楚霸王·项羽', class: '霸魁', description: '燃血换盾、八向冲锋推人并散下楚歌；前方2×3刀气只付血价、按现有护盾与已损生命增伤，斩完清空护盾。身周无友时护盾吸取更凶，生命首次跌破三成即霸王镇守，把下一击化为护盾。生命60，移动力2' },
     jiangtaigong: { name: '姜太公', class: '天师', description: '下钩等人自己踩、把上钩的人丢到任意空格，一片5×5水泽养满家闪避。生命52，移动力2' },
-    xuanyuan: { name: '轩辕神君', class: '霸魁', description: '象走田踏阵、命中落剑；收剑成御剑之盾，金痕盖满在场敌人即入昭神，移动与技能全面升华。生命56，移动为对角跳两格（昭神后周身G型）' },
+    xuanyuan: { name: '轩辕神君', class: '霸魁', description: '象走田踏阵、命中落剑；主动位移后飞剑随机漂一格，收剑护身；金痕盖满在场之敌后进入昭神。生命56，普通态对角跳两格，昭神后对角一格或两格' },
+    wenren: { name: '闻人翊悬', class: '武曲', description: '借友军作中途点直线飞跃，落点一圈起火并积攒【破妄】；满10点自动踏入【昭神】：棋盘闭环、飞跃距离附伤，技能二暴击提升。生命48，移动力3' },
+    shuangfeiyan: { name: '双飞燕', class: '武曲', description: '两把回旋镖掷出后沿最短路径返航，双镖在外时结成三角；每次行动可出手两次，技能二可跃向镖位拾回并炸开一圈。生命46，移动力2' },
+    xiyueci: { name: '夕月辞', class: '天师', description: '两格内点一盏明灯，灯只照敌方：周围一圈敌人的影子被拖到背离灯的那一格——打影子等于打本体，队友与自己都不落影；自己站在灯下两格内免伤三成，阵亡时倒下的那一格留下最后一盏灯，每回合末照回两格内友方的血。生命53，移动力2' },
 };
 
 export function initializeExtendedHero(hero: Hero): void {
@@ -669,6 +736,13 @@ export function initializeExtendedHero(hero: Hero): void {
             break;
         case 'xihuan_passive':
             hero.counters['盈光'] = 0;   // 均光抽走的生命总量，只保留最大值（玩家可见资源）
+            break;
+        case 'wenren_passive':
+            hero.counters['破妄'] = 0;   // 飞跃距离积攒；技能二与昭神消耗
+            break;
+        case 'shuangfeiyan_passive':
+            hero.counters['sfy_skillSerial'] = 0;   // 成功出手序号：返航计时读它
+            hero.counters['sfy_second_queued'] = 0; // 本动作是否已经给过第二手
             break;
     }
 }
@@ -1013,6 +1087,7 @@ export function placeBounties(hunter: Hero, gameState: GameState): string[] {
     const enemies = getLivingHeroes(getEnemies(hunter, gameState));
     const assignments: string[] = [];
     let deck: number[] = [];
+    const paths: BladeStroke[] = [];
     for (const enemy of enemies) {
         // 敌人多于赏金种类时（替身/召唤物在场）才允许第二轮重复
         if (deck.length === 0) deck = shuffledRewards();
@@ -1029,7 +1104,10 @@ export function placeBounties(hunter: Hero, gameState: GameState): string[] {
             description: '被击杀时，实际击杀者获得对应赏金奖励',
         });
         assignments.push(`${enemy.name}（${BOUNTY_REWARDS[reward]}）`);
+        if (hunter.position && enemy.position) paths.push({ from: [...hunter.position], to: [...enemy.position],
+            start: paths.length * 40, arrive: 340 + paths.length * 40, reward, label: '悬赏' });
     }
+    requestBladeScene(hunter, gameState, 'order', paths, `${hunter.name}向敌方发布悬赏令`);
     return assignments;
 }
 

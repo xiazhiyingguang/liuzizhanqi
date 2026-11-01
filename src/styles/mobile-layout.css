@@ -2,6 +2,28 @@
 .mobile-only { display: none; }
 .app-game-controls { display: contents; }
 .compact-settings-toggle { display: none; }
+.mobile-fullscreen-restore { display: none; }
+
+@media (pointer: coarse) and (max-width: 1023px) and (orientation: landscape) {
+    /* 独立于收起的设置菜单，切回对局后仍能直接触达；不用全屏遮罩吞掉棋盘输入。 */
+    .mobile-fullscreen-restore {
+        position: fixed;
+        left: calc(84px + env(safe-area-inset-left, 0px));
+        top: max(2px, env(safe-area-inset-top, 0px));
+        z-index: 65;
+        display: flex;
+        border: 1px solid #9c805b66;
+        border-radius: 8px;
+        background: #f5f0e8;
+        box-shadow: 0 2px 8px #1a1a1a12;
+        color: #715638;
+        font-size: 12px;
+    }
+    .mobile-fullscreen-restore button { min-height: 44px; padding: 0 10px; }
+    .mobile-fullscreen-restore button:first-child { display: flex; align-items: center; gap: 5px; }
+    .mobile-fullscreen-restore button span { font-size: 20px; }
+    .mobile-fullscreen-restore .mobile-fullscreen-restore-dismiss { min-width: 44px; border-left: 1px solid #9c805b33; font-size: 18px; }
+}
 
 @media (pointer: coarse) and (max-width: 1023px) {
     .app-shell {
@@ -20,15 +42,14 @@
         border-top: 1px solid #1a1a1a12;
         pointer-events: none;
     }
-    .app-shell [data-testid="bgm-control"], .app-shell [data-testid="quality-toggle"] {
+    .app-shell [data-testid="bgm-control"] {
         bottom: calc(6px + env(safe-area-inset-bottom, 0px));
         opacity: 1;
         height: 44px;
         max-width: calc(50vw - 16px);
         padding: 4px 8px;
+        right: max(8px, env(safe-area-inset-right, 0px));
     }
-    .app-shell [data-testid="quality-toggle"] { left: max(8px, env(safe-area-inset-left, 0px)); }
-    .app-shell [data-testid="bgm-control"] { right: max(8px, env(safe-area-inset-right, 0px)); }
     .app-shell [data-testid="bgm-control"] button { width: 36px; height: 36px; }
     .app-shell [data-testid="bgm-control"] input { height: 28px; width: 56px; }
     .mobile-only { display: inline-flex; }

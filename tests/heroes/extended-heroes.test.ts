@@ -832,18 +832,44 @@ describe('extended heroes', () => {
         expect(second.currentHp).toBe(before - 5);
     });
 
+    it('莉莉丝面板：生命44、移动力3、化识', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'lilith', 'player1', [2, 0]);
+        expect([caster.maxHp, caster.moveRange, caster.class]).toEqual([44, 3, '化识']);
+    });
+
     it('莉莉丝施加恐惧并把恐惧蔓延到目标周围', () => {
         const state = makeGameState();
         const caster = addHero(state, 'lilith', 'player1', [2, 0]);
         const first = addHero(state, 'moran', 'player2', [2, 2]);
         const second = addHero(state, 'baize', 'player2', [2, 3]);
+        const diagonal = addHero(state, 'liuli', 'player2', [4, 4]);   // 切比雪夫2格，曼哈顿4
         lilithSkill1.execute!(caster, [first], state);
         expect(EffectManager.hasEffect(first, '恐惧')).toBe(true);
         caster.counters['恐惧情绪能量'] = 2;
         const before = first.currentHp;
         lilithSkill2.execute!(caster, [first], state);
-        expect(first.currentHp).toBe(before - 11);
+        expect(first.currentHp).toBe(before - 15);   // 5 + 2×5
+        expect(first.effects.find(effect => effect.name === '恐惧')?.duration, '初始目标的恐惧不被缩成1回合').toBe(2);
         expect(EffectManager.hasEffect(second, '恐惧')).toBe(true);
+        expect(EffectManager.hasEffect(diagonal, '恐惧'), '周围2格按5×5方盒算，斜角也吃').toBe(true);
+    });
+
+    it('恐惧加深：下一次技能伤害+30%，致知三抬到+50%', () => {
+        const state = makeGameState();
+        const caster = addHero(state, 'lilith', 'player1', [2, 0]);
+        const first = addHero(state, 'moran', 'player2', [2, 2]);
+        caster.counters['lilith_next_damage_bonus'] = 1;
+
+        lilithSkill1.execute!(caster, [first], state);
+        expect(first.currentHp).toBe(first.maxHp - 10);   // 8×1.3 → 10
+        expect(caster.counters['lilith_next_damage_bonus']).toBe(0);
+
+        grantZhizhi(caster, 3);
+        const second = addHero(state, 'baize', 'player2', [4, 2]);
+        caster.counters['lilith_next_damage_bonus'] = 1;
+        lilithSkill1.execute!(caster, [second], state);
+        expect(second.currentHp).toBe(second.maxHp - 12);  // 8×1.5
     });
 
     it('骸骨君王回合末按全场当前阵亡数获得护盾', () => {

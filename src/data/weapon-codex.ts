@@ -49,6 +49,8 @@ const WEAPON_DRAFTS: Record<string, WeaponDraft> = {
     huifeng: { name: '千锋尽', implemented: true, effects: [
         '连击次数增加 1。',
     ] },
+    shuangfeiyan: { name: '双燕剪' },
+    xiyueci: { name: '照影灯' },
     wukong: { name: '万仞', implemented: true, effects: [
         '初始暴击率增加 40%。',
     ] },
@@ -117,8 +119,11 @@ const WEAPON_DRAFTS: Record<string, WeaponDraft> = {
     ] },
     hero_x: { name: '震怒' },
     chenyuan: { name: '镇岳' },
+    damo: { name: '金刚杵' },
+    xiangyu: { name: '霸王戟' },
     xueqi: { name: '赤枷' },
     xuanyuan: { name: '轩辕剑' },
+    wenren: { name: '焚星' },
 
     // ===== 素问：仁心济世 =====
     baize: { name: '天禄书' },

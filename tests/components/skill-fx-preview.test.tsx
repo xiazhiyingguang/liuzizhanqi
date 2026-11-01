@@ -69,11 +69,11 @@ describe('SkillFxStage 特效演示舞台', () => {
     it('花弄影·花间辞：折扇起手后由一整面花刃扫过三格', () => {
         const html = renderStage('huanongying_skill1');
         expect(html).toContain('skill-fx-kind-huanongying-fan skill-fx-caster');
-        expect(html).toContain('hny-fan-glyph');
-        expect(html).toContain('skill-area-fx-petalfan');
-        expect(html).toContain('hny-fan-area');
-        expect(html.split('hny-fan-sweep hny-fan-sweep-').length - 1).toBe(3);
-        expect(html).toContain('hny-area-petal-5');
+        expect(html).toContain('hny2-fan-glyph');
+        expect(html).not.toContain('skill-area-fx-petalfan');
+        expect(html.match(/class="hny2-scene"/g)).toHaveLength(1);
+        expect(html.split('hny2-sweep hny2-sweep-').length - 1).toBe(3);
+        expect(html).toContain('data-hny-form="fan"');
         expect(html).not.toContain('fxs-redslash');
         expect(html).toContain('花扇横斩');
     });
@@ -81,24 +81,23 @@ describe('SkillFxStage 特效演示舞台', () => {
     it('花弄影·弄影：旧位收身、花瓣跨格、新位绽放并环斩', () => {
         const html = renderStage('huanongying_skill2');
         expect(html).toContain('skill-fx-kind-huanongying-swap skill-fx-caster');
-        expect(html).toContain('skill-fx-kind-huanongying-swap skill-fx-target');
-        expect(html).toContain('hny-swap-silhouette');
-        expect(html).toContain('hny-swap-thread');
-        expect(html).toContain('hny-petal-travel');
-        expect(html).toContain('hny-arrival-bloom');
-        expect(html).toContain('hny-ring-blade');
-        expect(html.split('hny-cardinal-cut hny-cardinal-cut-').length - 1).toBe(4);
+        expect(html).not.toContain('skill-fx-kind-huanongying-swap skill-fx-target');
+        expect(html).toContain('hny2-body-traveller');
+        expect(html).toContain('hny2-shadow-traveller');
+        expect(html).toContain('hny2-arrival');
+        expect(html).toContain('hny2-ring-cut');
+        expect(html.match(/class="hny2-ring-petal"/g)).toHaveLength(4);
         expect(html).not.toContain('fxp-implode');
         expect(html).toContain('身影换舞');
     });
 
-    it('花弄影影子重演使用半透明月影与影字封印', () => {
+    it('花弄影影子重演保留淡墨影身并复演同一招式', () => {
         const html = renderStage('huanongying_replay');
         expect(html).toContain('skill-fx-kind-huanongying-replay skill-fx-caster');
-        expect(html).toContain('skill-fx-kind-huanongying-replay skill-fx-target');
-        expect(html).toContain('hny-replay-figure');
-        expect(html).toContain('hny-replay-cut');
-        expect(html).toContain('hny-replay-seal');
+        expect(html).not.toContain('skill-fx-kind-huanongying-replay skill-fx-target');
+        expect(html).toContain('hny2-replay-figure');
+        expect(html).toContain('hny2-echo-cut');
+        expect(html).toContain('data-hny-form="fan"');
         expect(html).toContain('月影重演');
     });
 

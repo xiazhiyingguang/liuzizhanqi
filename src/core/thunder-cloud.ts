@@ -3,6 +3,7 @@ import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
 import { MovementSystem } from './movement-system';
 import { zhizhiValue } from './hero-zhizhi';
+import { enemiesOnCells } from './lamp-shadow';
 import { requestSkillFx } from '../data/extended-skills';
 import {
     BOARD_SIZE,
@@ -37,8 +38,8 @@ export const CLOUD_TYPE = 'thunder-cloud';
 export const ROD_TYPE = 'lightning-rod';
 /** 落雷次数：每回合开始一次，共 3 拍。致知三策划案留白，所以这里没有第二档 */
 export const CLOUD_STRIKES = 3;
-export const CLOUD_DAMAGE = 4;
-export const CLOUD_DAMAGE_TALENT = 5;
+export const CLOUD_DAMAGE = 2;
+export const CLOUD_DAMAGE_TALENT = 4;
 /** 半径 1 = 3×3 */
 export const CLOUD_RADIUS = 1;
 export const CLOUD_MAX = 3;
@@ -93,7 +94,11 @@ export function cloudCovers(cloud: BoardEffect, row: number, col: number): boole
 
 /** 云压着谁：范围内存活的敌方单位（云的归属看铺设方阵营，不是看云心站了谁） */
 export function cloudVictims(gameState: GameState, cloud: BoardEffect): Hero[] {
-    return cloudCells(cloud).flatMap(cell => {
+    const cells = cloudCells(cloud);
+    const caster = findHero(gameState, cloud.sourceHeroId);
+    // 影格落在云里也算被这雷劈到：走按格索敌的统一口径（本体只挨半刀）
+    if (caster) return enemiesOnCells(gameState, caster, cells);
+    return cells.flatMap(cell => {
         const occupant = gameState.board[cell[0]][cell[1]];
         return occupant && occupant.owner !== cloud.owner && occupant.state === HeroState.ALIVE
             ? [occupant]

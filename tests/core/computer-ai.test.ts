@@ -14,6 +14,38 @@ import {
 } from '../../src/core/computer-ai';
 import { addHero, makeGameState } from '../helpers/game-state';
 
+/**
+ * 布阵散开的不变量：四人互不相邻、至少跨三行、三列里至少用两列、
+ * 任意 2x2 最多两人。只靠“随机抽点”很容易又挤回一坨。
+ */
+function expectSpreadDeployment(deployment: ReturnType<typeof chooseComputerDeployment>): void {
+    const positions = deployment.map(item => item.position);
+    expect(positions).toHaveLength(4);
+
+    const rows = new Set(positions.map(position => position[0]));
+    const cols = new Set(positions.map(position => position[1]));
+    expect(rows.size).toBeGreaterThanOrEqual(3);
+    expect(cols.size).toBeGreaterThanOrEqual(2);
+
+    for (let index = 0; index < positions.length; index++) {
+        for (let other = index + 1; other < positions.length; other++) {
+            const distance = Math.abs(positions[index][0] - positions[other][0]) +
+                Math.abs(positions[index][1] - positions[other][1]);
+            expect(distance).toBeGreaterThanOrEqual(2);
+        }
+    }
+
+    for (let row = 0; row < 5; row++) {
+        for (let col = 3; col < 5; col++) {
+            const count = positions.filter(position =>
+                (position[0] === row || position[0] === row + 1) &&
+                (position[1] === col || position[1] === col + 1)
+            ).length;
+            expect(count).toBeLessThanOrEqual(2);
+        }
+    }
+}
+
 describe('computer AI', () => {
     it('针对玩家阵容选择六名有效且职责完整的英雄（四人首发加两人替补）', () => {
         const team = chooseComputerTeam(['moran', 'huifeng', 'mirror', 'nightowl']);
@@ -49,6 +81,29 @@ describe('computer AI', () => {
         expect(new Set(deployment.map(item => item.position.join(','))).size).toBe(4);
         expect(deployment.every(item => item.position[1] >= 3 && item.position[1] < 6)).toBe(true);
         expect(new Set(deployment.map(item => item.heroId))).toEqual(new Set(team));
+        expectSpreadDeployment(deployment);
+    });
+
+    it('同一手阵容与同一套玩家布阵，重复开局也不会摆出同一副站位', () => {
+        const state = makeGameState();
+        addHero(state, 'moran', 'player1', [2, 0]);
+        addHero(state, 'huifeng', 'player1', [3, 1]);
+        addHero(state, 'baize', 'player1', [4, 2]);
+        const team = ['changli', 'liuli', 'baize', 'nightowl'];
+
+        const layouts = new Set<string>();
+        for (let attempt = 0; attempt < 80; attempt++) {
+            const deployment = chooseComputerDeployment(team, state.player1Heroes);
+            // 每次都必须落在本方半场、互不撞格——随机不能把不变量抖掉
+            expect(deployment.every(item =>
+                item.position[1] >= 3 && item.position[1] <= 5 &&
+                item.position[0] >= 0 && item.position[0] <= 5)).toBe(true);
+            expect(new Set(deployment.map(item => item.position.join(','))).size).toBe(4);
+            expectSpreadDeployment(deployment);
+            layouts.add(deployment.map(item => item.position.join(',')).sort().join('|'));
+        }
+        // 以前是写死常量，40 次只会得到 1 种；现在必须既有随机性，又保持散开
+        expect(layouts.size).toBeGreaterThanOrEqual(6);
     });
 
     it('发现并选择可以直接击杀低生命敌人的技能目标', () => {
@@ -107,7 +162,7 @@ describe('computer AI', () => {
         expect(plan?.skillId).not.toBe('mowen_skill1');
     });
 
-    it('技能射程外时 AI 会放置冰晶封锁敌方走位', () => {
+    it('技能射程外时 AI 会展开寒天领域', () => {
         const state = makeGameState({ currentPlayer: 'player2' });
         const caster = addHero(state, 'hanjiangxue', 'player2', [2, 5]);
         addHero(state, 'baize', 'player1', [2, 1]);

@@ -9,6 +9,7 @@ import {
     chooseComputerReinforcementPosition,
     chooseComputerReviveTarget,
     chooseComputerSkillPlan,
+    chooseComputerShangguanDash,
     chooseComputerSupportTarget,
     chooseComputerStasisReviveTarget,
     chooseComputerTeam,
@@ -31,9 +32,9 @@ import { useGameStore } from '../store/game-store';
 import { getSkill } from '../data/skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
-import { computeMaxEnemyPath, getLibaiFrontRect, scanShangguanDashDirection, scanXuanyuanLeapValue } from '../data/extended-skills';
-import { getGMovePlans, getGStartCell, getLeapsUsed, isXuanyuan } from '../core/xuanyuan-form';
-import { findFlyingSwordAt } from '../core/flying-sword';
+import { computeMaxEnemyPath, getLibaiFrontRect } from '../data/extended-skills';
+import { getLeapsUsed, isXuanyuan } from '../core/xuanyuan-form';
+import { WENREN_SKILL1_ID, getWenrenWaypoint } from '../core/wenren-form';
 import { AVAILABLE_HERO_IDS } from '../data/heroes';
 import { heroXRedirectCost } from '../core/hero-zhizhi';
 import { MovementSystem } from '../core/movement-system';
@@ -253,13 +254,6 @@ function nextPlannedTarget(
         if (isAllowed(fromPlan)) return fromPlan;
     }
 
-    // 轩辕神君御剑连破：两段式点击，起笔计数器是否已写入决定这一步点起笔格还是点落点
-    if (skill.id === 'xuanyuan_skill1' && plan && plan.targetPositions.length >= 2) {
-        const step = caster.counters['__xuanyuan_leap_start'] === undefined ? 0 : 1;
-        const fromPlan = plan.targetPositions[step];
-        if (isAllowed(fromPlan)) return fromPlan;
-    }
-
     // 游隼疾掠：落点必须是"真能穿到人"的那条直线。
     // 走位后重新规划常与方案错位，旧逻辑这时会退回 fallbackTargetPosition，
     // 在合法落点里随便挑一格空冲（实测每局约 1.3 次空放），把冲刺当成免费位移。
@@ -371,7 +365,7 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'jinghua_skill2' && caster.passiveId === 'jinghua_passive') {
-        // 印月替身：镜影攒够或自己残血时才下场；登场落点挑离敌人最远的3×3空格
+        // 印月替身：落点、候补与规划端一致，不能算的是进场打人，落地却另选安全角落。
         const bench = (caster.owner === 'player1' ? state.player1BenchHeroIds : state.player2BenchHeroIds) ?? [];
         const stacks = Math.min(5, caster.counters['镜影'] ?? 0);
         const wounded = caster.currentHp <= caster.maxHp * 0.55;
@@ -379,29 +373,8 @@ function executeSelectedSkillStep(
             store.endHeroAction();
             return;
         }
-        let bestLanding: Position | null = null;
-        let bestSafety = -1;
-        for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-                if (dr === 0 && dc === 0) continue;
-                const pos: Position = [caster.position[0] + dr, caster.position[1] + dc];
-                if (pos[0] < 0 || pos[0] >= 6 || pos[1] < 0 || pos[1] >= 6) continue;
-                if (state.board[pos[0]][pos[1]] !== null) continue;
-                let near = 0;
-                for (let r = 0; r < 6; r++) {
-                    for (let c = 0; c < 6; c++) {
-                        const unit = state.board[r][c];
-                        if (unit && unit.owner !== caster.owner && unit.state === 'alive' &&
-                            Math.abs(r - pos[0]) + Math.abs(c - pos[1]) <= 2) near++;
-                    }
-                }
-                const safety = 10 - near;
-                if (safety > bestSafety) {
-                    bestSafety = safety;
-                    bestLanding = pos;
-                }
-            }
-        }
+        const plan = chooseComputerSkillPlan(state, caster, skill.id);
+        const bestLanding = plan && plan.score > 0 ? plan.targetPositions[0] : null;
         if (!bestLanding) { store.endHeroAction(); return; }
         // 等价于人类点选候补：与模拟评估共用同一个选择口径（chooseJinghuaSummonTemplate），
         // 否则会出现"按 A 算的分、实际派 B 登场"的错位
@@ -413,49 +386,10 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'shangguan_skill2' && caster.passiveId === 'shangguan_passive') {
-        // 笔走龙蛇（含多段挂起）：扫描四方向选收益最高的一段执行；无可冲方向则结束行动
-        if (!caster.position) return;
-        const dash = state.shangguanDashState?.heroId === caster.id ? state.shangguanDashState : undefined;
-        const hitTargets = dash ? [...dash.hitTargets] : [];
-        let bestDirPos: Position | null = null;
-        let bestScore = 0;
-        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
-            const scan = scanShangguanDashDirection(caster, dr, dc, hitTargets, state);
-            if (!scan.ok || !scan.landPos) continue;
-            // 敌人价值高于毛笔借力
-            let score = scan.kind === 'enemy' ? 10 : 3;
-            if (scan.kind === 'enemy') {
-                const victim = state.board[scan.targetPos![0]][scan.targetPos![1]];
-                // 斩杀判定：撞敌固定 6 点伤害且不可闪避，护盾先抵扣
-                if (victim && victim.currentHp + victim.shield <= 6) score += 30;
-            }
-            // 借力连锁一层：落点四方向还能继续冲则追加多段潜力分
-            const probe = { ...caster, position: scan.landPos } as Hero;
-            // 第一段撞碎的毛笔实际已被回收：二级探查需把它排除，避免高估已消失的借力点
-            const probeHitTargets = scan.kind === 'brush' && scan.targetId
-                ? [...hitTargets, scan.targetId]
-                : hitTargets;
-            for (const [dr2, dc2] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
-                const second = scanShangguanDashDirection(probe, dr2, dc2, probeHitTargets, state);
-                if (!second.ok) continue;
-                score += second.kind === 'enemy' ? 8 : 4;
-                break;
-            }
-            // 落点安危：笔走龙蛇会强制位移，落点比原地更危险时要谨慎（可能因此放弃冲锋保命）
-            const landingDelta =
-                (scoreComputerPosition(state, caster, scan.landPos)
-                    - scoreComputerPosition(state, caster, caster.position)) * 0.35;
-            score += landingDelta;
-            if (score > bestScore) {
-                bestScore = score;
-                bestDirPos = [caster.position[0] + dr, caster.position[1] + dc];
-            }
-        }
-        if (bestDirPos) {
-            store.executeSkill(bestDirPos);
-        } else {
-            store.endHeroAction();
-        }
+        // 初段与续段共用真实连冲规划，命中记录和已回收毛笔都会随实际结算更新。
+        const plan = chooseComputerShangguanDash(state, caster);
+        if (plan && plan.score > 0) store.executeSkill(plan.targetPositions[0]);
+        else store.endHeroAction();
         return;
     }
 
@@ -496,25 +430,21 @@ function executeSelectedSkillStep(
     }
 
     if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && getLeapsUsed(caster) > 0) {
-        // 御剑连破（跳后挂起）：挑「起笔+落点」咬得住人的组合继续跳，谁都咬不到就收剑结束行动
-        let best: { start: Position; cell: Position; score: number } | null = null;
-        if (caster.position) {
-            for (let dir = 0; dir < 4; dir++) {
-                const startCell = getGStartCell(caster.position, dir);
-                if (!startCell) continue;
-                for (const plan of getGMovePlans(caster.position, dir)) {
-                    const cell = plan.to;
-                    if (state.board[cell[0]][cell[1]] !== null) continue;
-                    if (!findFlyingSwordAt(state, cell, caster.id)) continue;
-                    const score = scanXuanyuanLeapValue(caster, cell, state, dir);
-                    if (!best || score > best.score) best = { start: startCell, cell, score };
-                }
-            }
-        }
-        if (best && best.score > 0) {
-            // 第一段点起笔（store 的两段式拦截只定笔、不放技能），第二段沿那一笔跃向飞剑
-            store.executeSkill(best.start);
-            store.executeSkill(best.cell);
+        // 续跳也走完整结算评分，而不是只数路径伤害；该停手时允许收剑。
+        const plan = chooseComputerSkillPlan(state, caster, skill.id);
+        if (plan && plan.score > 0 && plan.targetPositions[0]
+            && state.skillRange.some(position => samePosition(position, plan.targetPositions[0]))) {
+            store.executeSkill(plan.targetPositions[0]);
+        } else store.endHeroAction();
+        return;
+    }
+
+    // 跃阵第一段只选友军，第二段才在同一中途点下规划落点。
+    if (skill.id === WENREN_SKILL1_ID) {
+        const plan = chooseComputerSkillPlan(state, caster, skill.id);
+        const target = getWenrenWaypoint(caster) ? plan?.targetPositions[1] : plan?.targetPositions[0];
+        if (target && state.skillRange.some(position => samePosition(position, target))) {
+            store.executeSkill(target);
         } else {
             store.endHeroAction();
         }
@@ -874,6 +804,21 @@ function executeBattleStep(
     }
 
     if (state.wukongSkill2State) {
+        // 合击状态只属于正在出手的那名孙悟空。若它漂到了对手回合（例如玩家点开技能二
+        // 又改放技能一），这里不能一直等一个不会到来的“当前分身”，否则 AI 每拍都原地空转。
+        const wukong = [...state.player1Heroes, ...state.player2Heroes]
+            .find(candidate => candidate.id === state.wukongSkill2State?.wukongId);
+        const canContinue = !!wukong && wukong.owner === aiPlayer && state.selectedSkill?.id === 'wukong_skill2';
+        if (!canContinue) {
+            useGameStore.setState({
+                wukongSkill2State: undefined,
+                selectedSkill: null,
+                highlightedPositions: [],
+                skillRange: [],
+                moveRange: []
+            });
+            return;
+        }
         executeWukongStep(state, aiPlayer);
         return;
     }

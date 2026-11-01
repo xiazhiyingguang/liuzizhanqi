@@ -280,7 +280,18 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
                         subtitle="击杀触发"
                         description={hero.tianwei.description}
                         accent="#c0392b"
+                        trailing={['feixue', 'wukong', 'guying', 'xiangyu'].includes(hero.id) ? <SkillFxPreview skillId={`${hero.id}_tianwei`} skillName={hero.tianwei.name} accent="#c0392b" /> : undefined}
                     />
+                ) : hero.tianweiPending ? (
+                    <article className="rounded-xl border border-dashed border-ink/[0.09] bg-ink/[0.015] p-4">
+                        <div className="flex items-start gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-ink/10 font-title text-lg text-ink-faint">威</span>
+                            <div>
+                                <h4 className="font-title text-xl text-ink-light">天威 · 待定</h4>
+                                <p className="mt-1.5 text-sm leading-6 text-ink-faint">设计稿先把天威留空，待补齐后再接入击杀触发。</p>
+                            </div>
+                        </div>
+                    </article>
                 ) : (
                     <article className="rounded-xl border border-dashed border-ink/[0.09] bg-ink/[0.015] p-4">
                         <div className="flex items-start gap-3">

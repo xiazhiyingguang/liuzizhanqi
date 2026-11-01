@@ -1,0 +1,33 @@
+/* 冷钢、古金、纸令与暗朱砂：一条真实剑路一份轮廓，不用模糊光团填满棋盘。 */
+.bc-performance { --bc-pitch: calc(var(--board-cell-size,76px) + 6px); position:absolute; inset:0; pointer-events:none; }
+.bc-scene { position:absolute; left:calc(var(--bc-c) * var(--bc-pitch) * -1 - 4px); top:calc(var(--bc-r) * var(--bc-pitch) * -1 - 4px); width:calc(var(--bc-pitch) * 6); height:calc(var(--bc-pitch) * 6); overflow:hidden; clip-path:inset(3px); fill:none; stroke-linecap:round; stroke-linejoin:round; }
+.bc-sword-glyph { width:100%; height:100%; overflow:visible; }
+.bf-flying-sword { inset:14% 31%; filter:none; animation:none; }
+.bf-flying-sword-p2 .bc-sword-glyph { filter:sepia(.25) saturate(.8); }
+.bf-flying-sword::after { content:''; position:absolute; bottom:5%; left:45%; width:3px; height:9px; background:#536480; transform:rotate(-12deg); }
+.bf-flying-sword-p2::after { background:#aa5148; }
+.bc-route-shadow,.bc-route-edge { fill:none; stroke-dasharray:100; stroke-dashoffset:100; opacity:0; animation:bc-trace var(--bc-flight) ease-in-out var(--bc-start) both,bc-trace-fade 240ms ease-out var(--bc-arrive) forwards; }
+.bc-route-shadow { stroke:#4d4940; stroke-width:5; stroke-opacity:.14; }
+.bc-route-edge { stroke:#b69d62; stroke-width:1.2; }
+.bc-cuts .bc-route-shadow { stroke:#733a38; stroke-width:7; stroke-opacity:.12; }
+.bc-cuts .bc-route-edge { stroke:#a56854; stroke-width:1; }
+.bc-order .bc-route-edge,.bc-reward .bc-route-edge { stroke:#9d8150; stroke-dasharray:3 7; stroke-opacity:.35; }
+.bc-warrant-ink { font-family:var(--font-title,serif); font-size:17px; font-weight:700; fill:#514132; }
+.bc-hunt-order .bc-warrant-ink { fill:#8b4231; }
+.bc-small-label { font-family:serif; font-size:12px; fill:#76613c; stroke:#f4ecd9; stroke-width:2px; paint-order:stroke; }
+.bc-received { font-family:serif; font-size:15px; fill:#8c622d; stroke:#f4ecd9; stroke-width:3px; paint-order:stroke; }
+.bc-travel-avatar { width:50px; height:50px; border-radius:50%; overflow:hidden; border:1px solid #b09a60; box-shadow:0 2px 3px #34332c33; background:#eee5ce; }
+.bc-arrival { opacity:0; animation:bc-arrival 400ms ease-out var(--bc-arrive) both; }
+.bc-order .bc-arrival,.bc-reward .bc-arrival { animation-duration:520ms; }
+.bc-landing-ink { fill:#5a533b; opacity:.11; }
+.bc-landing-edge { fill:none; stroke:#ab8a48; stroke-width:1.6; }
+.bc-contact { opacity:0; stroke:#bca064; stroke-width:2; animation:bc-arrival 270ms ease-out var(--bc-arrive) both; }
+.bc-actor-hidden { visibility:hidden; }
+.bc-attached-guard { position:absolute; inset:-8%; pointer-events:none; }
+.bc-attached-guard i { position:absolute; left:calc(50% - 5px); top:calc(50% - 19px); width:10px; height:38px; transform:rotate(var(--guard-angle)) translateY(-24px); }
+.bc-attached-guard b { position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); color:#79613c; background:#f3ecd9e8; padding:0 3px; border-radius:3px; white-space:nowrap; font-size:9px; font-weight:400; }
+@keyframes bc-trace { 0%{opacity:0;stroke-dashoffset:100} 18%{opacity:1} 100%{opacity:1;stroke-dashoffset:0} }
+@keyframes bc-trace-fade { to{opacity:0} }
+@keyframes bc-arrival { 0%{opacity:0} 15%,42%{opacity:1} 100%{opacity:0} }
+html[data-quality="low"] .bc-route-shadow { display:none; }
+@media(prefers-reduced-motion:reduce) { .bc-performance * { animation:none!important; } .bc-route-shadow,.bc-route-edge,.bc-traveller,.bc-arrival,.bc-contact { opacity:0!important; } .bc-actor-hidden { visibility:visible; } }

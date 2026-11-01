@@ -1,0 +1,69 @@
+/* 月白绢扇、胭脂刃口、淡墨影身。一次出手一张场景，避免逐格堆叠花朵与光环。 */
+.hny2-performance { --hny-pitch: calc(var(--board-cell-size,76px) + 6px); --hny-rose: #985a76; --hny-pearl: #fff1dc; position: absolute; inset: 0; pointer-events: none; }
+.hny2-replay { --hny-rose: #716075; --hny-pearl: #e6dfeb; }
+.hny2-scene { position: absolute; left: calc(var(--hny-origin-c) * var(--hny-pitch) * -1 - 4px); top: calc(var(--hny-origin-r) * var(--hny-pitch) * -1 - 4px);
+    width: calc(var(--hny-pitch) * 6); height: calc(var(--hny-pitch) * 6); overflow: hidden; clip-path: inset(3px); fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.hny2-fan-glyph, .hny2-shadow-glyph { display: block; width: 100%; height: 100%; }
+.hny2-fan-rib { fill: none; stroke: #8f796d; stroke-width: .7; }
+.hny2-hand { transform-box: fill-box; transform-origin: 50% 92%; opacity: 0; animation: hny2-hand 720ms ease-out both; }
+@keyframes hny2-hand { 0% { opacity: 0; transform: rotate(-28deg) scaleX(.12); } 28% { opacity: 1; transform: rotate(-5deg) scaleX(1); } 70% { opacity: .9; transform: rotate(20deg); } 100% { opacity: 0; transform: rotate(30deg) scale(.88); } }
+.hny2-fan-veil { opacity: 0; animation: hny2-veil 540ms ease-out calc(var(--hny-hit) - 170ms) both; }
+@keyframes hny2-veil { 0% { opacity: 0; } 24% { opacity: .8; } 100% { opacity: 0; } }
+.hny2-sweep { fill: none; stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0;
+    animation: hny2-sweep 220ms cubic-bezier(.17,.65,.3,1) calc(var(--hny-hit) - 160ms) forwards,
+        hny2-fade 340ms ease-out calc(var(--hny-hit) + 60ms) forwards; }
+.hny2-sweep-haze { stroke: var(--hny-rose); stroke-width: 9; stroke-opacity: .13; }
+.hny2-sweep-ink { stroke: var(--hny-rose); stroke-width: 2.8; }
+.hny2-sweep-pearl { stroke: var(--hny-pearl); stroke-width: 1.2; }
+@keyframes hny2-sweep { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 1; stroke-dashoffset: 0; } }
+@keyframes hny2-fade { to { opacity: 0; } }
+.hny2-petal { fill: #bd879a; stroke: #f6e8d2; stroke-width: .55; opacity: 0;
+    animation: hny2-petal 620ms ease-out calc(var(--hny-hit) - 110ms + var(--hny-petal-delay)) both; }
+@keyframes hny2-petal { 0% { opacity: 0; transform: translate(30px,0) scale(.4); } 24% { opacity: .9; } 100% { opacity: 0; transform: translate(var(--hny-px),var(--hny-py)) rotate(var(--hny-petal-angle)) scale(.9); } }
+.hny2-replay-figure { opacity: 0; animation: hny2-figure 740ms ease-out both; }
+@keyframes hny2-figure { 0% { opacity: 0; } 25% { opacity: .75; } 70% { opacity: .65; } 100% { opacity: 0; } }
+.hny2-echo-cut .hny2-fan-glyph { opacity: .68; }
+.hny2-echo-cut .hny2-petal { fill: #9a859f; }
+.hny2-ring-wash { fill: #a679930d; opacity: 0; animation: hny2-veil 520ms ease-out calc(var(--hny-hit) - 80ms) both; }
+.hny2-ring-edge { stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0; transform: rotate(-100deg);
+    animation: hny2-sweep 240ms ease-out calc(var(--hny-hit) - 150ms) forwards, hny2-fade 340ms ease-out calc(var(--hny-hit) + 90ms) forwards; }
+.hny2-ring-ink { stroke: var(--hny-rose); stroke-width: 3.3; }
+.hny2-ring-pearl { stroke: var(--hny-pearl); stroke-width: 1.5; }
+.hny2-ring-trail { stroke: var(--hny-rose); stroke-width: 7; stroke-opacity: .12; stroke-dasharray: 19 81; opacity: 0;
+    animation: hny2-ring-trail 420ms linear calc(var(--hny-hit) - 120ms) both; }
+.hny2-ring-runner { opacity: 0; animation: hny2-ring-runner 420ms ease-out calc(var(--hny-hit) - 120ms) both; }
+@keyframes hny2-ring-trail { 0% { opacity: 0; stroke-dashoffset: 10; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; stroke-dashoffset: -90; } }
+@keyframes hny2-ring-runner { 0% { opacity: 0; transform: rotate(-100deg); } 15% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; transform: rotate(260deg); } }
+.hny2-ring-petal { fill: #c6a0b1; stroke: #f6e5ca; stroke-width: .7; opacity: 0; animation: hny2-contact 480ms ease-out var(--hny-hit) both; }
+.hny2-contact { opacity: 0; animation: hny2-contact 420ms ease-out var(--hny-hit) both; }
+.hny2-contact-ink { stroke: var(--hny-rose); stroke-width: 4.2; }
+.hny2-contact-pearl { stroke: var(--hny-pearl); stroke-width: 1.5; }
+.hny2-contact-petals { fill: #b68c9d; stroke: #efe2cf; stroke-width: .5; }
+@keyframes hny2-contact { 0% { opacity: 0; } 14% { opacity: 1; } 100% { opacity: 0; } }
+.hny2-travel-thread { stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0; stroke-width: 1.4;
+    animation: hny2-sweep 380ms ease-in-out 120ms forwards, hny2-fade 220ms ease-out 500ms forwards; }
+.hny2-travel-thread-body { stroke: #bd8a9c; stroke-opacity: .55; }
+.hny2-travel-thread-shadow { stroke: #87728c; stroke-width: 2.3; stroke-opacity: .45; }
+.hny2-transit-petal { fill: #c28b9e; stroke: #f2e1d1; stroke-width: .5; }
+.hny2-transit-petal-shadow { fill: #a28da7; stroke: #e0d4e5; }
+.hny2-travel-avatar { width: 100%; height: 100%; overflow: hidden; border: 2px solid #ae879b; border-radius: 10px; background: #675167; box-shadow: 0 2px 6px #5a405633; }
+.hny2-arrival { stroke: #bd99ac; opacity: 0; animation: hny2-arrival 500ms ease-out 440ms both; }
+.hny2-arrival path { fill: #c499ad22; stroke-width: 1; }
+.hny2-arrival ellipse { stroke: #d8c49e; stroke-width: 1.3; }
+@keyframes hny2-arrival { 0% { opacity: 0; } 22% { opacity: .75; } 100% { opacity: 0; } }
+.hny2-resting-shadow { position: absolute; inset: 0; opacity: .78; animation: hny2-shadow-breathe 4.8s ease-in-out infinite alternate; }
+@keyframes hny2-shadow-breathe { from { opacity: .65; transform: translateY(1px); } to { opacity: .84; transform: translateY(-1px); } }
+.hny2-arrival-hidden { visibility: hidden; }
+[data-quality='low'] .hny2-sweep-haze { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .hny2-arrival-hidden { visibility: visible; }
+    .hny2-resting-shadow { animation: none; }
+    .bf-shadow-mark:has(.hny2-resting-shadow) { visibility: visible !important; }
+    .hny2-hand, .hny2-replay-figure { animation: none; opacity: .6; }
+    .hny2-sweep, .hny2-ring-edge { animation: hny2-still 420ms linear var(--hny-hit) forwards; stroke-dashoffset: 0; }
+    .hny2-travel-thread { animation: none; opacity: .25; stroke-dashoffset: 0; }
+    .hny2-contact, .hny2-ring-petal { animation: hny2-still 420ms linear var(--hny-hit) forwards; }
+    .hny2-petal, .hny2-arrival, .hny2-fan-veil, .hny2-ring-wash { animation: none; opacity: 0; }
+    .hny2-ring-trail, .hny2-ring-runner { animation: none; opacity: 0; }
+    @keyframes hny2-still { 0% { opacity: .7; } 100% { opacity: 0; } }
+}

@@ -17,6 +17,10 @@ import { getSkill } from '../data/skills';
 import { computeFxCoveredPositions } from './skill-fx-coverage';
 import { MovementSystem } from './movement-system';
 import { isYunxiuCloudFx } from './yunxiu-cloud-fx';
+import { isSwallowFx } from './swallow-fx';
+import { isHnyFx } from './huanongying-fx';
+import { isMartialSkill } from './martial-fx';
+import type { BladeScene, BladeStroke } from './blade-choreography';
 import {
     computeFxAngleDeg,
     computeFxDirection,
@@ -56,6 +60,8 @@ export const DIRECTIONAL_FX_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKin
     'libai-flurry',
     'feynman-beam',
     'shadow-dash',
+    // 闻人翊悬跃阵：烬迹要沿起手格→落点格铺开，图鉴演示不能缩在同格
+    'wenren-leap',
     'phase-swap',
     'huanongying-fan',
     'huanongying-swap',
@@ -109,6 +115,7 @@ export function previewCellVariants(
     row: number,
     col: number
 ): Array<'caster' | 'target' | 'impact' | 'area'> {
+    if (isMartialSkill(event.skillId) || event.profile.stance || event.profile.arrival || event.profile.choreography || isSwallowFx(event.profile.kind) || isHnyFx(event.profile.kind)) return event.fromPos[0] === row && event.fromPos[1] === col ? ['caster'] : [];
     if (isYunxiuCloudFx(event.profile.kind)) return event.targetPos[0] === row && event.targetPos[1] === col ? ['target'] : [];
     const variants: Array<'caster' | 'target' | 'impact' | 'area'> = [];
     if (event.fromPos[0] === row && event.fromPos[1] === col) variants.push('caster');
@@ -123,6 +130,80 @@ export function previewCellVariants(
 export function buildSkillPreviewScene(skillId: string) {
     const profile = resolveSkillFx(skillId);
     const skill = getSkill(skillId);
+    if (isMartialSkill(skillId)) {
+        const fromPos: Position = [2, 2], targetPos: Position = skillId === 'damo_skill1' ? [2, 5] : [2, 3];
+        const flurry = skillId === 'damo_skill2', slash = skillId === 'xiangyu_skill2';
+        const cells: Position[] = [[1, 2], [2, 3], [3, 2], [2, 1]];
+        const coveredPositions: Position[] = slash ? [[1, 3], [2, 3], [3, 3], [1, 4], [2, 4], [3, 4]] : flurry ? cells : [targetPos];
+        const event: SkillFxEvent = { id: 0, profile, skillId, owner: 'player1', fromPos, targetPos,
+            angleDeg: 0, direction: 'E', bornAt: Date.now(), coveredPositions,
+            damagePositions: flurry ? cells : [targetPos], impactPositions: flurry ? cells : [targetPos],
+            damo: skillId === 'damo_skill1' ? { slideFrom: [2, 3], slideTo: targetPos, steps: 2, hitMountain: true, casterSettled: true }
+                : flurry ? { punches: 4, cells } : undefined };
+        return { event, cols: 6, rows: 6 };
+    }
+    if (profile.stance) {
+        const position: Position = [1, 1];
+        const event: SkillFxEvent = { id: 0, profile, skillId, owner: 'player1', sourceHeroId: skillId.split('_')[0],
+            fromPos: position, targetPos: position, angleDeg: 0, direction: 'E', bornAt: Date.now(),
+            coveredPositions: [], impactPositions: [], damagePositions: [],
+            guardAmount: profile.stance.startsWith('overlord-') ? 10 : undefined };
+        return { event, cols: 3, rows: 2 };
+    }
+    if (profile.arrival) {
+        const fromPos: Position = [3, 1], targetPos: Position = profile.arrival === 'frost-lock' ? [1, 4] : [2, 2];
+        const event: SkillFxEvent = { id: 0, profile, skillId, owner: 'player1', sourceHeroId: skillId.split('_')[0],
+            fromPos, targetPos, angleDeg: computeFxAngleDeg(fromPos, targetPos), direction: 'NE', bornAt: Date.now(),
+            arrival: { targetHeroId: 'preview-target' }, coveredPositions: [], impactPositions: [], damagePositions: [] };
+        return { event, cols: 6, rows: 6 };
+    }
+    if (profile.choreography) {
+        const scene: BladeScene = skillId.startsWith('choreography_') ? skillId.slice(13) as BladeScene
+            : skillId.startsWith('huifeng') ? 'cuts' : skillId.startsWith('bounty') ? 'order'
+            : skillId.endsWith('skill2') ? 'recall' : 'leap';
+        const fromPos: Position = scene === 'leap' ? [4, 1] : [3, 2];
+        const targetPos: Position = scene === 'leap' ? [2, 3] : [2, 4];
+        const count = scene === 'cuts' ? skillId === 'huifeng_skill2' ? 2 : 3 : scene === 'recall' || scene === 'attach' || scene === 'order' || scene === 'volley' ? 4 : 1;
+        const corners: Position[] = [[2, 1], [2, 3], [4, 1], [4, 3]];
+        const cross: Position[] = [[2, 2], [4, 2], [3, 1], [3, 3]];
+        const strokes: BladeStroke[] = Array.from({ length: count }, (_, i) => ({
+            from: scene === 'recall' || scene === 'attach' ? corners[i] : scene === 'reward' ? [1, 4] : fromPos,
+            to: scene === 'recall' || scene === 'attach' || scene === 'reward' ? fromPos : scene === 'volley' ? cross[i]
+                : scene === 'order' ? [[1, 1], [1, 4], [3, 4], [4, 4]][i] as Position
+                : scene === 'cuts' && skillId === 'huifeng_skill2' ? [[1, 3], [4, 4]][i] as Position : targetPos,
+            start: scene === 'cuts' ? i * 115 : i * 35,
+            arrive: scene === 'cuts' ? 200 + i * 115 : 430 + i * 35,
+            reward: scene === 'reward' ? 2 : scene === 'order' && skillId !== 'bounty_skill1' ? i : undefined,
+            label: skillId === 'bounty_skill1' ? '猎杀令' : undefined,
+            logIds: [`preview-${i}`],
+        }));
+        const event: SkillFxEvent = { id: 0, skillId, profile, owner: 'player1',
+            sourceHeroId: scene === 'cuts' ? 'huifeng' : scene === 'order' ? 'bounty' : scene === 'reward' ? 'moran' : 'xuanyuan',
+            fromPos: strokes[0].from, targetPos: strokes[0].to, angleDeg: 0, direction: 'NE', bornAt: Date.now(),
+            choreography: { scene, strokes }, damagePositions: scene === 'leap' ? [[3, 2], [2, 4]] : [], coveredPositions: [], impactPositions: [] };
+        return { event, cols: 6, rows: 6 };
+    }
+    if (skillId.startsWith('huanongying_')) {
+        const swap = skillId === 'huanongying_skill2', replay = skillId === 'huanongying_replay';
+        const fromPos: Position = [3, 2], targetPos: Position = swap ? [1, 4] : [3, 3];
+        const coveredPositions: Position[] = swap ? [[0, 4], [1, 3], [1, 5], [2, 4]] : [[2, 3], [3, 3], [4, 3]];
+        const event: SkillFxEvent = { id: 0, skillId, profile, owner: 'player1', sourceHeroId: 'huanongying', fromPos, targetPos,
+            angleDeg: computeFxAngleDeg(fromPos, targetPos), direction: swap ? 'NE' : 'E', bornAt: Date.now(),
+            coveredPositions, damagePositions: coveredPositions, impactPositions: coveredPositions,
+            hny: { form: swap ? 'ring' : 'fan', direction: 3, shadowPos: swap ? fromPos : [4, 3] } };
+        if (replay) event.hny!.shadowPos = fromPos;
+        return { event, cols: 6, rows: 6 };
+    }
+    if (skillId.startsWith('shuangfeiyan_')) {
+        const fromPos: Position = skillId === 'shuangfeiyan_return' ? [1, 4] : [3, 1];
+        const targetPos: Position = skillId === 'shuangfeiyan_return' ? [3, 1] : [1, 3];
+        const event: SkillFxEvent = { id: 0, skillId, profile, owner: 'player1', sourceHeroId: 'shuangfeiyan',
+            fromPos, targetPos, angleDeg: computeFxAngleDeg(fromPos, targetPos), direction: 'NE',
+            coveredPositions: skillId === 'shuangfeiyan_return' ? [[1, 4], [2, 3], [3, 2]] : [[2, 2], targetPos],
+            damagePositions: [[2, 2]], impactPositions: [[2, 2]], bornAt: Date.now(),
+            swallow: { slot: 0, vertices: [[3, 1], [1, 3], [4, 4]] } };
+        return { event, cols: 6, rows: 6 };
+    }
     if (skillId === 'nanfeng_skill2') {
         const coveredPositions: Position[] = Array.from({ length: 6 }, (_, col) => [3, col]);
         const event: SkillFxEvent = { id: 0, skillId, profile, owner: 'player1', fromPos: [1, 1], targetPos: [3, 2],

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DamageCalculator } from '../../src/core/damage-calculator';
 import { GameEngine } from '../../src/core/game-engine';
+import { grantZhizhi } from '../../src/core/hero-zhizhi';
 import { SkillSystem } from '../../src/core/skill-system';
 import { addTide, getTideStacks, totalTideOnEnemiesOf } from '../../src/data/extended-heroes';
 import {
@@ -23,7 +24,7 @@ import { addHero, makeGameState } from '../helpers/game-state';
  * 2. 潮汐是敌人身上的 debuff（上限3层），只有泠汐的伤害触发回血，可被叙白净化；
  * 3. 技能2的回潮沿用施放方向的前方2×3，一次性消耗命中敌人的潮汐并按层数×3自疗；技能2不参与合并；
  * 4. 被动按"一次技能动作=一段"积攒助力，下一个出手的友方一次领走全部层数，可叠加、跨回合保留；
- * 5. 天威在击杀敌人后触发。
+ * 5. 天威在击杀敌人后触发；溢出的恢复量默认不转护盾（只有致知3 开启时才可凝盾，上限 5）。
  */
 
 function setup(): { state: GameState; lingxi: Hero; near: Hero; far: Hero; ally: Hero } {
@@ -45,7 +46,7 @@ describe('泠汐', () => {
     it('模板字段与天威注册', () => {
         const hero = createHero('lingxi', 'player1', [0, 0]);
         expect(hero.name).toBe('泠汐');
-        expect(hero.maxHp).toBe(46);
+        expect(hero.maxHp).toBe(50);
         expect(hero.moveRange).toBe(2);
         expect(hero.skill1Id).toBe('lingxi_skill1');
         expect(hero.skill2Id).toBe('lingxi_skill2');
@@ -122,7 +123,7 @@ describe('泠汐', () => {
         expect(ally.currentHp, '非泠汐来源不触发潮汐回血').toBe(20);
     });
 
-    it('技能2：按点击格推导方向打前方2×3，下一回合技能结束后回潮8点并一次性消耗潮汐自疗', () => {
+    it('技能2：按点击格推导方向打前方2×3，下一回合技能结束后回潮4点并一次性消耗潮汐自疗', () => {
         const { state, lingxi, near } = setup();
 
         lingxi.counters['__lingxi_skill2_dir'] = 3;   // 右
@@ -135,12 +136,15 @@ describe('泠汐', () => {
         addTide(near, lingxi, 3);
         lingxi.currentHp = 10;
 
-        // 下一回合的技能攻击结束后自动回潮
+        // 清掉技能1 的延迟段：这次施法只为结算技能2 的回潮，别让合并后的 5 点混进伤害断言
+        lingxi.counters['lingxi_echo1_round'] = 0;
         state.roundNumber = 2;
         cast1(lingxi, state);
 
         expect(lingxi.counters['lingxi_echo2_round'], '回潮结算后清空').toBe(0);
         expect(getTideStacks(near), '回潮一次性消耗潮汐').toBe(0);
+        // 技能1 单段 2 点 ＋ 回潮 4 点（新策划把回潮从 8 点下调到 4 点）
+        expect(near.currentHp, '回潮伤害为 4 点').toBe(near.maxHp - 3 - 2 - 4);
         expect(lingxi.currentHp, '回潮至少带来3层×3的自疗').toBeGreaterThanOrEqual(19);
         const echoFx = drainPendingSkillFxRequests().find(request => request.skillId === 'lingxi_skill2');
         expect(echoFx?.coveredPositions, '回潮保留原方向完整矩形，不能朝第一个敌人歪斜').toEqual([
@@ -183,7 +187,7 @@ describe('泠汐', () => {
         useGameStore.getState().resetGame();
     });
 
-    it('天威·潮归：击杀后我方全员恢复场上潮汐总层数，溢出转为护盾且封顶10点', () => {
+    it('天威·潮归：击杀后我方全员恢复场上潮汐总层数，溢出的恢复量不转护盾', () => {
         const { state, lingxi, near } = setup();
         addTide(near, lingxi, 3);
         const total = totalTideOnEnemiesOf(state, 'player1');
@@ -194,13 +198,13 @@ describe('泠汐', () => {
         DamageCalculator.applyDamage(near, lethal, lingxi, state);
 
         expect(near.state).toBe('dead');
-        // 两名满血友方各溢出 total 点 → 全部转为护盾
-        expect(lingxi.shield, `溢出 ${total}×2 转为护盾`).toBe(total * 2);
-        expect(lingxi.shield).toBeLessThanOrEqual(10);
+        // 新口径：满血友方溢出的那一截直接丢弃，不再凝成护盾
+        expect(lingxi.shield, '溢出不再转护盾').toBe(0);
     });
 
-    it('天威·潮归的护盾封顶10点', () => {
+    it('天威·潮归：致知3 开启时溢出可转护盾，且最多 5 点', () => {
         const { state, lingxi, near, far } = setup();
+        grantZhizhi(lingxi, 3);
         addTide(near, lingxi, 3);
         addTide(far, lingxi, 3);
         expect(totalTideOnEnemiesOf(state, 'player1')).toBe(6);
@@ -209,8 +213,8 @@ describe('泠汐', () => {
         const lethal = DamageCalculator.calculate(lingxi, near, 20, false);
         DamageCalculator.applyDamage(near, lethal, lingxi, state);
 
-        // 6×2=12 的溢出被压到上限 10
-        expect(lingxi.shield).toBe(10);
+        // 6×2=12 的溢出被压到致知3 的上限 5
+        expect(lingxi.shield).toBe(5);
     });
 
     it('潮汐属于可净化的负面效果，会被叙白洗掉', () => {

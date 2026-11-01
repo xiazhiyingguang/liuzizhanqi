@@ -13,13 +13,26 @@ import { WindBladeGlyph } from './WindBladeGlyph';
 import { resolveHeroLinks } from '../../core/hero-link-view';
 import { isLowQuality } from '../../core/render-quality';
 import { marshCovers } from '../../core/water-marsh';
+import { lampShadows } from '../../core/lamp-shadow';
 import { ThunderCloudLayer } from './ThunderCloudField';
 import { isYunxiuCloudFx } from '../../core/yunxiu-cloud-fx';
 import '../../styles/thunder-cloud-fx.css';
 import { guardedCellKeys } from '../../core/mountain-stance';
+import { isInHanjiangxueDomain } from '../../core/hanjiangxue-domain';
 import { resolveHitFeedback, type HitFeedback } from '../../core/hit-feedback';
 import { HitContactFx, HitResponsivePiece } from './HitFeedbackFx';
 import { useAoyuanPresentation } from '../../hooks/useAoyuanPresentation';
+import { useSwallowPresentation } from '../../hooks/useSwallowPresentation';
+import { isSwallowFx } from '../../core/swallow-fx';
+import { SwallowBladeGlyph } from './SwallowSkillFx';
+import { HuanongyingShadowGlyph } from './HuanongyingSceneFx';
+import { isHnyFx } from '../../core/huanongying-fx';
+import { useHuanongyingPresentation } from '../../hooks/useHuanongyingPresentation';
+import { useBladePresentation } from '../../hooks/useBladePresentation';
+import { isMartialSkill } from '../../core/martial-fx';
+import { stanceAnchor } from '../../core/tianwei-stance-fx';
+import { useTianweiArrival } from '../../hooks/useTianweiArrival';
+import { AttachedSwordGuard, XuanyuanSwordGlyph } from './BladeChoreographyFx';
 
 /**
  * 流畅档下一张范围技能最多铺开几格"逐格特效"（impact/area）。
@@ -147,6 +160,10 @@ export default function Board() {
         releaseAutoBattle
     } = useGameStore();
     const dragonPresentation = useAoyuanPresentation(skillFx);
+    const swallowPresentation = useSwallowPresentation(skillFx);
+    const hnyPresentation = useHuanongyingPresentation(skillFx);
+    const bladePresentation = useBladePresentation(skillFx);
+    const tianweiArrival = useTianweiArrival(skillFx);
 
     // 挂起的棋盘动作：可点格直接从挂起态推导，不依赖各条 set 路径是否记得同步 skillRange，
     // 否则会出现"天威已经触发、棋盘上却没有任何提示"的错觉
@@ -463,6 +480,19 @@ export default function Board() {
         return groups;
     }, [boardEffects]);
 
+    // 夕月辞的灯影：由"灯 + 此刻站位"当场推导，影子不占格——别人照样能走上去，
+    // 但这一格从此替本体挨打。逐格建一次索引供 36 格查表，免得每格重扫一遍灯与人。
+    const lampShadowNames = useMemo(() => {
+        const byCell = new Map<string, string[]>();
+        for (const shadow of lampShadows({ board, boardEffects, player1Heroes, player2Heroes })) {
+            const key = `${shadow.cell[0]},${shadow.cell[1]}`;
+            const names = byCell.get(key) ?? [];
+            if (!names.includes(shadow.body.name)) names.push(shadow.body.name);
+            byCell.set(key, names);
+        }
+        return byCell;
+    }, [board, boardEffects, player1Heroes, player2Heroes]);
+
     // 命中本格的技能特效事件：起手格渲染光环，目标格渲染主效，溅射格与链电链路格
     // 渲染各自的多格变体；AOE 真正打到的每一格各渲染一份 impact，
     // 落在作用区域但未被更强变体占用的格子渲染 area 贴地底光
@@ -500,6 +530,19 @@ export default function Board() {
         };
 
         for (const event of skillFx) {
+            if (isMartialSkill(event.skillId)) {
+                push(event.fromPos[0], event.fromPos[1], event, 'caster');
+                continue;
+            }
+            if (event.profile.stance) {
+                const anchor = stanceAnchor(event, board, skillFx);
+                if (anchor) push(anchor[0], anchor[1], event, 'caster');
+                continue;
+            }
+            if (event.profile.arrival || event.profile.choreography || isSwallowFx(event.profile.kind) || isHnyFx(event.profile.kind)) {
+                push(event.fromPos[0], event.fromPos[1], event, 'caster');
+                continue;
+            }
             if (isYunxiuCloudFx(event.profile.kind)) {
                 push(event.targetPos[0], event.targetPos[1], event, 'target');
                 continue;
@@ -523,7 +566,7 @@ export default function Board() {
             for (const [row, col] of budget(event, areaCells)) push(row, col, event, 'area');
         }
         return index;
-    }, [skillFx, lowQualityFxCellBudget]);
+    }, [skillFx, lowQualityFxCellBudget, board]);
 
     const skillFxAtCell = (row: number, col: number): Array<{
         event: SkillFxEvent;
@@ -575,6 +618,10 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            const inHanjiangxueDomain = boardEffects?.some(effect =>
+                                effect.type === 'hanjiangxue-domain' &&
+                                isInHanjiangxueDomain([rowIndex, colIndex], effect)
+                            );
                             const sandDune = boardEffects?.some(
                                 effect =>
                                     effect.type === 'sand-dune' &&
@@ -618,6 +665,25 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 双飞燕的回旋镖：落在格上，按她的出手序号返航；两把可以叠在同一格
+                            const boomerangsHere = (boardEffects ?? []).filter(
+                                effect =>
+                                    effect.type === 'boomerang' &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            const boomerang = boomerangsHere[0];
+                            const boomerangSource = boomerang
+                                ? [...player1Heroes, ...player2Heroes].find(item => item.id === boomerang.sourceHeroId)
+                                : undefined;
+                            const boomerangRemaining = boomerang?.returnAtSkillSerial !== undefined && boomerangSource
+                                ? Math.max(0, boomerang.returnAtSkillSerial - (boomerangSource.counters['sfy_skillSerial'] ?? 0))
+                                : undefined;
+                            const boomerangTitle = boomerang
+                                ? `回旋镖：${boomerangRemaining !== undefined
+                                    ? `再${boomerangRemaining}次出手后沿最短路径返航`
+                                    : '下下次出手后沿最短路径返航'}`
+                                : '';
                             // 镜花·水月的两枚镜像标记：水月（可踏的跳板）与月座（等她归场）
                             const waterMoon = (boardEffects ?? []).find(
                                 effect =>
@@ -663,6 +729,15 @@ export default function Board() {
                                     effect.position[0] === rowIndex &&
                                     effect.position[1] === colIndex
                             );
+                            // 夕月辞的明灯：她点的灯，也包括她倒下后留下的那一盏
+                            const lamp = (boardEffects ?? []).find(
+                                effect =>
+                                    (effect.type === 'lit-lamp' || effect.type === 'wake-lamp') &&
+                                    effect.position[0] === rowIndex &&
+                                    effect.position[1] === colIndex
+                            );
+                            // 压在本格上的灯影：影子不占格，所以站着的人可以和影子同框
+                            const lampShadowHere = lampShadowNames.get(`${rowIndex},${colIndex}`);
                             // 时空停滞残影：本格空着、但躺着一个被戴尔凝固时间的阵亡单位
                             const stasisGhost = stasisGhostAt(rowIndex, colIndex);
                             const stasisAnchored = stasisGhost !== null && daiReviveHeroId === stasisGhost.id;
@@ -707,7 +782,7 @@ export default function Board() {
                                     onClick={(e) => handleCellClick(e, rowIndex, colIndex)}
                                     onMouseDown={(e) => e.preventDefault()}
                                     style={{ userSelect: 'none' }}
-                                    className={`${cellClass}${daizongGuardedCells.has(`${rowIndex},${colIndex}`) ? ' cell-daizong-guard' : ''} battle-board-cell flex flex-col items-center justify-center`}
+                                    className={`${cellClass}${daizongGuardedCells.has(`${rowIndex},${colIndex}`) ? ' cell-daizong-guard' : ''}${inHanjiangxueDomain ? ' cell-hanjiangxue-domain' : ''} battle-board-cell flex flex-col items-center justify-center`}
                                 >
                                     {cellContacts.map(hit => <HitContactFx key={hit.id} hit={hit} />)}
                                     {pickedCorner && (
@@ -836,15 +911,23 @@ export default function Board() {
                                     {flyingSword && (
                                         <div
                                             className={`bf-flying-sword bf-flying-sword-${flyingSword.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            style={{ visibility: bladePresentation.hiddenSwords.has(flyingSword.id) ? 'hidden' : undefined }}
                                             title={`飞剑：轩辕神君的剑罡（剩${flyingSword.duration}回合）。昭神态可跃上它（那把剑消失），技能可回收/召它化盾；敌方踩上去不受影响也拆不掉`}
                                         >
-                                            {/* Lucide 标准佩剑图标（ISC 协议） */}
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                                <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
-                                                <path d="m13 19 6-6" />
-                                                <path d="m16 16 4 4" />
-                                                <path d="m19 14 2 2" />
-                                            </svg>
+                                            <XuanyuanSwordGlyph />
+                                        </div>
+                                    )}
+
+                                    {boomerang && !cell && (
+                                        <div
+                                            className={`bf-boomerang bf-boomerang-${boomerang.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            style={{ visibility: swallowPresentation.hiddenPins.has(`${boomerang.sourceHeroId}@${rowIndex},${colIndex}`) ? 'hidden' : undefined }}
+                                            title={boomerangTitle}
+                                        >
+                                            <SwallowBladeGlyph slot={boomerang.boomerangSlot} />
+                                            {boomerangsHere.length > 1 && (
+                                                <span className="bf-boomerang-count">{boomerangsHere.length}</span>
+                                            )}
                                         </div>
                                     )}
 
@@ -917,14 +1000,10 @@ export default function Board() {
                                     {shadowMark && (
                                         <div
                                             className={`bf-shadow-mark bf-shadow-mark-${shadowMark.owner === 'player1' ? 'p1' : 'p2'} absolute inset-1 pointer-events-none`}
+                                            style={{ visibility: hnyPresentation.hiddenShadows.has(`${shadowMark.sourceHeroId}@${rowIndex},${colIndex}`) ? 'hidden' : undefined }}
                                             title="残影：花弄影的影子留在此处，行动末会重演她最后一击；她可点击影子与身互换"
                                         >
-                                            <i className="bf-shadow-pool" aria-hidden="true" />
-                                            <svg className="bf-shadow-figure" viewBox="0 0 24 24" aria-hidden="true">
-                                                <path d="M12 3.4c1.7 0 2.9 1.2 2.9 2.8 0 1.1-.6 1.9-1.3 2.5.9.5 1.6 1.4 1.9 2.6l.7 3.9c.1.6-.3 1-.8 1h-6.8c-.5 0-.9-.4-.8-1l.7-3.9c.3-1.2 1-2.1 1.9-2.6-.7-.6-1.3-1.4-1.3-2.5 0-1.6 1.2-2.8 2.9-2.8z" />
-                                            </svg>
-                                            <i className="bf-shadow-petal bf-shadow-petal-a" aria-hidden="true" />
-                                            <i className="bf-shadow-petal bf-shadow-petal-b" aria-hidden="true" />
+                                            <span className="hny2-resting-shadow"><HuanongyingShadowGlyph /></span>
                                         </div>
                                     )}
 
@@ -939,6 +1018,32 @@ export default function Board() {
                                                 <path className="bf-prism-edge" d="M12 3.2 L20.2 18 M12 3.2 L3.8 18 M3.8 18 L20.2 18 M12 3.2 L12 18" />
                                                 <path className="bf-prism-ray" d="M0.6 12.4 L8.4 12.4 M15.6 12.4 L23.4 9.2" />
                                             </svg>
+                                        </div>
+                                    )}
+
+                                    {lamp && (
+                                        <div
+                                            className={`bf-lamp bf-lamp-${lamp.owner === 'player1' ? 'p1' : 'p2'}${lamp.type === 'wake-lamp' ? ' bf-lamp-wake' : ''} absolute inset-1 pointer-events-none`}
+                                            title={lamp.type === 'wake-lamp'
+                                                ? `留灯：${lamp.duration}回合内每回合末为两格内友方恢复5点生命`
+                                                : `明灯：照出周围一圈敌人的影子（剩${lamp.duration}回合），灯下两格内夕月辞免伤30%`}
+                                        >
+                                            <i className="bf-lamp-halo" aria-hidden="true" />
+                                            <svg className="bf-lamp-glyph" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path className="bf-lamp-flame" d="M12 4.2c1.9 2.1 2.8 3.7 2.8 5.1a2.8 2.8 0 0 1-5.6 0c0-1.4.9-3 2.8-5.1z" />
+                                                <path className="bf-lamp-body" d="M7.6 12.4h8.8l-1.3 6.2q-.1.6-.7.6H9.6q-.6 0-.7-.6z" />
+                                                <path className="bf-lamp-base" d="M6.4 20.2h11.2" />
+                                            </svg>
+                                        </div>
+                                    )}
+
+                                    {lampShadowHere && (
+                                        <div
+                                            className="bf-lamp-shadow absolute inset-1 pointer-events-none"
+                                            title={`灯影：这一格连着${lampShadowHere.join('、')}本人，打中影子就照到本体`}
+                                        >
+                                            <i className="bf-lamp-shadow-stretch" aria-hidden="true" />
+                                            <i className="bf-lamp-shadow-tip" aria-hidden="true" />
                                         </div>
                                     )}
 
@@ -1038,7 +1143,7 @@ export default function Board() {
                                             hero={cell}
                                             delayMs={650}
                                             placement="auto-vertical"
-                                            className={`board-hero-content flex flex-col items-center gap-0.5 outline-none${dragonPresentation.hideIdle.has(cell.id) ? ' ao-dragon-performing' : ''}${dragonPresentation.hideArrived.has(cell.id) ? ' ao-dash-arrival-hidden' : ''}`}
+                                            className={`board-hero-content flex flex-col items-center gap-0.5 outline-none${dragonPresentation.hideIdle.has(cell.id) ? ' ao-dragon-performing' : ''}${dragonPresentation.hideArrived.has(cell.id) ? ' ao-dash-arrival-hidden' : ''}${swallowPresentation.hiddenArrivals.has(cell.id) ? ' sfy-arrival-hidden' : ''}${hnyPresentation.hiddenActors.has(cell.id) ? ' hny2-arrival-hidden' : ''}${bladePresentation.hiddenActors.has(cell.id) ? ' bc-actor-hidden' : ''}${tianweiArrival.hiddenClones.has(cell.id) ? ' tw-arrival-clone-hidden' : ''}`}
                                         >
                                             <HitResponsivePiece key={cell.id} hits={cellContacts.filter(hit => !hit.targetHeroId || hit.targetHeroId === cell.id)}>
                                             <div className="piece-shell">
@@ -1057,10 +1162,11 @@ export default function Board() {
                                                         eager
                                                     />
                                                 </div>
-                                                <HeroStatusFx hero={cell} />
+                                                <HeroStatusFx hero={cell} suppressFrozen={tianweiArrival.pendingFrozen.has(cell.id)} />
+                                                <AttachedSwordGuard count={cell.counters['御剑'] ?? 0} />
                                                 {/* 泠汐的水波与折扇贴角色本身，不受下方名字与血条影响。 */}
                                                 {skillFxAtCell(rowIndex, colIndex)
-                                                    .filter(({ event, variant }) => variant === 'caster' && ['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind))
+                                                    .filter(({ event, variant }) => variant === 'caster' && (!!event.profile.stance || ['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind)))
                                                     .map(({ event, variant }) => (
                                                         <SkillFxVisual key={`${event.id}-${variant}`} event={event} variant={variant} atPos={[rowIndex, colIndex]} />
                                                     ))}
@@ -1087,6 +1193,20 @@ export default function Board() {
                                                 </div>
                                             )}
                                         </HeroStatusPopover>
+                                    )}
+
+                                    {/* 镖落在人身上：棋子会盖住整格标记，改在左上角钉一枚小镖徽 */}
+                                    {cell && boomerang && (
+                                        <div
+                                            className={`bf-boomerang-occupied bf-boomerang-${boomerang.owner === 'player1' ? 'p1' : 'p2'} pointer-events-none`}
+                                            style={{ visibility: swallowPresentation.hiddenPins.has(`${boomerang.sourceHeroId}@${rowIndex},${colIndex}`) ? 'hidden' : undefined }}
+                                            title={boomerangTitle}
+                                        >
+                                            <SwallowBladeGlyph slot={boomerang.boomerangSlot} />
+                                            {boomerangsHere.length > 1 && (
+                                                <span className="bf-boomerang-count">{boomerangsHere.length}</span>
+                                            )}
+                                        </div>
                                     )}
 
                                     {/* 伤害飘字：灼烧/流血/链电伤害使用专属来源配色 */}
@@ -1152,7 +1272,7 @@ export default function Board() {
 
                                     {/* 英雄技能特效：起手格光环 + 目标格主效 + 溅射/链电多格变体 */}
                                     {skillFxAtCell(rowIndex, colIndex)
-                                        .filter(({ event, variant }) => !cell || variant !== 'caster' || !['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind))
+                                        .filter(({ event, variant }) => !cell || variant !== 'caster' || !(event.profile.stance || ['lingxi-wave', 'lingxi-fan'].includes(event.profile.kind)))
                                         .map(({ event, variant }) => (
                                         <SkillFxVisual
                                             key={`${event.id}-${variant}`}

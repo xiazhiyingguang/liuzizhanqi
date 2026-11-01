@@ -252,7 +252,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook' | 'thunder-cloud' | 'lightning-rod' | 'flying-sword';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook' | 'thunder-cloud' | 'lightning-rod' | 'flying-sword' | 'boomerang' | 'lit-lamp' | 'wake-lamp' | 'hanjiangxue-domain';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -267,6 +267,12 @@ export interface BoardEffect {
     expireAtActionSerial?: number;
     /** 毛笔专用：落笔时的回合号——当回合（婉儿行动末）不推进，下一回合起才朝婉儿移动 */
     placedAtRound?: number;
+    /** 最近一次主动移动前的飞剑位置，撤回时恢复；每次漂移重新记账。 */
+    prevPosition?: Position;
+    /** 双飞燕的回旋镖槽位（0/1）：两把镖各自独立计时，回手后可再次掷出 */
+    boomerangSlot?: number;
+    /** 双飞燕：她第几次成功出手结束时触发返航（按她的出手序号计数） */
+    returnAtSkillSerial?: number;
 }
 
 /** 单位在回合开始时的状态快照（时空旅者·戴尔的「时空回溯」用） */
@@ -382,7 +388,10 @@ export interface GameState {
     // splashPositions=溅射余波格；chainLinks=链式闪电传播格（按传播顺序）；
     // fxVariant=条件形态的特效档案键（如绯雪击碎冰冻的 feixue_shatter），覆盖默认档案
     skillFxExtras?: {
+        hny?: import('../core/huanongying-fx').HnyFxDetails;
+        swallow?: { slot?: number; vertices?: Position[] };
         dragonAction?: { kind: 'summon'; sourceHeroId: string };
+        damo?: import('../core/vajra-push').DamoFxDetails;
         coveredPositions?: Position[];
         splashPositions?: Position[];
         chainLinks?: Position[];

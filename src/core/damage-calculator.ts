@@ -1,11 +1,15 @@
 import { nextBattleLogId } from './battle-log-id';
 import { wangshuTianwei } from './wangshu';
 import { requestMechanismFx } from './mechanism-fx';
+import { requestBladeScene } from './blade-choreography';
+import { requestTianweiArrival } from './tianwei-arrival-fx';
+import { requestXiangyuGuardFx } from './xiangyu-guard-fx';
 // 只排序视觉发射先后，不进入英雄状态；编号会随战报一起同步。
 let mirrorBladeFxSequence = 0;
 import { Hero, DamageResult, GameState, HeroState, BattleLogEntry, Player, Position } from '../types/game';
 import { EffectManager } from './effect-manager';
 import { hasZhizhi, heroXRedirectCost, zhizhiValue } from './hero-zhizhi';
+import { clearShuangfeiyanBoomerangState } from './boomerang';
 import { MovementSystem } from './movement-system';
 import {
     moranPassive,
@@ -59,7 +63,7 @@ import {
     JINGHONG_MAX,
 } from '../data/extended-heroes';
 import { isRealCharacterHero, recordBattleDamage, recordBattleHealing, recordBattleKill } from './battle-statistics';
-import { huanongyingTianweiExecute, purgeHnyShadow, purgeZhiguangPrisms, queueYunyingLiehuoBehindTianwei, requestYunyingTianweiLanding, requestZhiguangTianweiLanding, requestSkillFx, requestRecoveryFx, gainShangguanMoyi, LIANZHI_EFFECT, LIANZHI_PURSUE_DAMAGE, zuiyiCap, JINXUE_EFFECT, grantDuosuiTianwei } from '../data/extended-skills';
+import { addFear, huanongyingTianweiExecute, purgeHnyShadow, purgeZhiguangPrisms, queueYunyingLiehuoBehindTianwei, requestYunyingTianweiLanding, requestZhiguangTianweiLanding, requestSkillFx, requestRecoveryFx, gainShangguanMoyi, LIANZHI_EFFECT, LIANZHI_PURSUE_DAMAGE, zuiyiCap, JINXUE_EFFECT, grantDuosuiTianwei } from '../data/extended-skills';
 import { applyWeaponOnDamageDealt, applyWeaponOnGuard } from './weapon-effects';
 import { isXuanyuan, markZhaoShenHit, tryEnterZhaoShen } from './xuanyuan-form';
 import {
@@ -77,13 +81,25 @@ import {
 import { applyDragonTianwei, getScaleDodgeRate } from './dragon-orbit';
 import { fierceMultiplier } from './battle-tempo';
 import { isParalyzed, tingxiDefenseRate } from './thunder-cloud';
+import { vajraDefenseRate } from './vajra-push';
+import { HANJIANGXUE_DOMAIN_CHANCE, findHanjiangxueDomain } from './hanjiangxue-domain';
+import {
+    chugeDamageReduction,
+    consumeXiangyuGuard,
+    hasXiangyuGuard,
+    tryTriggerXiangyuLastStand,
+    xiangyuShieldSiphonRate,
+} from './xiangyu';
 import { findDaizongBulwark, hasStance, queueDaizongLamp, recordStanceDamage, stillnessDefense, stanceConversion } from './mountain-stance';
+import { SHADOW_DAMAGE_RATE, SHADOW_TRANSFER_KEY, clearShadowTransfers, lampMitigationFor, leaveWakeLamp } from './lamp-shadow';
 
 type DamageCalculationOptions = {
     /** 本次普通伤害段必定暴击。 */
     forceCrit?: boolean;
     /** 额外伤害段可明确禁止暴击。 */
     canCrit?: boolean;
+    /** 仅用于 AI 威胁估算：按暴击率计算均值，不掷骰，不标记为一次真实暴击。 */
+    expectedCrit?: boolean;
     /** 技能自身提供的最终伤害倍率。 */
     damageMultiplier?: number;
     /** 技能自身提供的额外暴击伤害倍率。 */
@@ -117,6 +133,8 @@ export class DamageCalculator {
         initiator: Hero | null;
         hits: Hero[];
         state: GameState | null;
+        skillInitiator: Hero | null;
+        skillHits: Hero[];
     } | null = null;
 
     /**
@@ -125,6 +143,17 @@ export class DamageCalculator {
      * 电脑在克隆盘上做的模拟不推进回合，读到的就是当前这一回合的档位，评分与实战同源。
      */
     private static battleRound = 1;
+    private static activeSkillCaster: Hero | null = null;
+    private static damageDepth = 0;
+    private static passiveDepth = 0;
+    private static skillDamage = new WeakSet<DamageResult>();
+
+    /** 主动施放入口。结算链内的被动不继承追击资格。 */
+    static withActiveSkill<T>(caster: Hero, run: () => T): T {
+        const previous = this.activeSkillCaster;
+        this.activeSkillCaster = caster;
+        try { return run(); } finally { this.activeSkillCaster = previous; }
+    }
 
     static setBattleRound(roundNumber: number): void {
         this.battleRound = Number.isFinite(roundNumber) ? roundNumber : 1;
@@ -137,17 +166,26 @@ export class DamageCalculator {
     static asOneAttack<T>(run: () => T): T {
         const previous = this.currentAttackGroup;
         // 只有最外层的那次 asOneAttack 才代表"一次出手"：嵌套的连锁风暴并进来算同一组
-        if (previous === null) this.attackTrace = { initiator: null, hits: [], state: null };
+        if (previous === null) this.attackTrace = { initiator: null, hits: [], state: null, skillInitiator: null, skillHits: [] };
         this.currentAttackGroup = ++this.attackGroupSeq;
         try {
             return run();
         } finally {
             this.currentAttackGroup = previous;
             if (previous === null) {
-                this.resolveLianzhiFollowUps();
-                this.resolveZhiyuanPursue();
-                this.resolveJiangtaigongWhaleFall();
+                // 灯影的"半刀"只覆盖这一组攻击：多段招式每段都算打在影子上，所以整组期间都折半；
+                // 但组末的连枝/追击/鲸落是对本体的另一次出手，必须先把标记摘干净再结算。
+                const trace = this.attackTrace;
                 this.attackTrace = null;
+                const traced = trace?.state;
+                if (traced) clearShadowTransfers(traced);
+                this.passiveDepth++;
+                try {
+                    this.resolveLianzhiFollowUps();
+                    this.resolveZhiyuanPursue(trace);
+                    this.resolveJiangtaigongWhaleFall(trace);
+                    this.resolveHanjiangxueDomain(trace);
+                } finally { this.passiveDepth--; }
             }
         }
     }
@@ -202,22 +240,21 @@ export class DamageCalculator {
     /**
      * 纸鸢被动「牵丝」：一次出手整组结算完之后追出一击。
      * 单体攻击追那名敌人，群攻从被命中者里随机取一个；追击自身不再触发追击（守卫在 kite-spool）。
-     * 只有队友出手才追：她自己的普攻/技能只推进"每 3 次出手附带击飞"的计数，不引出追击。
+     * 仅队友主动技能的直接攻击可追；被动、持续伤害、追击和本人主动攻击均不触发。
      */
-    private static resolveZhiyuanPursue(): void {
-        const trace = this.attackTrace;
+    private static resolveZhiyuanPursue(trace = this.attackTrace): void {
         const state = trace?.state;
-        const initiator = trace?.initiator;
-        if (!trace || !state || !initiator) return;
+        if (!trace || !state) return;
+        if (isZhiyuan(trace.initiator) && trace.hits.length) noteZhiyuanAttack(trace.initiator);
+        const initiator = trace.skillInitiator;
+        if (!initiator || trace.skillHits.length === 0) return;
 
         const kite = [...state.player1Heroes, ...state.player2Heroes].find(hero =>
             isZhiyuan(hero) && hero.owner === initiator.owner && !hero.counters[PURSUE_GUARD_KEY]);
 
-        if (isZhiyuan(initiator)) noteZhiyuanAttack(initiator);
-        // 她自己的出手不算"队友出手"：普攻与技能只推进击飞计数，不引出追击
         if (!kite || !kite.position || kite.id === initiator.id) return;
 
-        const target = pickZhiyuanPursueTarget(kite, trace.hits, state);
+        const target = pickZhiyuanPursueTarget(kite, trace.skillHits, state);
         if (!target?.position) return;
 
         const targetPosition = [...target.position] as [number, number];
@@ -254,13 +291,44 @@ export class DamageCalculator {
      * 概率累加、水泽门槛与落点随机都在 water-marsh 里收口；鲸落自己的伤害会再开一个出手组，
      * 靠守卫键挡住递归。
      */
-    private static resolveJiangtaigongWhaleFall(): void {
-        const trace = this.attackTrace;
+    private static resolveJiangtaigongWhaleFall(trace = this.attackTrace): void {
         const state = trace?.state;
         const initiator = trace?.initiator;
         if (!trace || !state || !initiator) return;
         if (!isJiangtaigong(initiator)) return;
         rollWhaleFall(state, initiator);
+    }
+
+    /**
+     * 寒江雪「寒天领域」：友方一次攻击出手结束后，若己方领域仍在，
+     * 25% 概率给本次实际命中的敌人补 1 层寒天；单体目标明确，群体随机取一个。
+     * 用行动序号做守卫，保证同一次行动里多段结算只掷一次。
+     */
+    private static resolveHanjiangxueDomain(trace = this.attackTrace): void {
+        const state = trace?.state;
+        const initiator = trace?.initiator;
+        if (!trace || !state || !initiator || trace.hits.length === 0) return;
+        const domain = findHanjiangxueDomain(state, initiator.owner);
+        if (!domain) return;
+        const serial = initiator.counters['__actionSerial'] ?? 0;
+        if (initiator.counters['__hanjiangxue_domain_serial'] === serial) return;
+        initiator.counters['__hanjiangxue_domain_serial'] = serial;
+        if (Math.random() >= HANJIANGXUE_DOMAIN_CHANCE) return;
+
+        const candidates = trace.hits.filter(target =>
+            target.state === HeroState.ALIVE &&
+            target.owner !== initiator.owner &&
+            target.position);
+        if (candidates.length === 0) return;
+        const target = candidates.length === 1
+            ? candidates[0]
+            : candidates[Math.floor(Math.random() * candidates.length)];
+        this.applyHantianStacks(target, 1, domain.sourceHeroId, state);
+        this.addBattleLog(state, {
+            type: 'passive',
+            player: domain.owner,
+            message: `寒天领域发动：${target.name}额外获得1层寒天`,
+        });
     }
 
     private static recordLianzhiStrike(attacker: Hero, target: Hero, gameState: GameState): void {
@@ -462,6 +530,16 @@ export class DamageCalculator {
      * @returns 伤害结果
      */
     static calculate(
+        attacker: Hero, target: Hero, baseDamage: number, scalesWithAttack = false,
+        ignoreDefense = false, options: DamageCalculationOptions = {}
+    ): DamageResult {
+        const result = this.calculateInner(attacker, target, baseDamage, scalesWithAttack, ignoreDefense, options);
+        if (this.activeSkillCaster === attacker && this.damageDepth === 0 && this.passiveDepth === 0
+            && !options.fixedDamage && !options.logTag) this.skillDamage.add(result);
+        return result;
+    }
+
+    private static calculateInner(
         attacker: Hero,
         target: Hero,
         baseDamage: number,
@@ -571,17 +649,19 @@ export class DamageCalculator {
             }
         }
 
-        const isCrit = options.canCrit !== false && (
+        const isCrit = !options.expectedCrit && options.canCrit !== false && (
             options.forceCrit === true || guaranteedCrit || Math.random() < critRate
         );
-        if (isCrit) {
+        if (isCrit || options.expectedCrit) {
             let critDamage = this.getCritDamage(attacker);
             // 夜枭致知3：暴击伤害提升40%
             if (attacker.name === '暗影猎手·夜枭' && attacker.counters['talent_3']) {
                 critDamage += 0.4;
             }
             critDamage += options.critDamageBonus ?? 0;
-            finalDamage *= critDamage; // 基础1.5倍
+            const chance = options.canCrit === false ? 0
+                : options.forceCrit || guaranteedCrit ? 1 : Math.max(0, Math.min(1, critRate));
+            finalDamage *= options.expectedCrit ? 1 + chance * (critDamage - 1) : critDamage;
         }
 
         // 4. 防御减免
@@ -642,6 +722,9 @@ export class DamageCalculator {
             // 云岫被动「霆息」：每层雷息把身子骨养硬一档（5% 防御，封顶 5 层 = 25%）
             defense += tingxiDefenseRate(target);
 
+            // 达摩被动「金刚」：推出去几格就硬几分（每层 2%，封顶 4 层 = 8%）
+            defense += vajraDefenseRate(target);
+
             // 夜枭天威：下次攻击无视目标50%防御
             if (attacker.name === '暗影猎手·夜枭' && attacker.counters['ignore_defense_next']) {
                 defense *= 0.5;
@@ -673,6 +756,18 @@ export class DamageCalculator {
         const iceArmor = target.effects.find(e => e.name === '冰甲');
         if (iceArmor) {
             finalDamage *= Math.max(0, 1 - (iceArmor.value ?? 0.2));
+        }
+
+        // 灯影只替本体挡半刀：这一击落在影子上，本体按半数承受（放在全部减免之后、取整之前，
+        // 折的是最终那一刀的实际数值，不会再被防御/免伤二次稀释成没人预期的更低档）
+        if (target.counters?.[SHADOW_TRANSFER_KEY] === 1) {
+            finalDamage *= SHADOW_DAMAGE_RATE;
+        }
+
+        // 项羽「楚歌」：携带者造成的伤害降低 40%，多份只取最高且封顶。
+        const chuge = chugeDamageReduction(attacker);
+        if (chuge > 0) {
+            finalDamage *= Math.max(0, 1 - chuge);
         }
 
         // 6. 取整
@@ -756,7 +851,7 @@ export class DamageCalculator {
             .map(effect => this.findHeroById(effect.sourceHeroId, gameState))
             .filter((source): source is Hero =>
                 !!source &&
-                // 帝兰、南风与游隼共用同一份羽化层数；逐格伤害按种下羽化的来源结算
+                // 帝兰、南风与游隼共用羽化层数；逐格伤害按施加者归属结算。
                 (source.passiveId === 'dilan_passive' ||
                     source.passiveId === 'nanfeng_passive' ||
                     source.passiveId === 'youjun_passive') &&
@@ -775,7 +870,7 @@ export class DamageCalculator {
                 movedSteps * damagePerStep,
                 false,
                 true,
-                { canCrit: false, fixedDamage: true }
+                { canCrit: false, fixedDamage: true, logTag: 'feather' }
             );
             this.applyDamage(target, damage, source, gameState);
             totalDamage += damage.finalDamage;
@@ -826,6 +921,12 @@ export class DamageCalculator {
         gameState: GameState,
         isAreaDamage: boolean = false
     ): void {
+        this.damageDepth++;
+        try { this.applyGroupedDamage(target, damageResult, attacker, gameState, isAreaDamage); }
+        finally { this.damageDepth--; }
+    }
+
+    private static applyGroupedDamage(target: Hero, damageResult: DamageResult, attacker: Hero, gameState: GameState, isAreaDamage: boolean): void {
         // 独立调用即"一次攻击"；已在某次攻击的结算链内则并入该组（援护分摊/转伤/纠缠传播不另计攻击）
         if (this.currentAttackGroup === null) {
             this.asOneAttack(() => this.applyDamageInner(target, damageResult, attacker, gameState, isAreaDamage));
@@ -847,8 +948,36 @@ export class DamageCalculator {
             if (!this.attackTrace.initiator) this.attackTrace.initiator = attacker;
             this.attackTrace.state = gameState;
             if (targetWasAlive && !this.attackTrace.hits.includes(target)) this.attackTrace.hits.push(target);
+            if (targetWasAlive && attacker.owner !== target.owner && this.skillDamage.has(damageResult)) {
+                this.attackTrace.skillInitiator ??= attacker;
+                if (!this.attackTrace.skillHits.includes(target)) this.attackTrace.skillHits.push(target);
+            }
         }
         const unavoidable = damageResult.unavoidable === true;
+
+        // 项羽「霸王镇守」：下一次主动技能攻击不扣血盾，整份伤害转为护盾。
+        // 效果伤害（灼烧/流血/链式闪电等带 logTag 的结算）不消耗这一层。
+        if (
+            !damageResult.logTag &&
+            damageResult.finalDamage > 0 &&
+            attacker.owner !== target.owner &&
+            hasXiangyuGuard(target)
+        ) {
+            const converted = damageResult.finalDamage;
+            target.shield += converted;
+            consumeXiangyuGuard(target);
+            damageResult.finalDamage = 0;
+            damageResult.shieldDamage = 0;
+            damageResult.hpDamage = 0;
+            this.addBattleLog(gameState, {
+                type: 'tianwei',
+                player: target.owner,
+                message: `${target.name}霸王镇守，将${converted}点伤害尽数化为护盾`,
+            });
+            requestXiangyuGuardFx(target, gameState, converted, true);
+            return;
+        }
+
         if (!unavoidable && attacker.owner !== target.owner && damageResult.finalDamage > 0) {
             const allies = attacker.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
             if (attacker.passiveId === 't_painting_passive') {
@@ -868,6 +997,16 @@ export class DamageCalculator {
                 }
             }
         }
+        // 夕月辞「灯下安身」：她站在自己的明灯两格内时，这一击先被灯光挡下三成。
+        // 抢在 remainingDamage 取数之前改 finalDamage，护盾分摊、反击、吸血才都按减完的那份算；
+        // 与冰甲同一条口径：不可规避的固定伤害不吃免伤。
+        if (!unavoidable && damageResult.finalDamage > 0) {
+            const shelter = lampMitigationFor(gameState, target);
+            if (shelter > 0) {
+                damageResult.finalDamage = Math.floor(damageResult.finalDamage * (1 - shelter));
+            }
+        }
+
         let remainingDamage = damageResult.finalDamage;
         // 后面每一道"这一下没打中"的分支都要求 remainingDamage > 0 才会触发，
         // 所以入口值本身就是 0 时，说明这一击确实落在了他身上、只是被承转吃得一滴不剩。
@@ -1322,6 +1461,24 @@ export class DamageCalculator {
         recordBattleDamage(gameState, attacker, actualTarget, actualHpDamage, damageResult.shieldDamage);
 
         const appliedDamage = damageResult.shieldDamage + actualHpDamage;
+
+        // 项羽被动「四面楚歌」：主动攻击造成伤害时按伤害吸取护盾。
+        // 身周没有友方 +30 个百分点，每有一名相邻友方 -10 个百分点；效果伤害不吸取。
+        if (
+            appliedDamage > 0 &&
+            attacker.passiveId === 'xiangyu_passive' &&
+            attacker.owner !== actualTarget.owner &&
+            !damageResult.logTag
+        ) {
+            const siphoned = Math.floor(appliedDamage * xiangyuShieldSiphonRate(attacker, gameState));
+            if (siphoned > 0) attacker.shield += siphoned;
+        }
+
+        // 项羽「霸王镇守」：生命首次跌破 30% 立即触发，获得护盾并挂起下一次化盾。
+        if (actualTarget.tianweiId === 'xiangyu_tianwei' && actualTarget.state === HeroState.ALIVE) {
+            tryTriggerXiangyuLastStand(actualTarget, gameState);
+        }
+
         // 夜枭「影遁」的"这一回合攻击过没有"判据：打破护盾也算出手；标记（技能1）不走这里，
         // 所以他只丢标记时仍按未攻击处理，回合末会自己隐进潜行。
         if (appliedDamage > 0 && actualTarget.owner !== attacker.owner) {
@@ -1362,7 +1519,7 @@ export class DamageCalculator {
                 this.addBattleLog(gameState, {
                     type: 'passive',
                     player: attacker.owner,
-                    message: `${attacker.name}金痕盖满在场之敌，昭神降世：移动改为 G 型，御剑全面升华`,
+                    message: `${attacker.name}金痕盖满在场之敌，昭神降世：对角可走一格或两格，御剑全面升华`,
                 });
                 requestMechanismFx(attacker, 'xuanyuan_zhaoshen', gameState, {
                     logId: gameState.battleLog[gameState.battleLog.length - 1]?.id,
@@ -1727,7 +1884,7 @@ export class DamageCalculator {
         }
     }
 
-    private static resolveBountyRewards(target: Hero, killer: Hero, gameState: GameState): void {
+    private static resolveBountyRewards(target: Hero, killer: Hero, gameState: GameState, deathPosition: Position | null): void {
         const bountyEffects = target.effects.filter(effect => {
             if (!effect.name.startsWith('悬赏·') || !effect.sourceHeroId) return false;
             const bountyHunter = this.findHeroById(effect.sourceHeroId, gameState);
@@ -1775,6 +1932,10 @@ export class DamageCalculator {
                 player: killer.owner,
                 message: `${killer.name}领取${target.name}的${rewardText}`
             });
+            if (deathPosition && killer.position) requestBladeScene(killer, gameState, 'reward', [{
+                from: [...deathPosition], to: [...killer.position], start: 180, arrive: 620,
+                reward, label: bounty.name.replace('悬赏·', ''), logIds: [gameState.battleLog[gameState.battleLog.length - 1].id],
+            }], `${killer.name}领取赏金`);
         }
     }
 
@@ -1919,6 +2080,9 @@ export class DamageCalculator {
         }
 
         target.state = HeroState.DEAD;
+        if (target.passiveId === 'shuangfeiyan_passive') {
+            clearShuangfeiyanBoomerangState(target, gameState);
+        }
         // 召唤物/分身被打掉不算"击杀一名角色"：既不推进连击档位（击杀横幅的 tier 读 killCount），
         // 也不发 hero-kill 播报——震屏与"首破/二连击破"那套是给真英雄阵亡的
         const isRealVictim = isRealCharacterHero(target);
@@ -2039,6 +2203,12 @@ export class DamageCalculator {
         // 折光阵亡：她布下的光棱一起碎掉，不留无主的折射点在棋盘上
         purgeZhiguangPrisms(target, gameState);
 
+        // 夕月辞阵亡：她点的灯跟着灭（无主之灯不该继续照影子坑队友），
+        // 但在她倒下的那一格留下最后一盏——奥义「身后留灯」的兑现点就在这儿。
+        if (target.passiveId === 'xiyueci_passive') {
+            leaveWakeLamp(gameState, target);
+        }
+
         let removedCloneCount = 0;
         for (let r = 0; r < 6; r++) {
             for (let c = 0; c < 6; c++) {
@@ -2102,7 +2272,7 @@ export class DamageCalculator {
             delete tianweiHero.counters['__dilan_kill_pos'];
         }
         if (killer.id !== target.id && killer.owner !== target.owner) {
-            this.resolveBountyRewards(target, killer, gameState);
+            this.resolveBountyRewards(target, killer, gameState, deathPosition);
         }
 
         if (target.counters['__isSummon'] === 1) {
@@ -2192,6 +2362,12 @@ export class DamageCalculator {
      * 触发天威技能
      */
     static triggerTianwei(hero: Hero, gameState: GameState): void {
+        this.passiveDepth++;
+        try { this.triggerTianweiInner(hero, gameState); }
+        finally { this.passiveDepth--; }
+    }
+
+    private static triggerTianweiInner(hero: Hero, gameState: GameState): void {
         // 「麻痹」锁的是天威这一步：经脉被雷气锁住的人，这一回合杀再多人也不得天命。
         // 收口在这里，是因为全场六处触发点（击杀/羁绊/赏金/连枝/代打/引擎）都汇经此门，
         // 逐个调用点加判据必漏一个。
@@ -2433,8 +2609,8 @@ export class DamageCalculator {
                 this.applyDamage(target, pursuit, hero, gameState);
             }
         } else if (hero.tianweiId === 'lingxi_tianwei') {
-            // 天威·潮归：我方全员恢复场上潮汐总层数的生命，溢出部分转为自身护盾
-            // （上限 10，致知3 抬到 15）
+            // 天威·潮归：我方全员恢复场上潮汐总层数的生命。
+            // 策划口径：溢出的恢复量默认**不能**转成护盾；只有致知3 开启时才允许凝盾，且最多 5 点。
             const tide = totalTideOnEnemiesOf(gameState, hero.owner);
             if (tide > 0) {
                 const allies = (hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)
@@ -2444,10 +2620,13 @@ export class DamageCalculator {
                     const healed = this.applyHeal(ally, tide, gameState, hero);
                     overflow += Math.max(0, tide - healed);
                 }
-                const shieldCap = zhizhiValue(hero, 3, 10, 15);
-                const shieldBefore = hero.shield;
-                hero.shield = Math.min(shieldCap, hero.shield + overflow);
-                const gainedShield = hero.shield - shieldBefore;
+                const shieldCap = zhizhiValue(hero, 3, 0, 5);
+                let gainedShield = 0;
+                if (shieldCap > 0 && overflow > 0) {
+                    const shieldBefore = hero.shield;
+                    hero.shield = Math.min(shieldCap, hero.shield + overflow);
+                    gainedShield = hero.shield - shieldBefore;
+                }
                 this.addBattleLog(gameState, {
                     type: 'tianwei',
                     player: hero.owner,
@@ -2517,10 +2696,7 @@ export class DamageCalculator {
             const enemies = hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes;
             this.asOneAttack(() => {
                 for (const enemy of enemies.filter(item => item.state === HeroState.ALIVE)) {
-                    EffectManager.addEffect(enemy, {
-                        type: 'debuff', name: '恐惧', duration: 1, value: 0.2,
-                        sourceHeroId: hero.id, description: '攻击降低20%，行动时可能失败',
-                    });
+                    addFear(enemy, hero, 1);
                     if (Math.random() < 0.5) {
                         const damage = this.calculate(hero, enemy, 10, false);
                         this.applyDamage(enemy, damage, hero, gameState, true);
@@ -2608,6 +2784,7 @@ export class DamageCalculator {
                         targetHeroId: target.id,
                     },
                 });
+                requestTianweiArrival(hero, target, 'feixue_tianwei', gameState, gameState.battleLog[gameState.battleLog.length - 1].id);
             }
         } else if (hero.tianweiId === 'hanjiangxue_tianwei') {
             hanjiangxueTianwei.execute(hero, gameState);

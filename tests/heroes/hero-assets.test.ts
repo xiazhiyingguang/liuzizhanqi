@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { AVAILABLE_HERO_IDS } from '../../src/data/heroes';
 import {
     getHeroAvatarUrl,
     getHeroFullBodyUrl,
@@ -10,6 +11,19 @@ import {
 } from '../../src/data/hero-assets';
 
 describe('hero image assets', () => {
+    it('supplies working avatar and full-body paths for every selectable hero', () => {
+        for (const id of AVAILABLE_HERO_IDS) {
+            const avatar = getHeroAvatarUrl(id);
+            const fullBody = getHeroFullBodyUrl(id);
+            expect(avatar, `${id} 缺少头像登记`).toBeTruthy();
+            expect(fullBody, `${id} 缺少立绘登记`).toBeTruthy();
+            expect(existsSync(resolve('public', avatar!.replace(/^\//, ''))), `${id} 头像文件缺失`).toBe(true);
+            expect(existsSync(resolve('public', fullBody!.replace(/^\//, ''))), `${id} 立绘文件缺失`).toBe(true);
+            expect(getHeroAvatarUrl(`${id}-player1-123`)).toBe(avatar);
+            expect(getHeroFullBodyUrl(`${id}-player2-123`)).toBe(fullBody);
+        }
+    });
+
     it('annotates Feixue and keeps every avatar/full-body pair unique', () => {
         expect(HERO_ASSET_IDS).toContain('feixue');
         expect(new Set(HERO_ASSET_IDS).size).toBe(HERO_ASSET_IDS.length);
@@ -85,6 +99,23 @@ describe('hero image assets', () => {
         expect(resolveHeroTemplateId('zhiyuan')).toBe('zhiyuan');
         expect(getHeroAvatarUrl('zhiyuan-player1-1785423305834')).toBe('/hero-images/avatars/纸鸢.png');
         expect(getHeroFullBodyUrl('zhiyuan')).toBe('/hero-images/full-body/纸鸢.png');
+
+        // 夕月辞：模板 ID 与显示名同名，头像与立绘各一张
+        expect(resolveHeroTemplateId('xiyueci')).toBe('xiyueci');
+        expect(getHeroAvatarUrl('xiyueci-player1-1785423305834')).toBe('/hero-images/avatars/夕月辞.png');
+        expect(getHeroFullBodyUrl('xiyueci-player2-1785423305834')).toBe('/hero-images/full-body/夕月辞.png');
+    });
+
+    it('resolves both new heroes in selection, codex and deployed combat IDs', () => {
+        for (const [id, name] of [['shuangfeiyan', '双飞燕'], ['xiyueci', '夕月辞']]) {
+            expect(getHeroAvatarUrl(id)).toBe(`/hero-images/avatars/${name}.png`);
+            expect(getHeroFullBodyUrl(id)).toBe(`/hero-images/full-body/${name}.png`);
+            for (const player of ['player1', 'player2']) {
+                expect(resolveHeroTemplateId(`${id}-${player}-123`)).toBe(id);
+                expect(getHeroAvatarUrl(`${id}-${player}-123`)).toBe(`/hero-images/avatars/${name}.png`);
+                expect(getHeroFullBodyUrl(`${id}-${player}-123`)).toBe(`/hero-images/full-body/${name}.png`);
+            }
+        }
     });
 
     it('returns no image for heroes whose artwork has not been supplied', () => {

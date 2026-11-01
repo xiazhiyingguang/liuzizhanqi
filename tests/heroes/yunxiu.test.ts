@@ -87,6 +87,14 @@ describe('云岫 · 模板与图鉴', () => {
         expect(yunxiu.maxHp).toBe(58);
     });
 
+    it('致知二把雷云伤害从 2 抬到 4', () => {
+        const { state, yunxiu } = scene();
+        grantZhizhi(yunxiu, 2);
+        const victim = dummy(state, [1, 2]);
+        cast1(yunxiu, state, [1, 2]);
+        expect(victim.currentHp).toBe(296);
+    });
+
     it('图鉴与术语表都收录了她与雷云/引雷针/霆息/麻痹', () => {
         const entry = HERO_CODEX.find(hero => hero.id === 'yunxiu')!;
         expect(entry.skills.map(skill => skill.name)).toEqual(['布云·垂雷', '引雷·落针']);
@@ -118,8 +126,8 @@ describe('技能一 · 布云·垂雷', () => {
         const far = dummy(state, [5, 5]);      // 云罩不到
         const output = cast1(yunxiu, state, [1, 2]);
         expect(output.success).toBe(true);
-        expect(near.currentHp).toBe(296);
-        expect(also.currentHp).toBe(296);
+        expect(near.currentHp).toBe(298);
+        expect(also.currentHp).toBe(298);
         expect(far.currentHp).toBe(300);
         expect(tingxiLayers(yunxiu)).toBe(2);
     });
@@ -128,7 +136,7 @@ describe('技能一 · 布云·垂雷', () => {
         const { state, yunxiu } = scene();
         const victim = dummy(state, [1, 2]);
         expect(cast1(yunxiu, state, [1, 2]).success).toBe(true);
-        expect(victim.currentHp).toBe(296);
+        expect(victim.currentHp).toBe(298);
         expect(cloudPositions(state)).toEqual([[1, 2]]);
     });
 
@@ -169,7 +177,7 @@ describe('雷云 · 每回合先挪一格再落一次雷', () => {
         ahead.currentHp = 300;
         GameEngine.startNewTurn(state);
         expect(cloudPositions(state)).toEqual([[2, 3]]);   // 方向表最后一格 = 东南
-        expect(ahead.currentHp).toBe(296);
+        expect(ahead.currentHp).toBe(298);
         expect(behind.currentHp).toBe(300);
     });
 
@@ -221,7 +229,7 @@ describe('雷云 · 每回合先挪一格再落一次雷', () => {
         applyChainMark(struck, tingyuan.id);
         applyChainMark(elsewhere, tingyuan.id);
         cast1(yunxiu, state, [1, 2]);
-        expect(struck.currentHp).toBe(296);
+        expect(struck.currentHp).toBe(298);
         expect(elsewhere.currentHp).toBe(300);
     });
 });
@@ -356,8 +364,8 @@ describe('结算细节', () => {
         const first = dummy(state, [1, 3]);
         const second = dummy(state, [3, 3]);
         cast1(yunxiu, state, [2, 3]);                   // 云心正东，罩住行 1~3
-        expect(first.currentHp).toBe(296);
-        expect(second.currentHp).toBe(296);
+        expect(first.currentHp).toBe(298);
+        expect(second.currentHp).toBe(298);
         expect(tingxiLayers(yunxiu)).toBe(2);
     });
 

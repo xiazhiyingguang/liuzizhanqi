@@ -1,0 +1,210 @@
+/*
+ * 夕月辞技能特效：环身月光、点灯照影。
+ * 一件是"绕身一圈"的掀击，一件是"把东西放下"的布灯——前者靠两道反向弧光旋开，
+ * 后者靠灯自上方落下、落地推开一圈光晕并在光里拖出两道被拉长的影子。
+ * 配色全部走档案注入的 --fx-c1/--fx-c2/--fx-glow：技能一是压深的月光紫，留灯换成月青。
+ */
+
+.fxxyc-moonsweep,
+.fxxyc-flash,
+.fxxyc-dust,
+.fxxyc-lamp,
+.fxxyc-halo,
+.fxxyc-streak {
+    pointer-events: none;
+    position: absolute;
+    display: block;
+}
+
+/* ── 辞光·散影：贴地月环自她足下旋开，两瓣反向弧光扫过周身一圈 ── */
+.fxxyc-moonsweep {
+    left: 50%;
+    top: 50%;
+    width: 128%;
+    height: 128%;
+    margin: -64% 0 0 -64%;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    border-top-color: color-mix(in srgb, var(--fx-c2, #efe6ff) 88%, transparent);
+    border-right-color: color-mix(in srgb, var(--fx-c1, #5b4a9e) 70%, transparent);
+    opacity: 0;
+    transform: scale(.28);
+    animation: fxxyc-rotate-out 720ms cubic-bezier(.2, .7, .3, 1) forwards;
+}
+
+.fxxyc-moonsweep-b {
+    width: 96%;
+    height: 96%;
+    margin: -48% 0 0 -48%;
+    border-top-color: color-mix(in srgb, var(--fx-c1, #5b4a9e) 80%, transparent);
+    border-right-color: transparent;
+    border-bottom-color: color-mix(in srgb, var(--fx-c2, #efe6ff) 60%, transparent);
+    animation: fxxyc-rotate-out-reverse 660ms cubic-bezier(.2, .7, .3, 1) forwards;
+    animation-delay: 70ms;
+}
+
+.fxxyc-flash {
+    left: 50%;
+    top: 50%;
+    width: 42%;
+    height: 42%;
+    margin: -21% 0 0 -21%;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        color-mix(in srgb, var(--fx-c2, #efe6ff) 85%, transparent) 0%,
+        color-mix(in srgb, var(--fx-c1, #5b4a9e) 45%, transparent) 55%,
+        transparent 78%);
+    opacity: 0;
+    animation: fxxyc-pop 420ms ease-out forwards;
+    animation-delay: 200ms;
+}
+
+/* 月尘：一圈被掀起来的碎光，跟着环往外散 */
+.fxxyc-dust {
+    left: 50%;
+    top: 50%;
+    width: 7%;
+    height: 7%;
+    margin: -3.5% 0 0 -3.5%;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--fx-c2, #efe6ff) 90%, transparent);
+    opacity: 0;
+    transform: rotate(var(--fxxyc-angle, 0deg)) translateX(26%);
+    animation: fxxyc-scatter 620ms ease-out forwards;
+    animation-delay: 180ms;
+}
+
+.fxxyc-dust:nth-child(odd) {
+    --fxxyc-angle: 46deg;
+}
+
+.fxxyc-dust:nth-child(even) {
+    --fxxyc-angle: 226deg;
+}
+
+@keyframes fxxyc-rotate-out {
+    0% { opacity: 0; transform: scale(.28) rotate(-40deg); }
+    30% { opacity: 1; }
+    100% { opacity: 0; transform: scale(1.06) rotate(52deg); }
+}
+
+@keyframes fxxyc-rotate-out-reverse {
+    0% { opacity: 0; transform: scale(.22) rotate(38deg); }
+    32% { opacity: .95; }
+    100% { opacity: 0; transform: scale(1.02) rotate(-46deg); }
+}
+
+@keyframes fxxyc-pop {
+    0% { opacity: 0; transform: scale(.5); }
+    40% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.32); }
+}
+
+@keyframes fxxyc-scatter {
+    0% { opacity: 0; transform: rotate(var(--fxxyc-angle, 0deg)) translateX(18%) scale(.7); }
+    35% { opacity: 1; }
+    100% { opacity: 0; transform: rotate(var(--fxxyc-angle, 0deg)) translateX(62%) scale(1.1); }
+}
+
+/* ── 明灯·照影：灯自上方落下，落地推开光晕，光里拖出两道被拉长的影子 ── */
+.fxxyc-lamp {
+    left: 50%;
+    top: -34%;
+    width: 26%;
+    height: 30%;
+    margin-left: -13%;
+    border: 2px solid var(--fx-c1, #c4761a);
+    border-radius: 18% 18% 42% 42%;
+    background: radial-gradient(circle at 50% 42%,
+        color-mix(in srgb, var(--fx-c2, #ffe6bd) 92%, transparent) 0%,
+        color-mix(in srgb, var(--fx-c1, #c4761a) 30%, transparent) 70%,
+        transparent 100%);
+    filter: drop-shadow(0 0 8px var(--fx-glow, rgba(196, 118, 26, .55)));
+    opacity: 0;
+    transform: translateY(-30%);
+    animation: fxxyc-lamp-settle 520ms cubic-bezier(.25, .8, .4, 1) forwards;
+}
+
+.fxxyc-halo {
+    left: 50%;
+    top: 50%;
+    width: 40%;
+    height: 22%;
+    margin: -11% 0 0 -20%;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--fx-c2, #ffe6bd) 78%, transparent);
+    opacity: 0;
+    animation: fxxyc-halo-spread 680ms ease-out forwards;
+    animation-delay: 300ms;
+}
+
+.fxxyc-halo-b {
+    width: 66%;
+    height: 34%;
+    margin: -17% 0 0 -33%;
+    animation-delay: 360ms;
+}
+
+/* 被灯拉长的那两道影子：贴地向两侧拖开，末端收窄 */
+.fxxyc-streak {
+    left: 50%;
+    top: 52%;
+    width: 52%;
+    height: 9%;
+    margin-left: -6%;
+    border-radius: 50% 8% 8% 50%;
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--fx-c1, #c4761a) 40%, transparent),
+        rgba(30, 16, 44, .5) 60%,
+        transparent);
+    opacity: 0;
+    animation: fxxyc-stretch 720ms ease-out forwards;
+    animation-delay: 320ms;
+}
+
+.fxxyc-streak-b {
+    margin-left: -46%;
+    animation-name: fxxyc-stretch-b;
+    animation-delay: 400ms;
+}
+
+@keyframes fxxyc-lamp-settle {
+    0% { opacity: 0; transform: translateY(-30%) scale(.86); }
+    55% { opacity: 1; transform: translateY(6%) scale(1.04); }
+    100% { opacity: .95; transform: translateY(0) scale(1); }
+}
+
+@keyframes fxxyc-halo-spread {
+    0% { opacity: 0; transform: scale(.4); }
+    30% { opacity: .95; }
+    100% { opacity: 0; transform: scale(2.1); }
+}
+
+@keyframes fxxyc-stretch {
+    0% { opacity: 0; transform: scaleX(.3); }
+    40% { opacity: .9; }
+    100% { opacity: 0; transform: scaleX(1.25); }
+}
+
+@keyframes fxxyc-stretch-b {
+    0% { opacity: 0; transform: scaleX(-.3); }
+    40% { opacity: .9; }
+    100% { opacity: 0; transform: scaleX(-1.25); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fxxyc-moonsweep,
+    .fxxyc-flash,
+    .fxxyc-dust,
+    .fxxyc-lamp,
+    .fxxyc-halo,
+    .fxxyc-streak {
+        animation-duration: 1ms !important;
+        animation-delay: 0ms !important;
+    }
+}
+
+html[data-quality="low"] .fxxyc-dust,
+html[data-quality="low"] .fxxyc-streak {
+    display: none;
+}

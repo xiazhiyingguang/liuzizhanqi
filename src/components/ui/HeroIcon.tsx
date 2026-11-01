@@ -590,6 +590,18 @@ function JinghuaIcon() {
     );
 }
 
+function WenrenIcon() {
+    // 闻人翊悬 — 越过友军的一跃：虚线是飞越轨迹，圈点是中途踏板，身后落点烧起一簇火
+    return (
+        <Stroke>
+            <path d="M5 24 Q14 7 25 21" strokeWidth={1} opacity={0.42} strokeDasharray="3 3" />
+            <circle cx={14.5} cy={15.5} r={2.2} strokeWidth={1.4} />
+            <path d="M24 27 Q20.6 22 24.2 18.2 Q24.8 21 26.8 21.6 Q28.4 23.6 27.2 25.8 Q26 28 24 27Z" strokeWidth={1.4} />
+            <path d="M9 27 Q5.5 25.5 4.6 22" strokeWidth={1} opacity={0.4} />
+        </Stroke>
+    );
+}
+
 function HuanongyingIcon() {
     // 花弄影 — 一枝花斜倚，月下投出一枚斜长的影子，影尖还带一点回勾
     return (
@@ -675,6 +687,31 @@ function DaizongIcon() {
     );
 }
 
+function DamoIcon() {
+    // 达摩 — 一拳撞向山壁：拳面、三道裂痕与立起的山脊
+    return (
+        <Stroke>
+            <path d="M5 17.4 Q5 13.8 9 13.8 L16.4 13.8 Q19.2 13.8 19.2 16.6 L19.2 22.2 Q19.2 25.4 16 25.4 L8.4 25.4 Q5 25.4 5 22 Z" strokeWidth={1.8} />
+            <path d="M10.2 13.8 L10.2 18.4 M13.4 13.8 L13.4 18.4 M16.4 13.8 L16.4 18" strokeWidth={1.1} opacity={0.6} />
+            <path d="M22.4 5.6 L22.4 26.4" strokeWidth={1.6} opacity={0.85} />
+            <path d="M19.2 11.2 L21.8 13.2 M19.2 17.2 L21.8 15.2 M19.2 23.2 L21.8 21.2" strokeWidth={1.2} opacity={0.55} />
+            <path d="M6.4 7.2 L9.2 9.2 M12.4 5.2 L13.8 8.2" strokeWidth={1} opacity={0.4} />
+        </Stroke>
+    );
+}
+
+function XiangyuIcon() {
+    // 西楚霸王·项羽 — 重盾与霸王戟：盾面压住一杆斜戟，裂痕表示燃血换盾
+    return (
+        <Stroke>
+            <path d="M16 3.4 L25.4 7.6 L25.4 16.4 Q25.4 24.4 16 29 Q6.6 24.4 6.6 16.4 L6.6 7.6 Z" strokeWidth={1.8} />
+            <path d="M17.6 6.4 L17.6 25.2 M17.6 6.4 L21.2 10 M17.6 6.4 L14 10" strokeWidth={1.4} opacity={0.8} />
+            <path d="M9.6 13.2 L13 15.6 L10.4 18.4 M22.6 12.6 L19.8 15.2 L22.2 18" strokeWidth={1.1} opacity={0.5} />
+            <circle cx="17.6" cy="16.2" r="1.1" fill="currentColor" stroke="none" opacity={0.7} />
+        </Stroke>
+    );
+}
+
 function AoyuanIcon() {
     // 游龙·敖渊 — 一尾龙影绕着水涡盘一圈，龙头探出、两点鳞光
     return (
@@ -724,6 +761,33 @@ function JiangtaigongIcon() {
             <path d="M4.6 24.6 Q8.4 21.8 12.4 24.6 Q16.4 27.4 20.4 24.6 Q23.6 22.4 27.4 24.6" strokeWidth={1.4} opacity={0.8} />
             <path d="M7.6 28.2 Q12.4 26 17.2 28.2 Q21.4 29.8 25.6 28.2" strokeWidth={1.1} opacity={0.5} />
             <circle cx="6.4" cy="5.6" r="1.1" fill="currentColor" stroke="none" opacity={0.7} />
+        </Stroke>
+    );
+}
+
+function XiyueciIcon() {
+    // 夕月辞 — 一盏明灯拖着地上一截影子：灯罩里一点焰，影子斜伸向右下、末端回勾
+    return (
+        <Stroke>
+            <path d="M13.2 5.4 h5.6" strokeWidth={1.4} />
+            <path d="M16 5.4 v2.4" strokeWidth={1.2} opacity={0.8} />
+            <path d="M11.4 8.8 h9.2 l-1.6 9.4 h-6 z" strokeWidth={1.7} />
+            <path d="M16 11.4 c1.5 1.7 2.2 2.9 2.2 3.9 a2.2 2.2 0 0 1-4.4 0 c0-1 .7-2.2 2.2-3.9z" strokeWidth={1.3} opacity={0.9} />
+            <path d="M12.8 20.8 h6.4" strokeWidth={1.4} />
+            <path d="M14.6 24 Q19.2 24.8 22.8 27.6" strokeWidth={1.5} opacity={0.75} />
+            <path d="M22.8 27.6 q1.8 1.2 3.6 0.4" strokeWidth={1.2} opacity={0.55} />
+        </Stroke>
+    );
+}
+
+function ShuangfeiyanIcon() {
+    // 双飞燕 — 两枚回旋镖交错成燕翼，中心一点作镖心
+    return (
+        <Stroke>
+            <path d="M5 9 Q12 4 20 9 Q14 12 9 19 Q8 14 5 9 Z" strokeWidth={1.6} />
+            <path d="M27 23 Q20 28 12 23 Q18 20 23 13 Q24 18 27 23 Z" strokeWidth={1.6} />
+            <path d="M9 9 L12 12 M23 23 L20 20" strokeWidth={1.2} opacity={0.6} />
+            <Dot cx={16} cy={16} r={1.4} opacity={0.7} />
         </Stroke>
     );
 }
@@ -802,6 +866,7 @@ const iconMap: Record<string, () => JSX.Element> = {
     daier: () => <DaiIcon />,
     yousun: () => <YoujunIcon />,
     xuanyuan: () => <XuanyuanIcon />,
+    wenren: () => <WenrenIcon />,
     xubai: () => <XubaiIcon />,
     wangshu: () => <WangshuIcon />,
     lingxi: () => <LingxiIcon />,
@@ -819,6 +884,10 @@ const iconMap: Record<string, () => JSX.Element> = {
     aoyuan: () => <AoyuanIcon />,
     yunxiu: () => <YunxiuIcon />,
     daizong: () => <DaizongIcon />,
+    damo: () => <DamoIcon />,
+    xiangyu: () => <XiangyuIcon />,
+    shuangfeiyan: () => <ShuangfeiyanIcon />,
+    xiyueci: () => <XiyueciIcon />,
 };
 
 /** 已拥有专属线性图标的英雄模板 id；新增英雄必须补一个，否则测试会拦住通用兜底图标 */

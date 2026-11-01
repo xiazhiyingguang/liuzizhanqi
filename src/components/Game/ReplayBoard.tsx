@@ -3,6 +3,9 @@ import HeroAvatar from '../ui/HeroAvatar';
 import { HeroStatusFx } from './HeroStatusFx';
 import { WindBladeGlyph } from './WindBladeGlyph';
 import { ThunderCloudField } from './ThunderCloudField';
+import { SwallowBladeGlyph } from './SwallowSkillFx';
+import { XuanyuanSwordGlyph } from './BladeChoreographyFx';
+import { HuanongyingShadowGlyph } from './HuanongyingSceneFx';
 import type { ReplayArea, ReplayFrame, ReplayStatic, ReplayUnit } from '../../core/battle-replay';
 import type { BoardEffect, Hero } from '../../types/game';
 
@@ -151,13 +154,36 @@ const AREA_TITLES: Record<BoardEffect['type'], string> = {
     'thunder-cloud': '雷云',
     'lightning-rod': '引雷针',
     'flying-sword': '飞剑',
+    boomerang: '回旋镖',
+    'lit-lamp': '明灯',
+    'wake-lamp': '留灯',
     brush: '毛笔',
+    'hanjiangxue-domain': '寒天领域',
 };
 
 /** 场地效果层：几何与配色交给既有 ink-wash.css 类，这里只补类名与可读 title */
 function ReplayAreaOverlay({ area }: { area: ReplayArea }) {
     const side = area.owner === 'player1' ? 'p1' : 'p2';
     switch (area.type) {
+        case 'shadow-mark': return <div className="hny2-resting-shadow" title="花弄影的残影"><HuanongyingShadowGlyph /></div>;
+        case 'boomerang':
+            return (
+                <div title="回旋镖" className={`bf-boomerang bf-boomerang-${side} pointer-events-none`}>
+                    <SwallowBladeGlyph />
+                </div>
+            );
+        case 'lit-lamp':
+        case 'wake-lamp':
+            return (
+                <div title={AREA_TITLES[area.type]} className={`bf-lamp bf-lamp-${side}${area.type === 'wake-lamp' ? ' bf-lamp-wake' : ''} pointer-events-none`}>
+                    <i className="bf-lamp-halo" aria-hidden="true" />
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path className="bf-lamp-flame" d="M12 4.2c1.9 2.1 2.8 3.7 2.8 5.1a2.8 2.8 0 0 1-5.6 0c0-1.4.9-3 2.8-5.1z" />
+                        <path className="bf-lamp-body" d="M7.6 12.4h8.8l-1.3 6.2q-.1.6-.7.6H9.6q-.6 0-.7-.6z" />
+                        <path className="bf-lamp-base" d="M6.4 20.2h11.2" />
+                    </svg>
+                </div>
+            );
         case 'wind-lane':
             return (
                 <div
@@ -174,12 +200,7 @@ function ReplayAreaOverlay({ area }: { area: ReplayArea }) {
         case 'flying-sword':
             return (
                 <div title={AREA_TITLES['flying-sword']} className={`bf-flying-sword bf-flying-sword-${side} pointer-events-none`}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
-                        <path d="m13 19 6-6" />
-                        <path d="m16 16 4 4" />
-                        <path d="m19 14 2 2" />
-                    </svg>
+                    <XuanyuanSwordGlyph />
                 </div>
             );
         case 'ice-crystal':

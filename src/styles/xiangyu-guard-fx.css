@@ -1,0 +1,29 @@
+.xyg-emblem { position:absolute; inset:-10%; width:120%; height:120%; overflow:visible; pointer-events:none; }
+.xyg-plate { fill:#492f2c; stroke:#b69a64; stroke-width:1.4; }
+.xyg-rivet { fill:none; stroke:#e0c99b; stroke-width:1.5; }
+.xyg-seal { fill:#745337; stroke:#bca276; stroke-width:1; }
+.xyg-stage { position:absolute; inset:0; pointer-events:none; }
+.xyg-action { position:absolute; inset:-10%; width:120%; height:120%; overflow:visible; }
+.xyg-armor-shadow { fill:#382d2d; animation:xyg-shadow 900ms both; transform-origin:50px 65px; }
+.xyg-awaken .xyg-left { animation:xyg-left 900ms both; }
+.xyg-awaken .xyg-right { animation:xyg-right 900ms both; }
+.xyg-awaken .xyg-seal { animation:xyg-seal 900ms both; }
+.xyg-caption,.xyg-gain { position:absolute; left:50%; width:max-content; transform:translateX(-50%); font-family:var(--font-display,serif); white-space:nowrap; text-shadow:0 1px 2px #f4ecdd; }
+.xyg-caption { top:-35%; font-size:clamp(10px,calc(var(--board-cell-size,56px)*.2),15px); letter-spacing:.12em; color:#623b30; animation:xyg-caption 900ms both; }
+.xyg-gain { top:-9%; font-size:11px; color:#997a3b; animation:xyg-gain 1000ms both; }
+.xyg-absorb { fill:none; stroke:#635145; stroke-width:6; stroke-linecap:round; stroke-dasharray:130; animation:xyg-absorb 950ms both; }
+.xyg-convert .xyg-emblem { animation:xyg-convert-armor 1000ms both; transform-origin:50% 65%; }
+.xyg-wait { position:absolute; inset:0; pointer-events:none; z-index:7; }
+.piece-shell:has(.xyg-stage) > .xyg-wait { visibility:hidden; }
+@keyframes xyg-shadow { 0% { opacity:0; transform:scale(.7); } 18% { opacity:.85; transform:scale(1.1); } 65%,100% { opacity:0; transform:scale(.95); } }
+@keyframes xyg-left { 0% { opacity:0; transform:translate(-17px,8px); } 37%,100% { opacity:1; transform:none; } }
+@keyframes xyg-right { 0% { opacity:0; transform:translate(17px,8px); } 37%,100% { opacity:1; transform:none; } }
+@keyframes xyg-seal { 0%,22% { opacity:0; transform:translateY(7px); } 52%,100% { opacity:1; transform:none; } }
+@keyframes xyg-caption { 0% { opacity:0; translate:0 4px; } 18%,65% { opacity:1; translate:0 0; } 100% { opacity:0; translate:0 -3px; } }
+@keyframes xyg-gain { 0%,15% { opacity:0; translate:0 5px; } 35%,65% { opacity:1; } 100% { opacity:0; translate:0 -10px; } }
+@keyframes xyg-absorb { 0% { opacity:0; stroke-dashoffset:130; } 17% { opacity:.8; } 45% { opacity:.7; stroke-dashoffset:0; } 68%,100% { opacity:0; stroke-dashoffset:-50; } }
+@keyframes xyg-convert-armor { 0%,15% { opacity:0; transform:scale(1.15); } 47%,60% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(.8); } }
+@media(prefers-reduced-motion:reduce) {
+    .xyg-stage { display:none; }
+    .piece-shell:has(.xyg-stage) > .xyg-wait { visibility:visible; }
+}

@@ -22,7 +22,10 @@ import type { BattleLogEntry, Player, Position, Skill } from '../types/game';
 import { BOARD_SIZE } from '../types/game';
 import { lingxiTideHitMs } from './lingxi-tide-fx';
 import { dragonCallHitMs, dragonDashHitMs, dragonSweepCellHitMs } from './dragon-sweep-fx';
+import { isSwallowFx, swallowHitMs } from './swallow-fx';
+import { isHnyFx, hnyHitMs, type HnyFxDetails } from './huanongying-fx';
 import type { CraftedFxTheme } from './crafted-skill-fx';
+import { bladeSceneEnd, type BladeChoreography } from './blade-choreography';
 
 // 供 SkillFxLayer 等视觉层统一从本模块取坐标类型
 export type { Position };
@@ -59,12 +62,16 @@ export type SkillFxKind =
     | 'zhiyuan-reel'    // 纸鸢·断线冲天：线轴烧断时的左右来回乱剪，角度与错位都打散
     | 'xihuan-level'   // 羲和·均光：一圈曦光扫过所有友方，把血量抹平到同一档
     | 'jiangtaigong-cast'      // 姜太公·垂钩：钓线自上方垂落，钩尖触水荡开涟漪
+    | 'moonlight-sweep'  // 夕月辞·辞光散影：一圈月光贴着地面旋开，扫到的人各自被掀一下
+    | 'lamp-lighting'    // 夕月辞·明灯照影：灯落在格上，光晕推开、周围一圈影子被拉长
     | 'jiangtaigong-throw'     // 姜太公·抛掷：钓线沿攻击轴绷紧甩过去，落点炸开水花
     | 'jiangtaigong-whalefall' // 姜太公·鲸落：鲸影压进水里，尾鳍一挑后两圈浪环荡开
     | 'ground-zone'     // 领域：贴地波纹扩散 + 地面辉光
     | 'cage-bind'       // 束缚：收拢笼环 + 交叉锁光
     | 'crystal-shatter' // 晶碎：闪核 + 晶屑迸溅 + 玻璃环
     | 'ember-flare'     // 焰浪：火热闪焰 + 上升余烬
+    | 'wenren-leap'     // 闻人翊悬·蹈火跃阵：烬步断痕 + 落点裂火环
+    | 'wenren-reap'     // 闻人翊悬·破妄燎原：内收余烬 + 环身裂焰
     | 'storm-bolt'      // 雷霆：锯齿电光闪击 + 震环
     | 'gale-vortex'     // 旋风：对旋涡环 + 风纹
     | 'wind-blade-volley' // 四向风刃：四弯风刃自施法者向上下左右射出
@@ -97,6 +104,7 @@ export type SkillFxKind =
     | 'yunxiu-cloud-call'  // 云岫·布云垂雷：一团云砸下来摊成 3×3，云肚子里先闷闪一道电
     | 'yunxiu-rod-strike'  // 云岫·引雷落针：一光柱针钉进目标格，针身上沿爬满麻痹电花
     | 'yunxiu-cloud-bolt'  // 云岫·云中落雷：每回合云挪一格后劈下的那道雷，命中格各吃一发
+    | 'swallow-throw' | 'swallow-triangle' | 'swallow-leap' | 'swallow-return'
     | 'ink-brush' | 'ink-dash' | 'ink-cut'
     | 'feixue-bond' | 'yang-link' | 'yin-link'
     | 'coin-strike' | 'coin-blessing' | 'coin-awaken'
@@ -136,6 +144,10 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'yunxiu-cloud-call': '布云垂雷',
     'yunxiu-rod-strike': '引雷落针',
     'yunxiu-cloud-bolt': '云中落雷',
+    'swallow-throw': '燕刃掷出',
+    'swallow-triangle': '双燕交剪',
+    'swallow-leap': '燕归巢',
+    'swallow-return': '燕刃返航',
     'triple-slash': '三连斩',
     'pierce': '贯日突刺',
     'radial-burst': '环形爆发',
@@ -155,6 +167,8 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'cage-bind': '束缚',
     'crystal-shatter': '晶碎',
     'ember-flare': '焰浪',
+    'wenren-leap': '烬步火环',
+    'wenren-reap': '裂焰燎原',
     'storm-bolt': '雷霆',
     'gale-vortex': '旋风',
     'wind-blade-volley': '四向风刃',
@@ -195,6 +209,8 @@ export const SKILL_FX_KIND_LABELS: Record<SkillFxKind, string> = {
     'shield-ward': '护盾援护',
     'ink': '墨韵波纹',
     'jiangtaigong-cast': '垂钩点水',
+    'moonlight-sweep': '环身月光',
+    'lamp-lighting': '点灯照影',
     'jiangtaigong-throw': '甩竿抛人',
     'jiangtaigong-whalefall': '鲸落浪环',
 };
@@ -206,6 +222,10 @@ export type RecoveryFxTheme =
     | 'time-seam' | 'time-gate' | 'bone-soul' | 'lantern' | 'sun-thread';
 
 export interface SkillFxProfile {
+    stance?: 'snow-break' | 'ink-stealth' | 'overlord-guard' | 'overlord-convert';
+    arrival?: 'frost-lock' | 'hair-clone';
+    /** 一次出手一张场景，不复制逐格泛光。 */
+    choreography?: boolean;
     /** Wangshu's moon eclipse, restoration and full-moon awakening. */
     moon?: 'drain' | 'heal' | 'full';
     /** 材质重绘：仅改变表现层，范围与结算仍沿用原型。 */
@@ -223,7 +243,7 @@ export interface SkillFxProfile {
     /** 冥魂材质与动作；仍沿用原技能的范围、命中和联机事件。 */
     spectral?: 'soul-gather' | 'wither-bloom' | 'wither-scatter';
     /** 被动触发的独立演出，复用真实事件队列，不铺技能范围底光。 */
-    mechanism?: 'rebirth' | 'king-shift' | 'lord-shift' | 'conversion' | 'counter' | 'laststand' | 'extra-action' | 'zhaoshen';
+    mechanism?: 'rebirth' | 'king-shift' | 'lord-shift' | 'conversion' | 'counter' | 'laststand' | 'extra-action' | 'zhaoshen' | 'ember-ascend';
     /** 区域底光的覆盖形状。缺省时由技能自身的 rangeType/areaSize/range/targetCount
      *  推导（见 skill-fx-coverage.ts）；引擎里带特判展开的技能需在此显式声明，
      *  'none' 表示不铺底光（全场技等只需命中格反馈） */
@@ -241,6 +261,9 @@ export type SkillFxDirection = 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW' | 'N' | 'NE'
 
 /** 一次技能施放的瞬态特效事件（仅本地视觉层使用，不参与联机状态同步） */
 export interface SkillFxEvent {
+    guardAmount?: number;
+    arrival?: import('./tianwei-arrival-fx').TianweiArrivalDetails;
+    choreography?: BladeChoreography;
     id: number;
     profile: SkillFxProfile;
     owner: Player;
@@ -250,6 +273,10 @@ export interface SkillFxEvent {
     startDelayMs?: number;
     dragonStartDeg?: number;
     dragonContactsOnly?: boolean;
+    swallow?: { slot?: number; vertices?: Position[] };
+    hny?: HnyFxDetails;
+    /** 达摩专属几何：推动起止格、实际推了几格、有没有撞山、四拳落点 */
+    damo?: import('./vajra-push').DamoFxDetails;
     /** 与本事件对应的日志身份，避免飘字匹配到上一手同格特效。 */
     logIds?: string[];
     /** 真实受到伤害的格；与治疗格分别保留，不由原型猜测伤害。 */
@@ -320,8 +347,8 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     zhenxiao_skill2: { kind: 'cage-bind', durationMs: 1100, c1: '#f5d76e', c2: '#c8ccd8' }, // 金银错：金银锁笼
 
     // ===== 回锋：回刃听锋（赤红三连斩）=====
-    huifeng_skill1: { kind: 'triple-slash', durationMs: 950, c1: '#ff4655', c2: '#ffc9b8' }, // 连刃斩：三段赤红斜斩
-    huifeng_skill2: { kind: 'arc-slash', durationMs: 900, c1: '#bfe4ff', c2: '#6fa8d8' },   // 风过留痕：双目标落斩并标记
+    huifeng_skill1: { kind: 'triple-slash', durationMs: 950, c1: '#ff4655', c2: '#ffc9b8' }, // 保留原有赤红三连斩
+    huifeng_skill2: { kind: 'arc-slash', choreography: true, durationMs: 900, fxArea: 'none' },
 
     // ===== 玄霄：玄光司命（玄紫）=====
     xuanxiao_skill1: { kind: 'spirit-rune', durationMs: 1000, c1: '#6f4fa6', c2: '#dfcaf7' },
@@ -360,7 +387,7 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
 
     // ===== 寒江雪：凛冬守望（霜白）=====
     hanjiangxue_skill1: { kind: 'frost-spikes', durationMs: 1150, impactMs: 240, c1: '#bfe6ff', c2: '#e6f4ff', fxArea: 3 }, // 冰裂环在 240ms 开始，声音与受击反馈共用此时刻
-    hanjiangxue_skill2: { kind: 'crystal-shatter', durationMs: 950, c1: '#9fd0f8', c2: '#ffffff' }, // 冰晶壁垒
+    hanjiangxue_skill2: { kind: 'ground-zone', durationMs: 1200, impactMs: 300, c1: '#9fd0f8', c2: '#eaf7ff', fxArea: 5 }, // 寒天领域：5×5 贴地冰环展开
     wangshu_skill1: { kind: 'hex-curse', moon: 'drain', durationMs: 1200, impactMs: 270, c1: '#4c687f', c2: '#e7ecd9', fxArea: 'none' },
     wangshu_skill2: { kind: 'heal-single', moon: 'heal', durationMs: 1350, impactMs: 270, c1: '#587e89', c2: '#f0ead5', fxArea: 'none' },
     wangshu_tianwei: { kind: 'aura-buff', moon: 'full', durationMs: 1450, impactMs: 0, c1: '#829bab', c2: '#f2edda', fxArea: 'none' },
@@ -378,7 +405,7 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     pipa_skill2: { kind: 'chord-break', durationMs: 1100, impactMs: 360, c1: '#ad642e', c2: '#ffe6aa' },
 
     // ===== 赏金猎人：黄金猎令（赏金 / 枪铅）=====
-    bounty_skill1: { kind: 'hex-curse', durationMs: 950, c1: '#ffd75e', c2: '#c8783c' },      // 猎杀令
+    bounty_skill1: { kind: 'hex-curse', choreography: true, durationMs: 950, fxArea: 'none' },
     bounty_skill2: { kind: 'pierce', durationMs: 850, c1: '#b8c4d8', c2: '#ffd75e' },         // 衔令追猎
 
     // ===== 阴阳师：两仪执契（阳金 / 阴紫）=====
@@ -417,6 +444,12 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     zhenxiao_laststand: { kind: 'ink', mechanism: 'laststand', durationMs: 1200, impactMs: 240, fxArea: 'none' },
     moran_extra_action: { kind: 'ink', mechanism: 'extra-action', durationMs: 1250, impactMs: 360, fxArea: 'none' },
     xuanyuan_zhaoshen: { kind: 'ink', mechanism: 'zhaoshen', durationMs: 1900, impactMs: 520, fxArea: 'none' },
+    guying_tianwei: { kind: 'ink', stance: 'snow-break', durationMs: 1100, fxArea: 'none' },
+    nightowl_tianwei: { kind: 'ink', stance: 'ink-stealth', durationMs: 1100, fxArea: 'none' },
+    xiangyu_tianwei: { kind: 'ink', stance: 'overlord-guard', durationMs: 900, fxArea: 'none' },
+    xiangyu_guard_convert: { kind: 'ink', stance: 'overlord-convert', durationMs: 1000, fxArea: 'none' },
+    feixue_tianwei: { kind: 'ink', arrival: 'frost-lock', durationMs: 1250, impactMs: 520, fxArea: 'none' },
+    wukong_tianwei: { kind: 'ink', arrival: 'hair-clone', durationMs: 1150, impactMs: 440, fxArea: 'none' },
     painting_attack: { kind: 'pierce', durationMs: 1100, c1: '#66533c', c2: '#e8c58a', fxArea: 'none' },
     feixue_followup: { kind: 'feixue-blade', durationMs: 980, c1: '#65a7ca', c2: '#eaf7ff' },
     dai_revive: { kind: 'revive-rise', recovery: 'time-gate', durationMs: 1650, impactMs: 420, c1: '#665394', c2: '#d7c9ff', fxArea: 'none' },
@@ -477,9 +510,18 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     youjun_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#8fd8ff', c2: '#e0f6ff' },    // 疾掠
     youjun_skill2: { kind: 'wind-blade-volley', durationMs: 1000, c1: '#5cc8f0', c2: '#eafaff' },   // 四向风刃：四弯风刃射向周身四格
 
+    // ===== 双飞燕：回旋镖几何（墨青）=====
+    shuangfeiyan_skill1: { kind: 'swallow-throw', durationMs: 1050, c1: '#5f8f86', c2: '#e8f2e8', fxArea: 'none' },
+    shuangfeiyan_triangle: { kind: 'swallow-triangle', durationMs: 1300, impactMs: 520, c1: '#5f8f86', c2: '#e8f2e8', fxArea: 'none' },
+    shuangfeiyan_skill2: { kind: 'swallow-leap', durationMs: 1250, c1: '#5f8f86', c2: '#e8f2e8', fxArea: 'none' },
+    shuangfeiyan_return: { kind: 'swallow-return', durationMs: 1250, c1: '#5f8f86', c2: '#e8f2e8', fxArea: 'none' },
+
     // ===== 轩辕神君：金行御剑（鎏金）=====
-    xuanyuan_skill1: { kind: 'shadow-dash', durationMs: 900, c1: '#d4a843', c2: '#fff2c0' },   // 御剑·贯阵：沿跳击轨迹鎏金一闪
-    xuanyuan_skill2: { kind: 'aura-buff', durationMs: 950, c1: '#d4a843', c2: '#fff6d8' },     // 御剑·归元：飞剑化盾归身
+    xuanyuan_skill1: { kind: 'shadow-dash', choreography: true, durationMs: 900, fxArea: 'none' },
+    xuanyuan_skill2: { kind: 'aura-buff', choreography: true, durationMs: 950, fxArea: 'none' },
+
+    ...Object.fromEntries(['leap', 'drift', 'recall', 'attach', 'volley', 'order', 'reward', 'cuts'].map(scene =>
+        [`choreography_${scene}`, { kind: 'ink' as const, choreography: true, durationMs: 1200, fxArea: 'none' as const }])),
 
     // ===== 叙白：净化治疗与黑白凝珠（素白青 / 暖金）=====
     xubai_skill1: { kind: 'heal-single', recovery: 'purify', durationMs: 1300, impactMs: 260, c1: '#718e8b', c2: '#f7f5ed' }, // 素白拂秽
@@ -524,11 +566,11 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
 
     // ===== 花弄影：折扇花刃、身影互换、影子重演（月白粉 / 影紫）=====
     // 花间辞：折扇开合后，一整面花刃横扫左前/正前/右前三格；不再像三次单点攻击。
-    huanongying_skill1: { kind: 'huanongying-fan', durationMs: 1160, impactMs: 340, c1: '#b64f83', c2: '#ffe7f2' },
+    huanongying_skill1: { kind: 'huanongying-fan', durationMs: 1100, impactMs: 380, c1: '#9d526c', c2: '#f7e9db', fxArea: 'none' },
     // 弄影：旧位花影收拢、花瓣沿换位轴掠过，新位绽开并补一周环斩；两端不铺巨型矩形底光。
-    huanongying_skill2: { kind: 'huanongying-swap', durationMs: 1280, impactMs: 560, c1: '#75438d', c2: '#f4ddff', fxArea: 'none' },
+    huanongying_skill2: { kind: 'huanongying-swap', durationMs: 1320, impactMs: 620, c1: '#74546f', c2: '#f4e7dd', fxArea: 'none' },
     // 影子重演（被动/天威共用，由特效请求队列派发）：沿用同套花刃语言，但材质更轻、更透明。
-    huanongying_replay: { kind: 'huanongying-replay', durationMs: 980, impactMs: 250, c1: '#5d3975', c2: '#ead5f2', fxArea: 'none' },
+    huanongying_replay: { kind: 'huanongying-replay', durationMs: 1000, impactMs: 300, c1: '#69536e', c2: '#e0d8e2', fxArea: 'none' },
 
     // ===== 纸鸢：收线、断线连击、牵丝追击、引线天威（朱线 / 纸白）=====
     // 收线·回风：线轴从敌人身侧飞回她手上——起手格是被收线的敌人，落点是纸鸢自己脚下。
@@ -562,6 +604,13 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     // 岱宗：一守一砸，姿态不铺区域底光（护的是半个棋盘，画出来会糊满屏）
     daizong_skill1: { kind: 'aura-buff', durationMs: 1080, impactMs: 260, c1: '#5b5f7a', c2: '#e7e9f2', fxArea: 'none' },
     daizong_skill2: { kind: 'radial-burst', durationMs: 1240, impactMs: 340, c1: '#4a4e66', c2: '#dfe2ee', fxArea: 3 },
+    // 达摩：一苇渡江是贴身冲撞，起手拖一条暗金冲刺痕、落点砸出撞山尘裂；
+    // 易筋四拳是自身周围的连打，每一拳落到一个真实命中格，不铺整圈底光。
+    damo_skill1: { kind: 'shadow-dash', durationMs: 920, impactMs: 240, c1: '#b08d57', c2: '#f7ead0', fxArea: 'none' },
+    damo_skill2: { kind: 'radial-burst', durationMs: 1040, impactMs: 220, c1: '#c9a24b', c2: '#fff3cf', fxArea: 'none' },
+    // 项羽：破阵是贴身冲撞 + 楚歌回响；盖世是前方 2×3 的宽幅刀气（赤黑 / 烽金）
+    xiangyu_skill1: { kind: 'shadow-dash', durationMs: 980, impactMs: 260, c1: '#a83326', c2: '#f2d6a0', fxArea: 'none' },
+    xiangyu_skill2: { kind: 'arc-slash', durationMs: 1120, impactMs: 300, c1: '#8f2f28', c2: '#ffd9a0', fxArea: 'none' },
     // 敖渊：一整尾会游的龙。唤龙时在召唤格探身，盘旋时沿本体外的八格圈顺时针爬半圈，
     // 冲刺时把龙身沿轴线拉直穿人——三样画的都是同一条脊线，配色也共用一套青碧。
     // 唤龙：320ms 探身 + 8×100ms 沿外圈爬满一圈 + 收势，时长要盖住最后一格的爆点
@@ -576,6 +625,11 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     tingyuan_skill1: { kind: 'storm-bolt', durationMs: 1150, impactMs: 320, c1: '#6f5bd0', c2: '#efe9ff', fxArea: 'none' },
     tingyuan_skill2: { kind: 'storm-bolt', durationMs: 1450, impactMs: 260, c1: '#4f3bb0', c2: '#d9ceff', fxArea: 'none' },
     jiangtaigong_skill1: { kind: 'jiangtaigong-cast', durationMs: 980, impactMs: 340, c1: '#3f9c93', c2: '#eaf7f2', fxArea: 'none' },
+    // 夕月辞：一圈月光是实打实的八格命中，底光要铺开才读得出范围；灯那一记是"放下东西"，不震屏。
+    xiyueci_skill1: { kind: 'moonlight-sweep', durationMs: 1020, impactMs: 320, c1: '#5b4a9e', c2: '#efe6ff' },
+    xiyueci_skill2: { kind: 'lamp-lighting', durationMs: 1120, impactMs: 360, c1: '#c4761a', c2: '#ffe6bd', fxArea: 'none' },
+    // 身后留灯（奥义）：同一门灯的语言，光色换月青，表示这一盏是留下来照人的。
+    xiyueci_tianwei: { kind: 'lamp-lighting', durationMs: 1180, impactMs: 380, c1: '#2f6f8f', c2: '#dff0f7', fxArea: 'none' },
     // 渭水垂竿：把人沿射线拖回自己身边，落点脚下漫开一片水泽。
     jiangtaigong_skill2: { kind: 'pierce', durationMs: 1040, impactMs: 300, c1: '#2f7f86', c2: '#dff2f0' },
     // 上钩那一下：同一套垂钩语言，涟漪更重，表示"钩子咬住了"。
@@ -586,6 +640,17 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     jiangtaigong_whalefall: { kind: 'jiangtaigong-whalefall', durationMs: 1260, impactMs: 470, c1: '#2b6f7c', c2: '#e7f8f4' },
     // 太公逐泽（天威）：全场水泽一起向外扩一圈，贴地波纹最合适。
     jiangtaigong_tianwei: { kind: 'ground-zone', durationMs: 1180, impactMs: 320, c1: '#3f9c93', c2: '#eaf7f2' },
+
+    // ===== 闻人翊悬：蹈火飞跃与破妄燎原（焰橙 / 鎏金）=====
+    // 跃阵：起跳炸开炭烬，飞跃轴拖一串断续烬迹，落点是一圈带断口的手绘火环。
+    wenren_skill1: { kind: 'wenren-leap', crafted: 'wenren-leap', durationMs: 1080, impactMs: 260, c1: '#b23a20', c2: '#ffd98a' },
+    // 燎原：施法者脚下先向内收余烬，再以自身为心炸开一圈不等长的火舌与焦痕。
+    wenren_skill2: { kind: 'wenren-reap', crafted: 'wenren-reap', durationMs: 1180, impactMs: 260, c1: '#a52e1a', c2: '#ffce6e', fxArea: 'self-box' },
+    // 昭神降临：破妄火纹从脚下盘上全身，金白焰包裹后炸开一圈带断口的火环。
+    wenren_zhaoshen: { kind: 'aura-buff', durationMs: 1600, impactMs: 240, c1: '#e07920', c2: '#fff3c4', fxArea: 'none', mechanism: 'ember-ascend' },
+    // 昭神态的两种条件形态：同一套手绘火语言，金白高光更亮、环外再收一道闭环细环。
+    wenren_skill1_zhaoshen: { kind: 'wenren-leap', crafted: 'wenren-leap-zhaoshen', durationMs: 1160, impactMs: 280, c1: '#d4551f', c2: '#fff0b0', fxArea: 'none' },
+    wenren_skill2_zhaoshen: { kind: 'wenren-reap', crafted: 'wenren-reap-zhaoshen', durationMs: 1280, impactMs: 280, c1: '#c94819', c2: '#fff2b8', fxArea: 'self-box' },
 };
 
 /** 英雄级兜底档案（该英雄的技能未逐一定制时，取其技能一档案） */
@@ -625,6 +690,7 @@ export function resolveSkillFx(skillId?: string): SkillFxProfile {
 
 /** 命中型特效：目标格应触发震屏 + 闪白反馈（伤害/爆发/压制类原型） */
 const SKILL_FX_IMPACT_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>([
+    'swallow-throw', 'swallow-triangle', 'swallow-leap', 'swallow-return',
     'arc-slash',
     'triple-slash',
     'huanongying-fan',
@@ -674,6 +740,8 @@ const SKILL_FX_IMPACT_KINDS: ReadonlySet<SkillFxKind> = new Set<SkillFxKind>([
     'ink-brush', 'ink-dash', 'ink-cut', 'coin-strike', 'chord-break',
     'nightowl-strike', 'wind-line', 'wind-pressure', 'bone-slash',
     'decay-field', 'decay-bloom', 'starfire-lance', 'yin-link',
+    // 辞光·散影：一圈里每一格都是实打实的一刀，命中格照常给震屏与闪白
+    'moonlight-sweep',
 ]);
 
 export function isImpactFxKind(kind: SkillFxKind): boolean {
@@ -761,6 +829,10 @@ export function computeMirrorBladeTiming(blade: Pick<MirrorBladeStrike, 'fromPos
 }
 
 export function computeFxLogImpactDelayMs(event: SkillFxEvent, cell: Position, logId: string): number {
+    if (event.choreography) {
+        const stroke = event.choreography.strokes.find(stroke => stroke.logIds?.includes(logId));
+        return stroke?.hit ?? stroke?.arrive ?? computeFxImpactDelayMs(event, cell);
+    }
     const index = event.mirrorBlades?.findIndex(blade => blade.logIds.includes(logId)) ?? -1;
     return index >= 0
         ? computeMirrorBladeTiming(event.mirrorBlades![index], index).impactMs
@@ -769,7 +841,10 @@ export function computeFxLogImpactDelayMs(event: SkillFxEvent, cell: Position, l
 
 /** 所有表现层使用同一抵达时间，实际战斗状态不等待动画。 */
 export function computeFxImpactDelayMs(event: SkillFxEvent, cell: Position): number {
+    if (event.choreography) return event.choreography.strokes.find(stroke => stroke.to[0] === cell[0] && stroke.to[1] === cell[1])?.arrive ?? 430;
     const kind = event.profile.kind;
+    if (isSwallowFx(kind)) return swallowHitMs(event, cell);
+    if (isHnyFx(kind)) return hnyHitMs(event);
     if (kind === 'lingxi-fan') return lingxiTideHitMs(event, cell);
     if (kind === 'mirror-blades') {
         const index = event.mirrorBlades?.findIndex(blade => blade.targetPos[0] === cell[0] && blade.targetPos[1] === cell[1]) ?? -1;
@@ -868,6 +943,7 @@ export function primarySkillFxLogs(logs: BattleLogEntry[], sourceHeroId?: string
 
 /** 把真实抵达时间纳入存活余量，远处命中与路径末端都能完整淡出。 */
 export function computeFxTailMs(event: SkillFxEvent): number {
+    if (event.choreography) return Math.max(0, bladeSceneEnd(event.choreography) - event.profile.durationMs);
     if (event.mirrorBlades?.length) {
         const lastHit = Math.max(...event.mirrorBlades.map((blade, index) => computeMirrorBladeTiming(blade, index).impactMs));
         return Math.max(0, lastHit + 520 - event.profile.durationMs);

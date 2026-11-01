@@ -1,8 +1,10 @@
-import { useGameStore } from '../store/game-store';
+import { createOnlineStateSnapshot, useGameStore } from '../store/game-store';
+import { applyServerGameState, commitOnlineTriggeredFx } from '../services/online-state';
 import { HeroState, Position } from '../types/game';
-import { createHero } from '../data/heroes';
+import { createHero, createWukongClone } from '../data/heroes';
 import { EffectManager } from '../core/effect-manager';
 import { DamageCalculator } from '../core/damage-calculator';
+import { tryTriggerXiangyuLastStand } from '../core/xiangyu';
 import { GameEngine } from '../core/game-engine';
 import { resolveSkillFx, computeFxAngleDeg, computeFxDirection, computeSkillAreaBounds } from '../core/skill-fx';
 import { computeFxCoveredPositions } from '../core/skill-fx-coverage';
@@ -16,6 +18,11 @@ import { planSkillSoundCues, type SkillSoundCue } from '../core/skill-sound-cues
 import { applyZhizhiForMode } from '../core/hero-zhizhi';
 import { attachDragon, gainScales } from '../core/dragon-orbit';
 import { placeCloud, placeRod, tickCloudsAtRoundStart } from '../core/thunder-cloud';
+import { placeShuangfeiyanBoomerang } from '../core/boomerang';
+import { placeFlyingSword, driftFlyingSwords, fireAttachedSwords } from '../core/flying-sword';
+import { placeBounties } from '../data/extended-heroes';
+import { runWithoutSkillFx } from '../data/extended-skills';
+import { getHnyFanPositions } from '../data/extended-heroes';
 
 interface E2EHeroSnapshot {
     id: string;
@@ -49,6 +56,13 @@ interface E2EGameSnapshot {
 declare global {
     interface Window {
         __SIX_CHESS_E2E__?: {
+            xiangyuGuardDemo: (convert?: boolean) => void;
+            prepareTianweiArrivalDemo: (mode: string) => void;
+            castTianweiArrivalDemo: () => void;
+            tianweiArrivalSnapshot: () => ReturnType<typeof createOnlineStateSnapshot>;
+            replayTianweiArrivalSnapshot: (snapshot: ReturnType<typeof createOnlineStateSnapshot>) => void;
+            prepareBladeDemo: (mode: string) => void;
+            castBladeDemo: (mode: string) => void;
             prepareSkillAudio: (skillIds: string[]) => Promise<string>;
             setBattleSoundMuted: (muted: boolean) => void;
             skillAudioSnapshot: () => Array<{ id: number; skillId?: string; bornAt: number; cues: SkillSoundCue[] }>;
@@ -65,6 +79,10 @@ declare global {
             prepareYunxiuCloudDemo: (mode?: 'center' | 'edge' | 'empty' | 'dense') => void;
             castYunxiuCloudDemo: () => unknown;
             tickYunxiuCloudDemo: () => unknown;
+            prepareSwallowDemo: (mode: 'throw' | 'triangle' | 'leap' | 'return' | 'edge') => void;
+            castSwallowDemo: () => unknown;
+            prepareHnyDemo: (mode: 'fan' | 'swap' | 'lethal' | 'edge', direction?: number) => void;
+            castHnyDemo: () => unknown;
             /** 直接切画质档位（A/B 帧耗时用）：走玩家同一个开关，不靠点按钮 */
             setQualityMode: (mode: QualityPreference) => string;
             mirrorBladeDemo: (count?: number) => boolean;
@@ -319,6 +337,65 @@ function yunxiuCloudSnapshot() {
         })), enemies: state.player2Heroes.map(hero => ({ hp: hero.currentHp, position: hero.position })) };
 }
 
+function prepareSwallowDemo(mode: 'throw' | 'triangle' | 'leap' | 'return' | 'edge') {
+    useGameStore.getState().resetGame();
+    const origin: Position = mode === 'edge' ? [0, 0] : mode === 'return' ? [4, 1] : [2, 1];
+    const caster = createHero('shuangfeiyan', 'player1', origin);
+    caster.counters['__sfy_demo_mode'] = ['throw', 'triangle', 'leap', 'return', 'edge'].indexOf(mode);
+    const cells: Position[] = mode === 'triangle' ? [[2, 3], [3, 2], [4, 1]] : mode === 'leap'
+        ? [[3, 2], [4, 4], [5, 3]] : mode === 'return' ? [[3, 3], [4, 2]] : mode === 'edge' ? [[0, 1], [0, 2]] : [[2, 2], [2, 3]];
+    const enemies = cells.map(position => {
+        const enemy = createHero('baize', 'player2', position); enemy.defense = 0; enemy.passiveId = '';
+        enemy.maxHp = enemy.currentHp = 200; return enemy;
+    });
+    const board = Array.from({ length: 6 }, () => Array(6).fill(null));
+    for (const hero of [caster, ...enemies]) board[hero.position![0]][hero.position![1]] = hero;
+    useGameStore.setState({ board, boardEffects: [], player1Heroes: [caster], player2Heroes: enemies,
+        phase: 'battle', gameMode: 'standard', currentPlayer: 'player1', selectedHero: caster, activeHero: caster,
+        selectedSkill: getSkill(mode === 'leap' ? 'shuangfeiyan_skill2' : 'shuangfeiyan_skill1')!,
+        skillFx: [], battleLog: [], skillFxExtras: undefined, actionsRequiredThisTurn: 8 });
+    const state = useGameStore.getState();
+    if (mode === 'triangle') {
+        placeShuangfeiyanBoomerang(state, caster, [2, 4]);
+        caster.counters['sfy_skillSerial'] = 1; placeShuangfeiyanBoomerang(state, caster, [5, 1]);
+        caster.counters['sfy_skillSerial'] = 2;
+    } else if (mode === 'leap') { placeShuangfeiyanBoomerang(state, caster, [4, 3]); caster.counters['sfy_skillSerial'] = 1; }
+    else if (mode === 'return') { placeShuangfeiyanBoomerang(state, caster, [2, 4]); caster.counters['sfy_skillSerial'] = 2; }
+    useGameStore.setState({ boardEffects: [...(state.boardEffects ?? [])] });
+}
+
+function prepareHnyDemo(mode: 'fan' | 'swap' | 'lethal' | 'edge', direction = 3) {
+    useGameStore.getState().resetGame();
+    const swap = mode === 'swap', origin: Position = swap ? [4, 1] : mode === 'edge' ? [0, 0] : [2, 2];
+    const caster = createHero('huanongying', 'player1', origin);
+    caster.counters.__hny_dir = direction;
+    caster.counters.__hny_demo_swap = swap ? 1 : 0;
+    const delta: Position = [[-1, 0], [1, 0], [0, -1], [0, 1]][direction] as Position;
+    const front = getHnyFanPositions(origin, direction);
+    const last = front[front.length - 1] ?? origin;
+    const deep: Position = [last[0] + delta[0], last[1] + delta[1]];
+    const cells: Position[] = swap ? [[1, 3], [2, 4], [3, 3], [4, 2]] : [...front, deep].filter(([r, c]) => r >= 0 && r < 6 && c >= 0 && c < 6);
+    const enemies = cells.map(position => {
+        const enemy = createHero('baize', 'player2', position); enemy.maxHp = enemy.currentHp = 200;
+        enemy.defense = 0; enemy.passiveId = '';
+        if (mode === 'lethal' && position[0] === last[0] && position[1] === last[1]) enemy.currentHp = 1;
+        return enemy;
+    });
+    const board = Array.from({ length: 6 }, () => Array(6).fill(null));
+    for (const hero of [caster, ...enemies]) board[hero.position![0]][hero.position![1]] = hero;
+    const allyPos: Position = swap ? [2, 2] : [deep[0] + (delta[1] ? -1 : 0), deep[1] + (delta[0] ? 1 : 0)];
+    const allies = [caster];
+    if (allyPos[0] >= 0 && allyPos[0] < 6 && allyPos[1] >= 0 && allyPos[1] < 6 && !board[allyPos[0]][allyPos[1]]) {
+        const ally = createHero('moran', 'player1', allyPos); allies.push(ally); board[allyPos[0]][allyPos[1]] = ally;
+    }
+    useGameStore.setState({ board, boardEffects: swap ? [{ id: 'hny-demo-shadow', type: 'shadow-mark',
+        position: [2, 3], sourceHeroId: caster.id, owner: caster.owner, duration: 2 }] : [],
+        player1Heroes: allies, player2Heroes: enemies, phase: 'battle', gameMode: 'standard',
+        currentPlayer: 'player1', selectedHero: caster, activeHero: caster,
+        selectedSkill: getSkill(swap ? caster.skill2Id : caster.skill1Id)!,
+        skillFx: [], battleLog: [], skillFxExtras: undefined, actionsRequiredThisTurn: 8 });
+}
+
 function prepareYunxiuCloudDemo(mode: 'center' | 'edge' | 'empty' | 'dense' = 'center'): void {
     ensureFxDemoStage();
     const edge = mode === 'edge';
@@ -393,7 +470,7 @@ function runSkillFxDemo(skillId: string, empowered = false): boolean {
     const board: (ReturnType<typeof createHero> | null)[][] = Array.from({ length: 6 }, () => Array(6).fill(null));
     // 被动/天威追加段这类 id（jiangtaigong_hook、zhiyuan_pursue）不是技能表里的键：
     // 退一步用首段当模板，才能给它们摆出同一个施法者
-    const templateId = event.profile.mechanism || !getSkill(skillId)
+    const templateId = event.choreography ? event.sourceHeroId! : event.profile.mechanism || !getSkill(skillId)
         ? skillId.split('_')[0]
         : skillId.replace(/_(skill\d+|awaken|revive|heal|followup|regen|entrance|restore|tianwei)$/, '');
     const caster = createHero(templateId === 'painting' ? 't_painting' : templateId, 'player1', event.fromPos);
@@ -953,12 +1030,112 @@ function runFxDemo(
     }
 }
 
+function prepareBladeDemo(mode: string): void {
+    ensureFxDemoStage();
+    const kind = ['order', 'reward', 'hunt'].includes(mode) ? 'bounty' : ['cuts', 'weapon', 'mark', 'auto', 'lethal'].includes(mode) ? 'huifeng' : 'xuanyuan';
+    const caster = createHero(kind, 'player1', mode === 'leap' ? [4, 1] : [3, 2]);
+    const ally = createHero('moran', 'player1', [0, 0]); ally.tianweiId = ''; ally.passiveId = '';
+    const enemies = [[2, 2], [1, 4], [4, 4]].map((pos, i) => {
+        const enemy = createHero(['baize', 'zhenxiao', 'liuli'][i], 'player2', pos as Position);
+        enemy.currentHp = enemy.maxHp = 500; enemy.defense = 0; enemy.passiveId = ''; enemy.tianweiId = ''; return enemy;
+    });
+    const board = Array.from({ length: 6 }, () => Array(6).fill(null));
+    for (const hero of [caster, ally, ...enemies]) board[hero.position![0]][hero.position![1]] = hero;
+    if (mode === 'attach') caster.counters['昭神'] = 1;
+    if (mode === 'volley') caster.counters['御剑'] = 2;
+    if (mode === 'weapon') caster.weaponId = 'huifeng';
+    if (mode === 'lethal') { enemies[0].currentHp = 1; caster.tianweiId = ''; }
+    if (mode === 'auto') {
+        EffectManager.addEffect(enemies[0], { type: 'mark', name: '啸刃', duration: -1, stackCount: 1, sourceHeroId: caster.id });
+        EffectManager.addEffect(enemies[0], { type: 'mark', name: '锋鸣', duration: -1, stackCount: 2, sourceHeroId: caster.id });
+    }
+    useGameStore.setState({ board, boardEffects: [], player1Heroes: [caster, ally], player2Heroes: enemies,
+        phase: 'battle', gameMode: 'standard', currentPlayer: 'player1', selectedHero: caster, activeHero: caster,
+        selectedSkill: null, skillFx: [], battleLog: [], skillFxExtras: undefined,
+        isAiMode: false, isOnlineMode: false, actionsThisTurn: 0, actionsRequiredThisTurn: 8, roundNumber: 1,
+        pendingBoardAction: undefined, pendingExtraActionHeroIds: {}, performingExtraAction: false });
+    const state = useGameStore.getState();
+    if (['drift', 'leap', 'recall', 'attach'].includes(mode)) {
+        for (const pos of (mode === 'attach' ? [[0, 1], [1, 1], [3, 3]] : [[2, 1], [2, 3], [4, 3]]) as Position[]) placeFlyingSword(state, caster, pos);
+    }
+    if (mode === 'reward') runWithoutSkillFx(() => placeBounties(caster, state));
+    useGameStore.setState({ boardEffects: [...(state.boardEffects ?? [])], player2Heroes: [...enemies] });
+}
+
+function castBladeDemo(mode: string): void {
+    const state = useGameStore.getState(), caster = state.player1Heroes[0];
+    if (mode === 'drift') { driftFlyingSwords(state, caster); useGameStore.setState({ boardEffects: [...state.boardEffects!] }); return; }
+    if (mode === 'volley') { fireAttachedSwords(caster, state); useGameStore.setState({ boardEffects: [...state.boardEffects!] }); return; }
+    if (mode === 'order') { placeBounties(caster, state); useGameStore.setState({ player2Heroes: [...state.player2Heroes] }); return; }
+    if (mode === 'reward') {
+        const killer = state.player1Heroes[1], victim = state.player2Heroes[0];
+        DamageCalculator.applyDamage(victim, DamageCalculator.calculate(killer, victim, 999, false, false, { fixedDamage: true }), killer, state);
+        useGameStore.setState({ board: state.board.map(row => [...row]), player1Heroes: [...state.player1Heroes], player2Heroes: [...state.player2Heroes] });
+        return;
+    }
+    const second = ['recall', 'attach', 'mark'].includes(mode);
+    const skill = getSkill(second ? caster.skill2Id : caster.skill1Id)!;
+    useGameStore.setState({ selectedSkill: skill });
+    useGameStore.getState().executeSkill(mode === 'leap' ? [2, 3] : second ? caster.position! : state.player2Heroes[0].position!);
+}
+
+function prepareTianweiArrivalDemo(mode: string): void {
+    ensureFxDemoStage();
+    const frost = mode.startsWith('frost');
+    const stanceHero = mode.startsWith('guying') ? 'guying' : mode.startsWith('nightowl') ? 'nightowl' : undefined;
+    const caster = createHero(stanceHero ?? (frost ? 'feixue' : 'wukong'), 'player1', ['monkey-blocked', 'monkey-edge'].includes(mode) || mode.endsWith('-edge') && !!stanceHero ? [0, 0] : [3, 1]);
+    const victim = createHero('moran', 'player2', [3, 2]); victim.passiveId = ''; victim.tianweiId = ''; victim.currentHp = 1;
+    const target = createHero('baize', 'player2', mode === 'frost-edge' ? [0, 5] : [1, 4]);
+    target.currentHp = 18; target.passiveId = ''; target.tianweiId = '';
+    if (frost && mode !== 'frost-empty') EffectManager.addEffect(target, { type: 'debuff', name: '寒天', stackCount: 2, duration: 3, sourceHeroId: caster.id });
+    if (mode.endsWith('-paralyzed')) EffectManager.addEffect(caster, { type: 'debuff', name: '麻痹', duration: 1, sourceHeroId: caster.id });
+    const board = Array.from({ length: 6 }, () => Array(6).fill(null));
+    for (const hero of [caster, victim, target]) board[hero.position![0]][hero.position![1]] = hero;
+    const allies = [caster];
+    if (mode === 'monkey-blocked') for (const pos of [[0, 1], [1, 0], [1, 1]] as Position[]) {
+        const friend = createHero('liuli', 'player1', pos); allies.push(friend); board[pos[0]][pos[1]] = friend;
+    }
+    if (mode === 'monkey-full') for (let i = 0; i < 3; i++) board[0][i] = createWukongClone('player1', caster.id, [0, i], 10);
+    if (mode === 'monkey-clone-kill') board[3][0] = createWukongClone('player1', caster.id, [3, 0], 10);
+    useGameStore.setState({ board, boardEffects: [], player1Heroes: allies, player2Heroes: [victim, target],
+        phase: 'battle', gameMode: 'standard', currentPlayer: 'player1', selectedHero: caster, activeHero: caster,
+        selectedSkill: null, skillFx: [], battleLog: [], skillFxExtras: undefined,
+        isAiMode: false, isOnlineMode: false, actionsThisTurn: 0, actionsRequiredThisTurn: 8, roundNumber: 1,
+        pendingBoardAction: undefined, pendingExtraActionHeroIds: {}, performingExtraAction: false });
+}
+
+function castTianweiArrivalDemo(): void {
+    const state = useGameStore.getState(), hero = state.player1Heroes[0], victim = state.player2Heroes[0];
+    const killer = state.board[3][0]?.counters.__isClone === 1 ? state.board[3][0]! : hero;
+    DamageCalculator.applyDamage(victim, DamageCalculator.calculate(killer, victim, 100, false, false, { fixedDamage: true }), killer, state);
+    useGameStore.setState({ board: state.board.map(row => [...row]), player1Heroes: [...state.player1Heroes], player2Heroes: [...state.player2Heroes] });
+}
+
 export function installE2EBridge(): void {
     if (import.meta.env.VITE_E2E !== 'true' || typeof window === 'undefined') return;
     // 取帧脚本要就地改一份特效事件的几何（例如抛掷的钓线得真的跨过棋盘才判读得出长短），
     // 所以把 store 本身也挂出来；只在 VITE_E2E 构建里存在，正式包拿不到。
     (window as unknown as { __SIX_CHESS_STORE__?: typeof useGameStore }).__SIX_CHESS_STORE__ = useGameStore;
     window.__SIX_CHESS_E2E__ = {
+        xiangyuGuardDemo: (convert = false) => {
+            runSkillFxDemo('xiangyu_skill1');
+            const state = useGameStore.getState(), hero = state.player1Heroes[0], enemy = state.player2Heroes[0];
+            useGameStore.setState({ skillFx: [], battleLog: [], selectedHero: null, activeHero: null });
+            hero.currentHp = 10; hero.defense = 0; hero.shield = 0;
+            const current = useGameStore.getState();
+            tryTriggerXiangyuLastStand(hero, current);
+            if (convert) DamageCalculator.applyDamage(hero, DamageCalculator.calculate(enemy, hero, 18, false, false, { fixedDamage: true }), enemy, current);
+            useGameStore.setState({ board: current.board.map(row => [...row]), player1Heroes: [...current.player1Heroes] });
+        },
+        prepareTianweiArrivalDemo,
+        castTianweiArrivalDemo,
+        tianweiArrivalSnapshot: () => createOnlineStateSnapshot(useGameStore.getState()),
+        replayTianweiArrivalSnapshot: snapshot => {
+            const seen = new Set(useGameStore.getState().battleLog.map(log => log.id));
+            applyServerGameState(snapshot); commitOnlineTriggeredFx(seen);
+        },
+        prepareBladeDemo,
+        castBladeDemo,
         prepareSkillAudio: async skillIds => {
             audioManager.unlock();
             await soundManager.warmupFor(skillIds);
@@ -978,6 +1155,26 @@ export function installE2EBridge(): void {
         prepareTimingDemo,
         castTimingDemo: () => useGameStore.getState().executeSkill([2, 3]),
         prepareWangshuDemo,
+        prepareHnyDemo,
+        castHnyDemo: () => {
+            const caster = useGameStore.getState().player1Heroes[0], dir = caster.counters.__hny_dir ?? 3;
+            const delta: Position = [[-1, 0], [1, 0], [0, -1], [0, 1]][dir] as Position;
+            useGameStore.getState().executeSkill(caster.counters.__hny_demo_swap ? [2, 3]
+                : [caster.position![0] + delta[0], caster.position![1] + delta[1]]);
+            const state = useGameStore.getState();
+            return { events: state.skillFx.map(event => ({ id: event.id, kind: event.profile.kind, skillId: event.skillId,
+                bornAt: event.bornAt, hny: event.hny, fromPos: event.fromPos, targetPos: event.targetPos,
+                damagePositions: event.damagePositions, logIds: event.logIds })),
+                heroes: [...state.player1Heroes, ...state.player2Heroes].map(hero => ({ id: hero.id, hp: hero.currentHp, owner: hero.owner, position: hero.position })) };
+        },
+        prepareSwallowDemo,
+        castSwallowDemo: () => {
+            const caster = useGameStore.getState().player1Heroes[0], mode = caster.counters['__sfy_demo_mode'];
+            useGameStore.getState().executeSkill(mode === 1 ? [2, 1] : mode === 2 ? [4, 3] : mode === 3 ? [4, 3] : mode === 4 ? [0, 3] : [2, 4]);
+            return useGameStore.getState().skillFx.map(event => ({ id: event.id, skillId: event.skillId,
+                kind: event.profile.kind, bornAt: event.bornAt, fromPos: event.fromPos, targetPos: event.targetPos,
+                swallow: event.swallow, logIds: event.logIds, impactPositions: event.impactPositions }));
+        },
         prepareYunxiuCloudDemo,
         castYunxiuCloudDemo: () => {
             const caster = useGameStore.getState().player1Heroes[0];

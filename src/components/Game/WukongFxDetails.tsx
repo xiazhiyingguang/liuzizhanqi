@@ -20,10 +20,10 @@ export function WukongCloudFx({ front = false }: { front?: boolean }) {
 }
 
 /** 金色剪影保留“烟中凝形”，冠翎、肩甲、披帛和持棒姿态让轮廓可识别。 */
-export function WukongFigureGlyph() {
+export function WukongFigureGlyph({ width, height }: { width?: number; height?: number } = {}) {
     const id = `wk-figure-${useId().replace(/:/g, '')}`;
     return (
-        <svg viewBox="0 0 80 110" aria-hidden="true">
+        <svg viewBox="0 0 80 110" width={width} height={height} style={width !== undefined || height !== undefined ? { width, height } : undefined} aria-hidden="true">
             <defs>
                 <linearGradient id={id} x1="0" y1="0" x2="1" y2="0.8">
                     <stop stopColor="#76501c" stopOpacity="0.8" />

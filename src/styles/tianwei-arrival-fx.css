@@ -1,0 +1,30 @@
+.tw-arrival { --tw-pitch:calc(var(--board-cell-size,76px) + 6px); position:absolute; inset:0; pointer-events:none; }
+.tw-scene { position:absolute; left:calc(var(--tw-c) * var(--tw-pitch) * -1 - 4px); top:calc(var(--tw-r) * var(--tw-pitch) * -1 - 4px); width:calc(var(--tw-pitch) * 6); height:calc(var(--tw-pitch) * 6); overflow:hidden; clip-path:inset(3px); fill:none; stroke-linecap:round; stroke-linejoin:round; }
+.tw-ground-wash,.tw-thread { stroke-dasharray:100; stroke-dashoffset:100; opacity:0; animation:tw-trace var(--tw-arrive) ease-out both,tw-fade 330ms ease-out var(--tw-arrive) forwards; }
+.tw-ground-wash { stroke:#597e91; stroke-width:10; stroke-opacity:.1; }
+.tw-thread { stroke:#aecad1; stroke-width:1.8; }
+.tw-clone .tw-ground-wash { display:none; }
+.tw-clone .tw-thread { stroke:#bc9c5e; stroke-width:.8; stroke-opacity:.38; }
+.tw-source { stroke:#8eabb5; stroke-width:1.5; opacity:0; animation:tw-pulse 450ms ease-out both; }
+.tw-clone .tw-source { stroke:#b49858; }
+.tw-frost-foot { fill:#a3c1cb; fill-opacity:.15; stroke:#7d9eae; stroke-width:1; opacity:0; animation:tw-pulse 640ms ease-out var(--tw-arrive) both; }
+.tw-ice-shell { stroke:#a1bec9; stroke-width:1.3; opacity:0; transform-box:fill-box; transform-origin:50% 100%; animation:tw-freeze 680ms ease-out var(--tw-arrive) both; }
+.tw-ice-shell path:last-child { fill:none; stroke:#edf6f1; stroke-width:1.1; }
+.tw-ice-splinters { fill:#d2e4e7; stroke:#98b3bd; stroke-width:.6; opacity:0; animation:tw-pulse 420ms ease-out calc(var(--tw-arrive) + 120ms) both; }
+.tw-smoke { fill:#6d6252; fill-opacity:.18; stroke:#cbb891; stroke-width:1; opacity:0; animation:tw-smoke 650ms ease-out var(--tw-arrive) both; transform-box:fill-box; transform-origin:50% 75%; }
+.tw-smoke path+path { fill:none; stroke:#e7dbc2; stroke-width:1.5; }
+.tw-smoke-front { fill:#b9aa89; fill-opacity:.35; animation-delay:calc(var(--tw-arrive) + 80ms); }
+.tw-monkey-figure { opacity:0; animation:tw-figure 340ms ease-out 440ms both; }
+.tw-monkey-figure svg { width:60px; height:83px; }
+.tw-clone-reveal { opacity:0; animation:tw-clone-reveal 200ms ease-out 580ms both; }
+.tw-clone-avatar { width:54px; height:54px; overflow:hidden; border-radius:9px; border:1px solid #b49c66; background:#ede5d2; }
+.tw-arrival-clone-hidden { visibility:hidden; }
+@keyframes tw-trace { 0%{opacity:0;stroke-dashoffset:100} 12%{opacity:1} 100%{opacity:1;stroke-dashoffset:0} }
+@keyframes tw-fade { to{opacity:0} }
+@keyframes tw-pulse { 0%{opacity:0} 25%,55%{opacity:.9} 100%{opacity:0} }
+@keyframes tw-freeze { 0%{opacity:0;transform:scaleY(.1)} 30%{opacity:.9;transform:scaleY(1)} 65%{opacity:.8} 100%{opacity:0;transform:scaleY(1)} }
+@keyframes tw-smoke { 0%{opacity:0;transform:scale(.35)} 25%{opacity:1;transform:scale(1)} 100%{opacity:0;transform:scale(1.35) translateY(-9px)} }
+@keyframes tw-figure { 0%{opacity:0} 35%,65%{opacity:.9} 100%{opacity:0} }
+@keyframes tw-clone-reveal { 0%{opacity:0;clip-path:inset(100% 0 0)} 35%{opacity:1} 94%{opacity:1;clip-path:inset(0)} 100%{opacity:0;clip-path:inset(0)} }
+html[data-quality="low"] .tw-ground-wash,html[data-quality="low"] .tw-ice-splinters { display:none; }
+@media(prefers-reduced-motion:reduce) { .tw-arrival * { animation:none!important; opacity:0!important; } .tw-arrival-clone-hidden { visibility:visible; } }

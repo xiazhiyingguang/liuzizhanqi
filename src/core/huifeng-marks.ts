@@ -3,6 +3,7 @@ import { zhizhiValue } from './hero-zhizhi';
 import { GameState, Hero, HeroState } from '../types/game';
 import { DamageCalculator } from './damage-calculator';
 import { EffectManager } from './effect-manager';
+import { requestBladeScene, type BladeStroke } from './blade-choreography';
 
 /**
  * 回锋「破锋 / 连破 / 啸刃 / 锋鸣」体系：
@@ -30,13 +31,18 @@ const HUIFENG_AUTO_CHAIN_LIMIT = 6;
 
 /** 一次回锋出手的共享上下文：同一次技能/天威结算内的日志、伤害与连锁计数 */
 export interface HuifengStrikeContext {
+    strokes?: BladeStroke[];
     log: string[];
     damageDealt: number[];
     autoCast: number;
 }
 
 export function createHuifengStrikeContext(): HuifengStrikeContext {
-    return { log: [], damageDealt: [], autoCast: 0 };
+    return { log: [], damageDealt: [], autoCast: 0, strokes: [] };
+}
+
+export function publishHuifengFx(caster: Hero, gameState: GameState, context: HuifengStrikeContext): void {
+    requestBladeScene(caster, gameState, 'cuts', context.strokes ?? [], `${caster.name}飞刃出鞘`);
 }
 
 /** 场上可被回锋攻击的敌方单位（已部署且存活） */
@@ -179,6 +185,9 @@ function huifengStrike(
 ): void {
     if (target.state !== HeroState.ALIVE) return;
 
+    const from = caster.position ? [...caster.position] as [number, number] : null;
+    const to = target.position ? [...target.position] as [number, number] : null;
+    const before = new Set(gameState.battleLog.map(log => log.id));
     const damage = DamageCalculator.calculate(
         caster,
         target,
@@ -186,6 +195,13 @@ function huifengStrike(
         false
     );
     DamageCalculator.applyDamage(target, damage, caster, gameState);
+    if (from && to) {
+        context.strokes ??= [];
+        const index = context.strokes.length;
+        context.strokes.push({ from, to, start: index * 115, arrive: 200 + index * 115,
+            logIds: gameState.battleLog.filter(log => !before.has(log.id) && log.type === 'damage' &&
+                log.details?.sourceHeroId === caster.id && log.details?.targetHeroId === target.id && !log.details?.skillFxRequest).map(log => log.id) });
+    }
     context.damageDealt.push(damage.finalDamage);
 
     const poFengNote = options.gainPoFeng ? `，破锋${gainPoFeng(caster)}层` : '';
@@ -268,4 +284,5 @@ export function executeHuifengTianwei(caster: Hero, gameState: GameState): void 
             });
         }
     }
+    publishHuifengFx(caster, gameState, context);
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { enterGameFullscreen, exitGameFullscreen, isGameFullscreen, isStandaloneGame } from '../../core/game-fullscreen';
+import { enterGameFullscreen, exitGameFullscreen, installGameFullscreenRecovery, isGameFullscreen, isStandaloneGame, setGameFullscreenPreference } from '../../core/game-fullscreen';
 import { useMobileLayout } from '../../hooks/useMobileLayout';
 
 export default function FullscreenControl() {
@@ -8,16 +8,27 @@ export default function FullscreenControl() {
     const [fullscreen, setFullscreen] = useState(isGameFullscreen);
     const [standalone, setStandalone] = useState(isStandaloneGame);
     const [showHelp, setShowHelp] = useState(false);
+    const [restoreNeeded, setRestoreNeeded] = useState(false);
+
+    useEffect(() => installGameFullscreenRecovery(setRestoreNeeded), []);
 
     useEffect(() => {
-        const sync = () => { setFullscreen(isGameFullscreen()); setStandalone(isStandaloneGame()); };
+        const sync = () => {
+            const active = isGameFullscreen();
+            const installed = isStandaloneGame();
+            setFullscreen(active);
+            setStandalone(installed);
+            if (active || installed) setShowHelp(false);
+        };
         const display = window.matchMedia('(display-mode: standalone)');
         document.addEventListener('fullscreenchange', sync);
         document.addEventListener('webkitfullscreenchange', sync);
+        window.addEventListener('pageshow', sync);
         display.addEventListener('change', sync);
         return () => {
             document.removeEventListener('fullscreenchange', sync);
             document.removeEventListener('webkitfullscreenchange', sync);
+            window.removeEventListener('pageshow', sync);
             display.removeEventListener('change', sync);
         };
     }, []);
@@ -30,15 +41,25 @@ export default function FullscreenControl() {
     }, [showHelp]);
 
     if (!mobile || standalone) return null;
+    const enter = () => {
+        void enterGameFullscreen().then(success => { if (!success) setShowHelp(true); });
+    };
     return <>
         <button type="button" data-testid="fullscreen-control" className="mobile-fullscreen-control" data-sfx="toggle"
             aria-label={fullscreen ? '退出全屏' : '进入全屏'} aria-pressed={fullscreen}
             onClick={() => {
                 if (fullscreen) { void exitGameFullscreen(); return; }
-                void enterGameFullscreen().then(success => { if (!success) setShowHelp(true); });
+                enter();
             }}>
             {fullscreen ? '退出' : '全屏'}
         </button>
+        {restoreNeeded && createPortal(<div className="mobile-fullscreen-restore" role="group" aria-label="恢复全屏游玩">
+            <button type="button" data-testid="fullscreen-restore" onClick={enter}>
+                <span aria-hidden="true">⛶</span> 恢复全屏
+            </button>
+            <button type="button" className="mobile-fullscreen-restore-dismiss" aria-label="取消自动恢复全屏"
+                onClick={() => setGameFullscreenPreference(false)}>×</button>
+        </div>, document.body)}
         {showHelp && createPortal(<div className="fullscreen-help fixed inset-0 z-[110] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="fullscreen-help-title">
             <button type="button" className="absolute inset-0 bg-ink/55" aria-label="关闭全屏说明" onClick={() => setShowHelp(false)} />
             <div className="ink-card relative flex w-full max-w-sm flex-col p-5">

@@ -1,0 +1,47 @@
+/* 独立姿态：只动画 transform/opacity/stroke，不做满屏光效与 blur。 */
+.ts-stance { position:absolute; inset:0; pointer-events:none; }
+.ts-action { position:absolute; left:0; top:-8%; width:100%; height:100%; overflow:visible; }
+.ts-emblem { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.ts-steel { fill:#557b89; stroke:#b8d9d7; stroke-width:.8; }
+.ts-frost-edge { fill:none; stroke:#e1eeea; stroke-width:1.5; stroke-linecap:round; }
+.ts-hilt { fill:none; stroke:#879b9b; stroke-width:2.5; }
+.ts-snow-seal { fill:none; stroke:#aacbcf; stroke-width:1.3; stroke-linecap:round; }
+.ts-drawn-sword { transform-origin:60px 44px; animation:ts-sword-coat 1100ms both; }
+.ts-drawn-sword .ts-frost-edge { stroke-dasharray:150; animation:ts-coat 1100ms both; }
+.ts-snow-wake { fill:#87b1bc; animation:ts-cut-wake 1100ms both; transform-origin:50px 50px; }
+.ts-snow-cut { fill:none; stroke:#e0ece4; stroke-width:2; stroke-dasharray:100; animation:ts-cut 1100ms both; }
+.ts-snow-cut-b { stroke:#7096a5; stroke-width:1; animation-delay:55ms; }
+.ts-ice-chips { fill:#a4c6cd; animation:ts-chips 1100ms both; }
+.ts-stance > .ts-emblem { inset:-10%; width:120%; height:120%; animation:ts-emblem-in 1100ms both; }
+.ts-ink-fold { fill:#222b34; transform-origin:50px 60px; animation:ts-ink-fold 1100ms both; }
+.ts-fold-feather { fill:#283440; stroke:#71818b; stroke-width:.7; transform-origin:0 0; animation:ts-feather-fold 1100ms both; }
+.ts-fold-feather-0 { --ts-x:5px; --ts-y:30px; --ts-end-x:20px; --ts-end-y:52px; --ts-a:-32deg; --ts-end-a:-18deg; }
+.ts-fold-feather-1 { --ts-x:95px; --ts-y:30px; --ts-end-x:80px; --ts-end-y:52px; --ts-a:32deg; --ts-end-a:18deg; }
+.ts-fold-feather-2 { --ts-x:12px; --ts-y:78px; --ts-end-x:30px; --ts-end-y:76px; --ts-a:-58deg; --ts-end-a:-32deg; }
+.ts-fold-feather-3 { --ts-x:88px; --ts-y:78px; --ts-end-x:70px; --ts-end-y:76px; --ts-a:58deg; --ts-end-a:32deg; }
+.ts-feather-vein { fill:none; stroke:#9da9ad; stroke-width:.6; }
+.ts-owl-shadow { fill:none; stroke:#18232e; stroke-width:8; opacity:.6; }
+.ts-owl-edge { fill:none; stroke:#9ca8af; stroke-width:1.4; stroke-linejoin:round; }
+.ts-owl-feather { fill:#283542; stroke:#7c8e9a; stroke-width:.7; }
+/* 只淡身，不隐藏血条、名字、阵营边框；事件结束后自动还原。 */
+.battle-board-cell:has(.ts-ink-stealth) .hero-piece-avatar { animation:ts-avatar-hide 1100ms both; }
+/* 常驻标记不覆盖脸，也不再叠旋转光环。 */
+.sfx-duanxue:has(.ts-emblem), .sfx-stealth:has(.ts-emblem) { inset:-10%; }
+.piece-shell:has(.ts-stance) > .status-fx:has(.ts-emblem) { visibility:hidden; }
+@keyframes ts-coat { 0% { stroke-dashoffset:150; opacity:0; } 22%,50% { stroke-dashoffset:0; opacity:1; } 75%,100% { opacity:0; } }
+@keyframes ts-sword-coat { 0% { opacity:0; transform:translate(-5px,8px) rotate(-12deg); } 18%,35% { opacity:1; transform:none; } 62%,100% { opacity:0; transform:translate(14px,-8px) rotate(8deg); } }
+@keyframes ts-cut { 0%,28% { opacity:0; stroke-dashoffset:100; } 36% { opacity:1; stroke-dashoffset:0; } 61%,100% { opacity:0; stroke-dashoffset:-10; } }
+@keyframes ts-cut-wake { 0%,29% { opacity:0; transform:scaleX(.3); } 38% { opacity:.7; transform:scaleX(1); } 63%,100% { opacity:0; } }
+@keyframes ts-chips { 0%,33% { opacity:0; transform:translate(-5px,4px); } 42% { opacity:.8; } 76%,100% { opacity:0; transform:translate(5px,-7px); } }
+@keyframes ts-emblem-in { 0%,53% { opacity:0; transform:scale(1.1); } 84%,100% { opacity:1; transform:none; } }
+@keyframes ts-ink-fold { 0% { opacity:0; transform:scale(1.14); } 23% { opacity:.8; } 61% { opacity:.45; transform:scale(.84); } 90%,100% { opacity:0; transform:scale(.76); } }
+@keyframes ts-feather-fold { 0% { opacity:0; transform:translate(var(--ts-x),var(--ts-y)) rotate(var(--ts-a)); } 20% { opacity:1; } 66% { opacity:.7; transform:translate(var(--ts-end-x),var(--ts-end-y)) rotate(var(--ts-end-a)) scale(.7); } 88%,100% { opacity:0; transform:translate(var(--ts-end-x),var(--ts-end-y)) rotate(var(--ts-end-a)) scale(.5); } }
+@keyframes ts-avatar-hide { 0%,100% { opacity:1; } 27%,52% { opacity:.38; } 78% { opacity:.8; } }
+.fx-lite .ts-ice-chips, .fx-lite .ts-fold-feather-2, .fx-lite .ts-fold-feather-3 { display:none; }
+@media (prefers-reduced-motion:reduce) {
+    .ts-stance { display:none; }
+    .piece-shell:has(.ts-stance) > .status-fx:has(.ts-emblem) { visibility:visible; }
+    .battle-board-cell:has(.ts-ink-stealth) .hero-piece-avatar { animation:none; opacity:1; }
+    .status-fx:has(.ts-emblem) { display:block !important; opacity:1 !important; }
+    .status-fx .ts-emblem, .status-fx .ts-emblem * { opacity:1 !important; animation:none !important; }
+}

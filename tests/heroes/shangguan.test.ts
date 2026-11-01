@@ -217,7 +217,7 @@ describe('上官婉儿笔走龙蛇：撞碎毛笔回收并刷新冲刺', () => {
         expect(shangguan.hasActedThisTurn).toBe(true);
     });
 
-    it('行动结束后毛笔朝婉儿移动：未被撞碎回收的毛笔继续生效（9点固定伤害）', () => {
+    it('行动结束后毛笔朝婉儿移动：未被撞碎回收的毛笔继续生效（9点伤害）', () => {
         const state = makeGameState();
         const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
         const brush = makeBrush(state, [3, 0], 'player1', shangguan.id, 'brush-live');
@@ -225,12 +225,12 @@ describe('上官婉儿笔走龙蛇：撞碎毛笔回收并刷新冲刺', () => {
 
         GameEngine.endHeroAction(shangguan, state);
 
-        // 毛笔朝婉儿移动1格到 [3,1]，敌人被毛笔掠过受9点固定伤害
+        // 毛笔朝婉儿移动1格到 [3,1]，敌人被毛笔掠过受9点伤害
         expect(brush.position).toEqual([3, 1]);
         expect(enemy.currentHp).toBe(enemy.maxHp - 9);
     });
 
-    it('落笔直中敌人：立即9点固定伤害', () => {
+    it('落笔直中敌人：立即9点伤害', () => {
         const state = makeGameState();
         const shangguan = addHero(state, 'shangguan', 'player1', [3, 3]);
         const enemy = addHero(state, 'baize', 'player2', [3, 5]);

@@ -1,0 +1,65 @@
+/* 双燕回风：窄银刃、墨青金属与少量暖金刃口，动作轮廓先于辉光。 */
+.sfy-performance { --sfy-pitch: calc(var(--board-cell-size,76px) + 6px); position: absolute; inset: 0; pointer-events: none; }
+.sfy-scene {
+    position: absolute;
+    left: calc(var(--sfy-origin-c) * var(--sfy-pitch) * -1 - 4px);
+    top: calc(var(--sfy-origin-r) * var(--sfy-pitch) * -1 - 4px);
+    width: calc(var(--sfy-pitch) * 6); height: calc(var(--sfy-pitch) * 6);
+    overflow: hidden; clip-path: inset(3px); fill: none; stroke-linecap: round; stroke-linejoin: round;
+}
+.sfy-blade-glyph { display: block; width: 100%; height: 100%; filter: drop-shadow(0 1px 1px #233c4059); }
+.sfy-flight-track { stroke: #365e5d; stroke-width: 1.5; opacity: .26; stroke-dasharray: 100; stroke-dashoffset: 100;
+    animation: sfy-route var(--sfy-travel) linear var(--sfy-launch) forwards, sfy-route-fade 240ms ease-out var(--sfy-landing) forwards; }
+.sfy-flight-wake {
+    stroke: #eaf4de; stroke-width: 3.2; stroke-dasharray: 13 87; stroke-dashoffset: 13; opacity: 0;
+    animation: sfy-wake var(--sfy-travel) linear var(--sfy-launch) both;
+}
+@keyframes sfy-route { to { stroke-dashoffset: 0; } }
+@keyframes sfy-route-fade { to { opacity: 0; } }
+@keyframes sfy-wake { 0% { stroke-dashoffset: 13; opacity: 0; } 12% { opacity: .75; } 85% { opacity: .65; } 100% { stroke-dashoffset: -100; opacity: 0; } }
+.sfy-contact { opacity: 0; animation: sfy-contact 420ms ease-out var(--sfy-hit,520ms) both; }
+.sfy-hit-ink { stroke: #34595c; stroke-width: 4; }
+.sfy-hit-silver { stroke: #eff6e9; stroke-width: 1.6; }
+.sfy-hit-chips { stroke: #cbb378; stroke-width: 1.3; }
+@keyframes sfy-contact { 0% { opacity: 0; transform: scale(.5); } 13% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.22); } }
+.sfy-triangle-wash { fill: #6c9a8d; opacity: 0; animation: sfy-triangle-wash 1000ms ease-out both; }
+.sfy-triangle-line { stroke: #547e78; stroke-width: 1.7; stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0;
+    animation: sfy-triangle-trace 240ms ease-out 70ms forwards, sfy-triangle-fade 360ms ease-in 760ms forwards; }
+.sfy-triangle-edge { stroke: #e4d0a1; stroke-width: 2.4; opacity: 0; animation: sfy-triangle-flash 400ms ease-out 470ms both; }
+@keyframes sfy-triangle-wash { 0% { opacity: 0; } 30% { opacity: .03; } 52% { opacity: .07; } 100% { opacity: 0; } }
+@keyframes sfy-triangle-trace { 0% { opacity: 0; } 30% { opacity: .85; } 100% { opacity: .8; stroke-dashoffset: 0; } }
+@keyframes sfy-triangle-fade { to { opacity: 0; } }
+@keyframes sfy-triangle-flash { 0% { opacity: 0; } 13% { opacity: .8; } 100% { opacity: 0; } }
+.sfy-scissor-cut, .sfy-scissor-shadow { stroke: #f2f5df; stroke-width: 2.4; opacity: 0;
+    animation: sfy-scissor-cut 430ms ease-out var(--sfy-cut-delay) both; }
+.sfy-scissor-shadow { stroke: #446b66; stroke-width: 6; stroke-opacity: .3; }
+.sfy-triangle-ready { animation: sfy-ready 30ms linear 320ms forwards; }
+@keyframes sfy-ready { to { opacity: 0; } }
+@keyframes sfy-scissor-cut { 0% { opacity: 0; } 28% { opacity: .9; } 100% { opacity: 0; } }
+.sfy-flying-avatar { width: 100%; height: 100%; border-radius: 10px; overflow: hidden; border: 2px solid #668c85; background: #263c4d; box-shadow: 0 2px 5px #27444240; }
+.sfy-leap-wings { fill: #eff6e11c; stroke: #d6dfc3; stroke-width: 1.7; }
+.sfy-leap-landing { stroke: #9eae91; opacity: 0; animation: sfy-leap-land 620ms ease-out var(--sfy-landing) both; }
+.sfy-leap-landing ellipse { stroke: #839e8c; stroke-width: 1.2; }
+.sfy-leap-landing path { stroke: #e4d2a6; stroke-width: 3; }
+@keyframes sfy-leap-land { 0% { opacity: 0; transform: scale(.35); } 18% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.13); } }
+.sfy-arrival-hidden { visibility: hidden; }
+.bf-boomerang:has(.sfy-blade-glyph), .bf-boomerang-occupied:has(.sfy-blade-glyph) { filter: none; }
+.bf-boomerang:has(.sfy-blade-glyph) { inset: 22%; animation-duration: 4s; }
+.bf-boomerang:has(.sfy-blade-glyph)::after, .bf-boomerang-occupied:has(.sfy-blade-glyph)::after {
+    content: ''; position: absolute; left: 50%; bottom: 0; width: 3px; height: 3px;
+    border-radius: 50%; background: #5b7b9e;
+}
+.bf-boomerang-p2:has(.sfy-blade-glyph)::after { background: #ba6b51; }
+[data-quality='low'] .sfy-flight-track { display: none; }
+[data-quality='low'] .sfy-blade-glyph { filter: none; }
+@media (prefers-reduced-motion: reduce) {
+    .sfy-flight-track, .sfy-flight-wake { animation: none; opacity: .22; stroke-dasharray: none; stroke-dashoffset: 0; }
+    .sfy-triangle-line { animation: none; opacity: .6; stroke-dashoffset: 0; }
+    .sfy-triangle-wash { animation: none; opacity: .06; }
+    .sfy-triangle-ready { animation: none; opacity: 0; }
+    .sfy-triangle-edge, .sfy-scissor-cut, .sfy-scissor-shadow { animation: none; opacity: .2; }
+    .sfy-arrival-hidden { visibility: visible; }
+    .sfy-contact { animation: sfy-still 400ms linear var(--sfy-hit) forwards; }
+    .sfy-leap-landing { animation: sfy-still 400ms linear var(--sfy-landing) forwards; }
+    @keyframes sfy-still { 0% { opacity: .75; } 100% { opacity: 0; } }
+}

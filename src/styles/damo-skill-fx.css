@@ -1,0 +1,136 @@
+/* 达摩：贴身冲撞与易筋四拳的专属表现。拳面只用 currentColor，配色走 --fx-c1。 */
+.damo-charge-caster,
+.damo-charge-impact,
+.damo-flurry-caster,
+.damo-flurry-impact {
+    color: var(--fx-c1, #b08d57);
+}
+
+.damo-fist {
+    position: absolute;
+    inset: 30%;
+    display: block;
+    color: var(--fx-c1, #b08d57);
+    filter: drop-shadow(0 0 4px var(--fx-glow, rgba(176, 141, 87, 0.55)));
+    animation: damo-fist-pop calc(var(--fx-duration, 900ms) * 0.42) ease-out both;
+}
+
+.damo-fist svg {
+    width: 100%;
+    height: 100%;
+}
+
+@keyframes damo-fist-pop {
+    0% { transform: scale(0.42) rotate(-8deg); opacity: 0; }
+    35% { transform: scale(1.16) rotate(2deg); opacity: 1; }
+    100% { transform: scale(0.96) rotate(0deg); opacity: 0; }
+}
+
+/* 一苇渡江：肩背残影沿冲撞方向拖出去 */
+.damo-charge-caster {
+    transform: rotate(var(--fx-rot, 0deg));
+}
+
+.damo-charge-trail {
+    filter: drop-shadow(0 0 3px var(--fx-glow, rgba(176, 141, 87, 0.5)));
+}
+
+.damo-charge-shoulder {
+    position: absolute;
+    inset: 22% 34% 22% 26%;
+    border-radius: 48% 42% 40% 50%;
+    background: linear-gradient(90deg, transparent, var(--fx-c2, #f7ead0));
+    opacity: 0.5;
+    animation: damo-shoulder 520ms ease-out both;
+}
+
+@keyframes damo-shoulder {
+    0% { transform: translateX(-18%); opacity: 0; }
+    35% { opacity: 0.65; }
+    100% { transform: translateX(10%); opacity: 0; }
+}
+
+/* 撞山：山壁裂纹从拳面外侧炸开 */
+.damo-mountain-crack {
+    position: absolute;
+    inset: -8% -12% -8% 42%;
+    background:
+        linear-gradient(118deg, transparent 46%, var(--fx-c2, #f7ead0) 47%, transparent 49%),
+        linear-gradient(64deg, transparent 54%, var(--fx-c1, #b08d57) 55%, transparent 57%),
+        linear-gradient(150deg, transparent 62%, var(--fx-c2, #f7ead0) 63%, transparent 65%);
+    opacity: 0;
+    animation: damo-crack 720ms ease-out both;
+}
+
+.damo-charge-impact.is-mountain .fxp-hitflash {
+    animation-duration: 520ms;
+}
+
+@keyframes damo-crack {
+    0% { opacity: 0; transform: scale(0.7); }
+    28% { opacity: 0.9; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.12); }
+}
+
+/* 易筋四拳：四枚拳影绕身依次亮起，最后收成一圈金环 */
+.damo-flurry-caster {
+    color: var(--fx-c1, #c9a24b);
+}
+
+.damo-flurry-ring {
+    position: absolute;
+    inset: 8%;
+    border: 1px solid var(--fx-c2, #fff3cf);
+    border-radius: 50%;
+    opacity: 0;
+    animation: damo-flurry-ring calc(var(--fx-duration, 1000ms) * 0.7) ease-out both;
+}
+
+@keyframes damo-flurry-ring {
+    0% { transform: scale(0.45); opacity: 0; }
+    30% { opacity: 0.75; }
+    100% { transform: scale(1.05); opacity: 0; }
+}
+
+.damo-fist-orbit {
+    position: absolute;
+    display: block;
+    width: 30%;
+    height: 30%;
+    color: var(--fx-c1, #c9a24b);
+    filter: drop-shadow(0 0 4px var(--fx-glow, rgba(201, 162, 75, 0.55)));
+    opacity: 0;
+    animation: damo-orbit-fist calc(var(--fx-duration, 1000ms) * 0.8) ease-out both;
+}
+
+.damo-fist-orbit svg {
+    width: 100%;
+    height: 100%;
+}
+
+.damo-fist-orbit-1 { left: 4%; top: 30%; animation-delay: 0ms; }
+.damo-fist-orbit-2 { left: 62%; top: 30%; animation-delay: 90ms; }
+.damo-fist-orbit-3 { left: 30%; top: 2%; animation-delay: 180ms; }
+.damo-fist-orbit-4 { left: 30%; top: 64%; animation-delay: 270ms; }
+
+@keyframes damo-orbit-fist {
+    0% { transform: scale(0.35); opacity: 0; }
+    30% { transform: scale(1.05); opacity: 1; }
+    100% { transform: scale(0.9); opacity: 0; }
+}
+
+.damo-flurry-impact .damo-fist {
+    animation-duration: 420ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .damo-fist,
+    .damo-charge-shoulder,
+    .damo-mountain-crack,
+    .damo-flurry-ring,
+    .damo-fist-orbit {
+        animation: none;
+        opacity: 1;
+        transform: none;
+    }
+}
