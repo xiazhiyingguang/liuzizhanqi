@@ -63,7 +63,8 @@ describe('游龙实战连续演出', () => {
         expect(call).toBeDefined(); expect(orbit).toBeDefined();
         expect(orbit.dragonContactsOnly).toBe(true);
         expect(skillFx.filter(e => dragonBodyEndMs(e) > 0)).toHaveLength(1);
-        expect(player2Heroes.map(h => h.currentHp)).toEqual([92, 96]);
+        // 十字那一发 4 + 行动结束那一圈 6：一个格两处都吃到（90），另一处只吃到一圈（94）
+        expect(player2Heroes.map(h => h.currentHp)).toEqual([90, 94]);
         expect(call.logIds?.some(id => orbit.logIds?.includes(id))).toBe(false);
         expect(aoyuanPresentation(skillFx, 1200).hideIdle.has(caster.id)).toBe(true);
         expect(aoyuanPresentation(skillFx, 2500).hideIdle.has(caster.id)).toBe(false);

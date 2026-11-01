@@ -86,10 +86,10 @@ describe('游龙·敖渊 · 模板', () => {
         expect(getHeroInfo('aoyuan').name).toBe('游龙·敖渊');
     });
 
-    it('致知一 +8 生命', () => {
+    it('致知一 +10 生命', () => {
         const { aoyuan } = scene();
         grantZhizhi(aoyuan, 1);
-        expect(aoyuan.maxHp).toBe(54);
+        expect(aoyuan.maxHp).toBe(56);
     });
 });
 
@@ -154,10 +154,31 @@ describe('游龙盘旋 · 半圈 5 格含起点', () => {
         const outside = dummy(state, [1, 1]);   // 左上角不在这一段的 5 格里
         const log: string[] = [];
         expect(advanceDragon(state, aoyuan, log)).toBe(2);
-        expect(atStart.currentHp).toBe(296);
-        expect(atEnd.currentHp).toBe(296);
+        expect(atStart.currentHp).toBe(294);
+        expect(atEnd.currentHp).toBe(294);
         expect(outside.currentHp).toBe(300);
         expect(layers(aoyuan)).toBe(2);
+    });
+
+    it('三档伤害各走各的：平时那一圈 6，致知二抬到 8', () => {
+        const { state, aoyuan } = scene();
+        attachDragon(aoyuan, [1, 2]);
+        const swept = dummy(state, [1, 2]);
+        advanceDragon(state, aoyuan, []);
+        expect(swept.currentHp).toBe(294);
+        grantZhizhi(aoyuan, 2);
+        // 第二段半圈的最后一格又绕回正上方：这一格吃的是致知二后的 8
+        advanceDragon(state, aoyuan, []);
+        expect(swept.currentHp).toBe(286);
+    });
+
+    it('冲刺补的那一圈固定 4，致知二不抬它（它顶掉本回合那一次 6）', () => {
+        const { state, aoyuan } = scene();
+        grantZhizhi(aoyuan, 2);
+        attachDragon(aoyuan, [1, 3]);            // 冲完落在 [2,5]，那一圈只扫得到 [3,5]
+        const swept = dummy(state, [3, 5]);
+        expect(cast2(aoyuan, state, [2, 5]).success).toBe(true);
+        expect(swept.currentHp).toBe(296);
     });
 
     it('贴边时出界的格子扫不到人，但方位照样推进', () => {
@@ -168,7 +189,7 @@ describe('游龙盘旋 · 半圈 5 格含起点', () => {
         const victim = dummy(state, [1, 1]);
         const log: string[] = [];
         advanceDragon(state, aoyuan, log);
-        expect(victim.currentHp).toBe(296);
+        expect(victim.currentHp).toBe(294);
         // 正右方是顺时针序号 2，扫完半圈落在序号 6（正左方）
         expect(aoyuan.counters['__aoyuan_orbit']).toBe(6);
     });
@@ -187,7 +208,7 @@ describe('行动结束推进与技能二的关系', () => {
         const victim = dummy(state, [1, 3]);
         aoyuan.hasActedThisTurn = false;
         GameEngine.endHeroAction(aoyuan, state);
-        expect(victim.currentHp).toBe(296);
+        expect(victim.currentHp).toBe(294);
         expect(layers(aoyuan)).toBe(1);
     });
 
@@ -203,18 +224,46 @@ describe('行动结束推进与技能二的关系', () => {
 });
 
 describe('技能二 · 乘龙·破浪', () => {
-    it('沿直线穿过路径上的敌人各打8点，落点必须是空格', () => {
+    it('沿直线穿过路径上的敌人各打6点，落点必须是空格', () => {
         const { state, aoyuan } = scene();
         const first = dummy(state, [2, 3]);
         const second = dummy(state, [2, 4]);
         const output = cast2(aoyuan, state, [2, 5]);
         expect(output.success).toBe(true);
-        expect(first.currentHp).toBe(292);
-        expect(second.currentHp).toBe(292);
+        expect(first.currentHp).toBe(294);
+        expect(second.currentHp).toBe(294);
         expect(aoyuan.position).toEqual([2, 5]);
         expect(aoyuan.hasMovedThisTurn).toBe(true);
-        // 冲刺伤害是敖渊自己打的，不算"游龙造成伤害"，所以不叠龙鳞
+        // 身上没有游龙时，这一头只是伤害：龙鳞要"有龙"才给
         expect(layers(aoyuan)).toBe(0);
+    });
+
+    it('游龙附着时，被冲刺打痛的敌人各叠一层龙鳞', () => {
+        const { state, aoyuan } = scene();
+        attachDragon(aoyuan, [1, 3]);            // 冲完落在 [2,5]，那一圈只扫得到 [3,5]/[3,4]
+        const first = dummy(state, [2, 3]);
+        const second = dummy(state, [2, 4]);
+        const output = cast2(aoyuan, state, [2, 5]);
+
+        expect(output.success).toBe(true);
+        expect(first.currentHp).toBe(294);
+        expect(second.currentHp).toBe(294);
+        expect(layers(aoyuan)).toBe(2);          // 两个各给一层，冲刺自带的那一圈没扫到人
+        expect(output.log.join('\n')).toContain('龙鳞叠至2层');
+    });
+
+    it('打不动的人不算"打痛"：0 伤害那一击不叠层', () => {
+        const { state, aoyuan } = scene();
+        attachDragon(aoyuan, [1, 3]);
+        const soft = dummy(state, [2, 3]);
+        const hard = dummy(state, [2, 4]);
+        hard.defense = 1;                        // 减免到 0 伤害
+        const output = cast2(aoyuan, state, [2, 5]);
+
+        expect(soft.currentHp).toBe(294);
+        expect(hard.currentHp).toBe(300);
+        expect(layers(aoyuan)).toBe(1);
+        expect(output.success).toBe(true);
     });
 
     it('落点被占、超出 3 格、点斜角都放不出来', () => {
@@ -308,7 +357,7 @@ describe('被动 · 龙鳞游息', () => {
         attachDragon(aoyuan, [1, 2]);
         const victim = dummy(state, [1, 2]);
         advanceDragon(state, aoyuan, []);
-        expect(victim.currentHp).toBe(296);
+        expect(victim.currentHp).toBe(294);
         expect(getScaleDodgeRate(aoyuan)).toBeCloseTo(0.06);
         EffectManager.updateEffectDurations(state);
         EffectManager.updateEffectDurations(state);
