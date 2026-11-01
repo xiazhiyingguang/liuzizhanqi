@@ -2,16 +2,20 @@ import { DamageCalculator } from './damage-calculator';
 import { requestSkillFx } from '../data/extended-skills';
 import { EffectManager } from './effect-manager';
 import { zhizhiValue } from './hero-zhizhi';
+import { enemiesOnCells } from './lamp-shadow';
 import { BOARD_SIZE, GameState, Hero, HeroState, Position } from '../types/game';
 import { DRAGON_CALL_LEAD_MS, DRAGON_SWEEP_LEAD_MS } from './dragon-sweep-fx';
 
 /**
  * 游龙·敖渊的两份账：挂在身上的「游龙」与逐层衰减的「龙鳞」。
  *
- * 口径（2026-10-14 与用户确认）：
+ * 口径（2026-10-14 与用户确认，2026-10-30 按新文案改数值）：
  * - 游龙**不占棋盘格**：它是绕着本体外圈转的环绕状态，敌人打不到它、也不挡任何人的路；
  * - 外圈 8 格，顺时针走 4 步 = 半圈，**这一路命中的格子含起点与终点，共 5 格**；
  *   再走 4 步走完一圈。本体挪位时游龙跟着挪，方位不变。
+ * - 游龙的伤害分三档，不是一口价：召唤那一下十字 4；每次行动结束扫半圈 6（致知二 8）；
+ *   技能二冲刺落地补的那一圈 4——它顶掉本回合行动结束的那一次，所以是"提前把这一拍打出去"，
+ *   按平时那一档的一半算，冲刺本身才有 6 点。
  * - 龙鳞层数无上限，但每层各带自己的 2 回合倒计时（靠"同名多条独立记录"实现逐层掉落），
  *   所以不封顶也不会永远叠着——这是用户明确选的口径。
  * - 每层 +6% 攻击、+6% 闪避（致知三抬到 10%）。攻击那份显式乘在伤害基数上：
@@ -24,9 +28,14 @@ export const SCALES_DURATION = 2;
 export const SCALES_PER_LAYER = 0.06;
 export const SCALES_PER_LAYER_TALENT = 0.10;
 export const SCALES_SUSTAIN_COST = 3;
-export const ORBIT_DAMAGE = 4;
-export const ORBIT_DAMAGE_TALENT = 5;
-export const DASH_DAMAGE = 8;
+/** 召唤那一下：游龙所在格的十字范围 */
+export const SUMMON_DAMAGE = 4;
+/** 每次行动结束游龙扫半圈（致知二抬到 8） */
+export const ORBIT_DAMAGE = 6;
+export const ORBIT_DAMAGE_TALENT = 8;
+/** 技能二冲刺落地补的那一圈：固定 4，不进取向二那一档 */
+export const DASH_SWEEP_DAMAGE = 4;
+export const DASH_DAMAGE = 6;
 export const DASH_DISTANCE = 3;
 /** 半圈：走 4 步、连着起点一共扫过 5 格 */
 export const ORBIT_HALF_STEPS = 4;
@@ -132,6 +141,11 @@ export function scaledDragonDamage(hero: Hero, amount: number): number {
     return Math.round(amount * scaleAttackMultiplier(hero));
 }
 
+/** 平时那一档盘旋的伤害：行动结束用这个，冲刺补的那一圈另说 */
+export function orbitDamageAmount(hero: Hero): number {
+    return zhizhiValue(hero, 2, ORBIT_DAMAGE, ORBIT_DAMAGE_TALENT);
+}
+
 export function gainScales(hero: Hero, amount = 1): number {
     for (let index = 0; index < amount; index++) {
         EffectManager.addEffect(hero, {
@@ -196,19 +210,14 @@ export function dragonDashPath(caster: Hero, landing: Position): Position[] {
     return cells;
 }
 
-/** 给出格子里站着的敌方存活单位（去重，同一人踩两格只算一次） */
+/**
+ * 给出格子里站着的敌方存活单位（去重，同一人踩两格只算一次），
+ * 外加影子落在这些格子里的敌人——后者由 enemiesOnCells 挂上"只挨半刀"的标记。
+ */
 export function dragonVictimsOnCells(state: GameState, caster: Hero, cells: Position[]): Hero[] {
-    const seen = new Set<Hero>();
-    const victims: Hero[] = [];
-    for (const cell of cells) {
-        if (!inBounds(cell)) continue;
-        const occupant = state.board[cell[0]][cell[1]];
-        if (!occupant || occupant.owner === caster.owner || occupant.state !== HeroState.ALIVE) continue;
-        if (seen.has(occupant)) continue;
-        seen.add(occupant);
-        victims.push(occupant);
-    }
-    return victims;
+    const found = enemiesOnCells(state, caster, cells);
+    // 这团的口径一直是"同一人踩两格只算一次"，按格索敌本身不合并，这里替它守住
+    return found.filter((hero, index) => found.indexOf(hero) === index);
 }
 
 /** 游龙这一击：伤害走常规结算（吃减伤与闪避），打痛了就叠一层龙鳞 */
@@ -232,12 +241,12 @@ function strikeWithDragon(state: GameState, caster: Hero, victims: Hero[], amoun
 
 /**
  * 游龙的一次扫击：对给出格子里的敌人各打一发，打痛了就叠一层龙鳞。
- * 伤害走常规结算（吃减伤与闪避），整段算一次出手（和声/吸血只结一次）。
+ * 伤害基数由调用方点名（召唤十字 / 平时那一圈 / 冲刺补的那一圈三档），
+ * 走常规结算（吃减伤与闪避），整段算一次出手（和声/吸血只结一次）。
  */
-export function dragonStrike(state: GameState, caster: Hero, cells: Position[], log: string[]): number {
+export function dragonStrike(state: GameState, caster: Hero, cells: Position[], log: string[], amount: number): number {
     const victims = dragonVictimsOnCells(state, caster, cells);
     if (victims.length === 0) return 0;
-    const amount = zhizhiValue(caster, 2, ORBIT_DAMAGE, ORBIT_DAMAGE_TALENT);
     return DamageCalculator.asOneAttack(() => strikeWithDragon(state, caster, victims, amount, log));
 }
 
@@ -270,7 +279,12 @@ function orbitedThisAction(caster: Hero): boolean {
     return (caster.counters[ORBITED_ACTION_KEY] ?? -1) === (caster.counters['__actionSerial'] ?? 0);
 }
 
-export function advanceDragon(state: GameState, caster: Hero, log: string[], presentation?: { startDelayMs: number }): number {
+export function advanceDragon(
+    state: GameState,
+    caster: Hero,
+    log: string[],
+    options?: { startDelayMs?: number; damage?: number }
+): number {
     if (!hasDragon(caster) || !caster.position) return 0;
     if (orbitedThisAction(caster)) return 0;
     const center = caster.position;
@@ -289,7 +303,7 @@ export function advanceDragon(state: GameState, caster: Hero, log: string[], pre
     });
     const legCells = leg.filter(inBounds).map(cell => [...cell] as Position);
     const logIdsBefore = new Set((state.battleLog ?? []).map(entry => entry.id));
-    const hits = dragonStrike(state, caster, leg, log);
+    const hits = dragonStrike(state, caster, leg, log, options?.damage ?? orbitDamageAmount(caster));
     if (legCells.length > 0) {
         // 没扫到人也要把这一圈演出来：绕身游龙是他的核心身位，
         // "只在打中时才看得见龙"会让人以为自己根本没唤出过龙
@@ -297,7 +311,7 @@ export function advanceDragon(state: GameState, caster: Hero, log: string[], pre
             skillId: 'aoyuan_orbit',
             dragonStartDeg: from * 45,
             dragonContactsOnly: summoning || undefined,
-            startDelayMs: summoning ? DRAGON_CALL_LEAD_MS - DRAGON_SWEEP_LEAD_MS : presentation?.startDelayMs,
+            startDelayMs: summoning ? DRAGON_CALL_LEAD_MS - DRAGON_SWEEP_LEAD_MS : options?.startDelayMs,
             owner: caster.owner,
             sourceHeroId: caster.id,
             fromPos: [...center] as Position,

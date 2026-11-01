@@ -9,11 +9,12 @@ import { MovementSystem } from './movement-system';
 import { SkillSystem } from './skill-system';
 import { getWangshuMultiplier, getWangshuPhase } from './wangshu';
 import { DamageCalculator } from './damage-calculator';
+import { withAiSimulationRandom } from './ai-simulation-random';
 import { GameEngine } from './game-engine';
 import { windLaneAxis, windLaneCells, windLaneDirectionFromCode } from './wind-lane';
 import { hookThrowLandings, HOOK_THROW_DAMAGE, marshCovers, whaleFallRate } from './water-marsh';
 import { TINGYUAN_HIT_DAMAGE, hasChainMark, hasThunderMark } from './chain-lightning';
-import { DASH_DAMAGE, ORBIT_DAMAGE, ORBIT_DAMAGE_TALENT, dragonVictimsOnCells, hasDragon, nextOrbitLeg } from './dragon-orbit';
+import { DASH_DAMAGE, SUMMON_DAMAGE, dragonVictimsOnCells, hasDragon, nextOrbitLeg } from './dragon-orbit';
 import {
     CLOUD_DAMAGE,
     CLOUD_DAMAGE_TALENT,
@@ -25,11 +26,46 @@ import {
     cloudVictimCountAt,
     cloudsOf,
 } from './thunder-cloud';
-import { MOUNTAIN_COUNTER, directionFromCell, guardsCell, hasStance, mountainPressure, stanceDirection, threatensFrom } from './mountain-stance';
-import { isJinghongReleaseWindow, findHnyShadow, findWaterMoon, findMoonSeat } from '../data/extended-heroes';
-import { getGMovePlans, getGStartCell, gStartCodeFromCell, isXuanyuan, isZhaoShen } from './xuanyuan-form';
-import { findFlyingSwordAt } from './flying-sword';
-import { getHnyReplayForm, getJinghuaSwapDestinations, pickYunyingTianweiLanding, pickZhiguangTianweiLanding, runWithoutSkillFx, traceZhiguangBeam, XUBAI_ORB_HEAL, XUBAI_ORB_MAX, ZHIGUANG_DIRECTION_DELTAS } from '../data/extended-skills';
+import { MOUNTAIN_COUNTER, clearStance, directionFromCell, guardsCell, hasStance, mountainPressure, stanceDirection, threatensFrom } from './mountain-stance';
+import { isJinghongReleaseWindow, findHnyShadow, findWaterMoon, findMoonSeat, syncPositionAnchoredEffects } from '../data/extended-heroes';
+import { CHARGE_DAMAGE, FIST_COUNT, FIST_DAMAGE, MOUNTAIN_DAMAGE, vajraLayers, VAJRA_MAX } from './vajra-push';
+import { XIANGYU_CHARGE_DAMAGE, XIANGYU_SLASH_BASE, XIANGYU_SLASH_SHIELD_DIVISOR } from './xiangyu';
+import { findHanjiangxueDomain } from './hanjiangxue-domain';
+import { isXuanyuan, isZhaoShen } from './xuanyuan-form';
+import { ATTACHED_SWORD_SHOT_DAMAGE, driftFlyingSwords, getXuanyuanLeapCells } from './flying-sword';
+import { getHnyReplayForm, getJinghuaSwapDestinations, performShangguanDashSegment, scanShangguanDashDirection, pickYunyingTianweiLanding, pickZhiguangTianweiLanding, runWithoutSkillFx, traceZhiguangBeam, XUBAI_ORB_HEAL, XUBAI_ORB_MAX, ZHIGUANG_DIRECTION_DELTAS } from '../data/extended-skills';
+
+import {
+    LAMP_AURA_RANGE,
+    XIYUECI_RING_DAMAGE,
+    XIYUECI_RING_DAMAGE_TALENT,
+    chebyshev,
+    findLampAt,
+    litLamps,
+    shadowCellOf,
+} from './lamp-shadow';
+import {
+    WENREN_SKILL1_ID,
+    WENREN_SKILL2_ID,
+    getAllWenrenLeapPlans,
+    getWenrenLandingPlans,
+    getWenrenPos,
+    getWenrenWaypoint,
+    isWenren,
+    isWenrenZhaoShen,
+    setWenrenWaypoint,
+    wenrenRingCells,
+} from './wenren-form';
+import {
+    SHUANGFEIYAN_SKILL1_ID,
+    SHUANGFEIYAN_SKILL2_ID,
+    chebyshevDistance,
+    getShuangfeiyanBoomerangs,
+    getShuangfeiyanPickupCells,
+    getShuangfeiyanThrowCells,
+    getShuangfeiyanTriangleArea2,
+    getShuangfeiyanTriangleCells,
+} from './boomerang';
 
 export interface ComputerDeployment {
     heroId: string;
@@ -57,6 +93,11 @@ const BENCH_SIZE = 2;
 const SKILL_REPEAT_PENALTY = 5;
 /** 斩杀优先奖励：模拟中确认击杀一名敌人时附加的评分，压过其他一切收益，让 AI 追着残血杀。 */
 const KILL_SCORE_BONUS = 205;
+/** 终局必须压过血量、击杀及任何英雄机制的启发式加分。 */
+const TERMINAL_SCORE = 1_000_000;
+/** 新角色专属评分，不替换本地既有 AI 策略。 */
+const WENREN_POS_VALUE = 2;
+const WENREN_ZHAOSHEN_VALUE = 26;
 /** 把敌人打成暂时阵亡的奖励（敌方可能拥有复活，故低于真实击杀）。 */
 const TEMP_DEAD_SCORE_BONUS = 45;
 /**
@@ -156,6 +197,16 @@ const BOUNTY_FOLLOWUP_DAMAGE = 4;
 /** 绯雪连枝：被结契队友每次主动命中追加 6 点，持续 2 回合，按能打中两次估。 */
 const LIANZHI_FOLLOWUP_VALUE = 12;
 /**
+ * 双飞燕的镖位账：AI 要的是“把三角撑开罩到人”，不是把两把镖叠在同一格顺手挠两下。
+ * 每罩住一名敌人按未来那一发 7 点的折扣价记账，再给镖间距与三角面积一点小额奖励。
+ */
+const SHUANGFEIYAN_AI_FOE_VALUE = 4.2;
+const SHUANGFEIYAN_AI_AREA_VALUE_PER_CELL = 0.25;
+const SHUANGFEIYAN_AI_AREA_VALUE_CAP = 4;
+const SHUANGFEIYAN_AI_GAP_VALUE_PER_CELL = 1.5;
+const SHUANGFEIYAN_AI_GAP_VALUE_CAP = 3;
+const SHUANGFEIYAN_AI_COLLINEAR_PENALTY = 8;
+/**
  * 铺路型技能：这一手的收益主要落在**还没行动的队友**身上，所以她在回合内必须先动。
  * 只收"给队友创造条件"的招，给自己上姿态的不算（那些是自用增益，不涉及顺序）。
  */
@@ -166,6 +217,7 @@ const SETUP_FIRST_SKILLS = new Set([
     'xubai_skill2',      // 黑白凝珠：队友开局残血时自动回血
     'nanfeng_skill2',    // 风道：队友的羽化/击退要顺着这条轴才吃得到
     'daizong_skill1',    // 镇守：先立起半区护持，后面的队友才有人替他挨打攒岳势
+    'xiyueci_skill2',    // 明灯：队友要打得着灯影里的本体，这一手才有意义
 ]);
 /** 每有一个本回合还能出手、且此刻确有可用方案的队友，铺路者的排序分加这么多。 */
 const SETUP_ORDER_VALUE_PER_ALLY = 18;
@@ -230,7 +282,9 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
         case 'wangcai_skill1':
             return (caster.baseAttack ?? 0) * 3;
         case 'lilith_skill1':
-            return 8;
+            return zhizhiValue(caster, 2, 8, 10);
+        case 'lilith_skill2':
+            return 5 + (caster.counters['恐惧情绪能量'] ?? 0) * 5;
         case 'youjun_skill1': {
             // 疾掠：按点击位置估算冲刺距离，伤害随冲刺距离与上回合移动距离攀升
             const distance = Math.min(
@@ -242,6 +296,11 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
         }
         case 'youjun_skill2':
             return 4;
+        // 蹈火·跃阵：普通态固定 8 点；昭神态额外附带飞跃距离（0~5），威胁估算取中段
+        case WENREN_SKILL1_ID:
+            return zhizhiValue(caster, 2, 8, 10) + (isWenrenZhaoShen(caster) ? 3 : 0);
+        case WENREN_SKILL2_ID:
+            return Math.max(1, getWenrenPos(caster));
         // 御剑·贯阵：沿途与周圈两段伤害的均值粗估；昭神态数字更高
         case 'xuanyuan_skill1':
             return isZhaoShen(caster) ? 8 : 6;
@@ -278,9 +337,23 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
             return 0;
         case 'daizong_skill2':
             return mountainPressure(caster);
-        // 唤龙那一下只打十字，真正的输出在每回合的盘旋里（走下面的站位加分）
+        // 达摩：一苇渡江的威胁是“基础一撞 + 撞山补伤”，能不能撞山看目标身后，按半份补伤估；
+        // 易筋四拳四段各 3 点，随机挑身边一圈，按满段估威胁基线。
+        case 'damo_skill1':
+            return CHARGE_DAMAGE + MOUNTAIN_DAMAGE * 0.5;
+        case 'damo_skill2':
+            return FIST_COUNT * FIST_DAMAGE;
+        // 项羽：破阵按基础一撞估；盖世按当前护盾与已损生命估，技能会先燃血换盾，估分不追那一步
+        case 'xiangyu_skill1':
+            return XIANGYU_CHARGE_DAMAGE;
+        case 'xiangyu_skill2': {
+            const base = XIANGYU_SLASH_BASE + caster.shield / XIANGYU_SLASH_SHIELD_DIVISOR;
+            const missing = 1 - caster.currentHp / Math.max(1, caster.maxHp);
+            return Math.max(1, base * (1 + missing / 2));
+        }
+        // 唤龙那一下只打十字（4），真正的输出在每回合的盘旋里（走下面的站位加分）
         case 'aoyuan_skill1':
-            return zhizhiValue(caster, 2, ORBIT_DAMAGE, ORBIT_DAMAGE_TALENT);
+            return SUMMON_DAMAGE;
         // 布云当拍只劈一片，之后每回合还会挪一格再劈两次（价值走下面的专属静态计分）
         case 'yunxiu_skill1':
             return zhizhiValue(caster, 2, CLOUD_DAMAGE, CLOUD_DAMAGE_TALENT);
@@ -297,6 +370,12 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
             return HOOK_THROW_DAMAGE;
         // 渭水垂竿不造成伤害，价值在拖拽、铺泽与"用技能也算一次出手"的鲸落档（走下面的专属静态计分）
         case 'jiangtaigong_skill2':
+            return 0;
+        // 辞光·散影：伤害写在 execute 里，威胁基线得自己报一份，否则对面把她读成零输出近身位
+        case 'xiyueci_skill1':
+            return zhizhiValue(caster, 2, XIYUECI_RING_DAMAGE, XIYUECI_RING_DAMAGE_TALENT);
+        // 明灯·照影不产生即时伤害，价值全在场地（走下面的专属静态计分）
+        case 'xiyueci_skill2':
             return 0;
         default:
             return null;
@@ -665,7 +744,219 @@ function rowThreatFromOpponent(row: number, opponentHeroes: Hero[]): number {
     }, 0);
 }
 
-/** 让耐久/控制英雄顶在前排，输出与支援根据玩家布阵选择对应行。 */
+/**
+ * 电脑布阵的兜底阵型。
+ *
+ * 新版本优先走 chooseSpreadDeployment：在本方三条列里随机找四个互相拉开、
+ * 至少跨三行的落点。只有随机搜索连续失败时才退回这套固定阵型——
+ * 保留它是为了极端阵容或被占格时布阵不会卡死，而不是让它继续当主路径。
+ *
+ * 坐标是相对量：dCol 0＝贴着中线的前线列（player2 的第 3 列），dCol 越大越靠自家后方；
+ * dRow 相对一个"基准行"，基准行再按玩家阵容的威胁分布挑。
+ */
+type DeploymentRole = 'vanguard' | 'striker' | 'support' | 'flex';
+type DeploymentHero = { id: string; ratings: HeroAbilityRatings };
+type DeploymentRoles = Record<DeploymentRole, DeploymentHero>;
+
+const COMPUTER_FORMATIONS: Array<Record<DeploymentRole, { dCol: number; dRow: number }>> = [
+    // 直列：一列铺开，前排硬碰硬，支援缩在第二列
+    { vanguard: { dCol: 0, dRow: -1 }, striker: { dCol: 0, dRow: 0 }, flex: { dCol: 0, dRow: 1 }, support: { dCol: 1, dRow: 0 } },
+    // 雁行：斜着梯次展开，谁都不在对面的一条直线上
+    { vanguard: { dCol: 0, dRow: 0 }, striker: { dCol: 1, dRow: -1 }, flex: { dCol: 1, dRow: 1 }, support: { dCol: 2, dRow: 0 } },
+    // 犄角：前后两点钳形，把中路让出来钓突进
+    { vanguard: { dCol: 0, dRow: -2 }, striker: { dCol: 0, dRow: 1 }, flex: { dCol: 1, dRow: -1 }, support: { dCol: 2, dRow: 2 } },
+    // 却月：整体后置一格，引对面先走过半程再接战
+    { vanguard: { dCol: 1, dRow: 0 }, striker: { dCol: 1, dRow: -1 }, flex: { dCol: 2, dRow: 1 }, support: { dCol: 1, dRow: 2 } },
+];
+
+/** 电脑固定执 player2，本方半场是第 3~5 列；col 0 即前线列 */
+function formationCol(dCol: number): number {
+    return 3 + Math.max(0, Math.min(2, dCol));
+}
+
+/**
+ * 角色可落列：前排只站前置列，支援只站后置列。
+ * 随机只发生在“职责允许的列”和行号里，避免把奶妈随机到最前面送死。
+ */
+const ROLE_COLUMNS: Record<DeploymentRole, readonly number[]> = {
+    vanguard: [3],
+    support: [5, 4],
+    striker: [3, 4],
+    flex: [3, 4, 5],
+};
+
+/** 先放前排和支援两根锚，再补输出和自由位，最后用间距检查把贴在一起的重抽。 */
+const DEPLOYMENT_ROLE_ORDER: readonly DeploymentRole[] = ['vanguard', 'support', 'striker', 'flex'];
+
+function scoreSpreadPosition(
+    role: DeploymentRole,
+    position: Position,
+    placed: Position[],
+    opponentHeroes: Hero[]
+): number {
+    const [row, col] = position;
+    let score = 0;
+    if (role === 'support') score += col === 5 ? 10 : 5;
+    else if (role === 'striker') score += col === 4 ? 7 : 5;
+    else if (role === 'flex') score += col === 4 ? 3 : col === 5 ? 2 : 1;
+
+    // 前排本来就要顶上去，威胁权重低；支援位最怕被对面输出罩住。
+    const threat = rowThreatFromOpponent(row, opponentHeroes);
+    score -= threat * (role === 'support' ? 1.15 : role === 'vanguard' ? 0.45 : 0.8);
+
+    for (const other of placed) {
+        const distance = Math.abs(row - other[0]) + Math.abs(col - other[1]);
+        if (distance <= 1) score -= 40;
+        else if (distance === 2) score -= 5;
+        else score += Math.min(distance, 5) * 1.3;
+    }
+
+    if (!placed.some(other => other[0] === row)) score += 3;
+    if (placed.filter(other => other[1] === col).length >= 2) score -= 10;
+    // 同档候选之间抖动：每局形状不同，但不至于把电脑摆成送死阵。
+    score += Math.random() * 3.5;
+    return score;
+}
+
+function deploymentCandidates(
+    role: DeploymentRole,
+    placed: Position[],
+    opponentHeroes: Hero[],
+    taken: Set<string>
+): Array<{ position: Position; score: number }> {
+    const candidates: Array<{ position: Position; score: number }> = [];
+    for (let row = 0; row < BOARD_SIZE; row++) {
+        for (const col of ROLE_COLUMNS[role]) {
+            if (taken.has(`${row},${col}`)) continue;
+            const position: Position = [row, col];
+            candidates.push({ position, score: scoreSpreadPosition(role, position, placed, opponentHeroes) });
+        }
+    }
+    return candidates.sort((left, right) => right.score - left.score);
+}
+
+/** 从前几名里加权抽一个：保留强度上限，同时让同一手阵容每局站得不一样。 */
+function pickSpreadCandidate(candidates: Array<{ position: Position; score: number }>): Position | null {
+    if (candidates.length === 0) return null;
+    const pool = candidates.slice(0, Math.min(6, candidates.length));
+    const weights = pool.map((_, index) => pool.length - index);
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    let roll = Math.random() * total;
+    for (let index = 0; index < pool.length; index++) {
+        roll -= weights[index];
+        if (roll <= 0) return pool[index].position;
+    }
+    return pool[pool.length - 1].position;
+}
+
+/**
+ * 布阵不变量：四人互不相邻、至少跨三行、三列里至少用两列、任意 2x2 最多两人。
+ * 这组条件就是玩家感受到的“散开”，只靠随机抽点很容易又挤回一坨。
+ */
+function isSpreadDeployment(placed: Record<DeploymentRole, Position>): boolean {
+    const positions = DEPLOYMENT_ROLE_ORDER.map(role => placed[role]);
+    const rows = new Set(positions.map(position => position[0]));
+    const cols = new Set(positions.map(position => position[1]));
+    if (rows.size < 3 || cols.size < 2) return false;
+
+    let totalDistance = 0;
+    let pairs = 0;
+    for (let index = 0; index < positions.length; index++) {
+        for (let other = index + 1; other < positions.length; other++) {
+            const distance = Math.abs(positions[index][0] - positions[other][0]) +
+                Math.abs(positions[index][1] - positions[other][1]);
+            if (distance < 2) return false;
+            totalDistance += distance;
+            pairs++;
+        }
+    }
+    if (totalDistance / pairs < 2.5) return false;
+
+    for (let row = 0; row < BOARD_SIZE - 1; row++) {
+        for (let col = 3; col < BOARD_SIZE - 1; col++) {
+            const count = positions.filter(position =>
+                (position[0] === row || position[0] === row + 1) &&
+                (position[1] === col || position[1] === col + 1)
+            ).length;
+            if (count >= 3) return false;
+        }
+    }
+
+    return placed.vanguard[1] === 3 && placed.support[1] >= 4;
+}
+
+/** 在职责列内随机找一组拉开的落点；连续失败才交给旧阵型兜底。 */
+function chooseSpreadDeployment(
+    opponentHeroes: Hero[]
+): Record<DeploymentRole, Position> | null {
+    for (let attempt = 0; attempt < 40; attempt++) {
+        const placed = {} as Record<DeploymentRole, Position>;
+        const placedPositions: Position[] = [];
+        const taken = new Set<string>();
+        let failed = false;
+
+        for (const role of DEPLOYMENT_ROLE_ORDER) {
+            const candidates = deploymentCandidates(role, placedPositions, opponentHeroes, taken);
+            const position = pickSpreadCandidate(candidates);
+            if (!position) {
+                failed = true;
+                break;
+            }
+            placed[role] = position;
+            placedPositions.push(position);
+            taken.add(`${position[0]},${position[1]}`);
+        }
+
+        if (!failed && isSpreadDeployment(placed)) return placed;
+    }
+    return null;
+}
+
+/**
+ * 基准行：把阵型整体上下平移后逐行评估"会被对面多少输出罩住"，
+ * 取最不挨打的前两名随机——只取最优会让同一手阵容永远算出同一个基准行。
+ */
+function pickFormationBaseRow(
+    formation: (typeof COMPUTER_FORMATIONS)[number],
+    opponentHeroes: Hero[]
+): number {
+    const scored = [0, 1, 2, 3, 4, 5].map(baseRow => {
+        const threat = Object.values(formation).reduce((sum, slot) =>
+            sum + rowThreatFromOpponent(baseRow + slot.dRow, opponentHeroes), 0);
+        return { baseRow, threat };
+    }).sort((left, right) => left.threat - right.threat);
+    const pickFrom = scored.slice(0, 2);
+    return pickFrom[Math.floor(Math.random() * pickFrom.length)].baseRow;
+}
+
+/** 落点撞格或出界时，在本方半场就近找一个空格顶上 */
+function resolveCollision(
+    position: Position,
+    taken: Set<string>
+): Position {
+    const [row, col] = position;
+    for (let radius = 0; radius <= BOARD_SIZE; radius++) {
+        for (let dr = -radius; dr <= radius; dr++) {
+            for (let dc = -radius; dc <= radius; dc++) {
+                const nextRow = row + dr;
+                const nextCol = col + dc;
+                if (nextRow < 0 || nextRow >= BOARD_SIZE) continue;
+                if (nextCol < 3 || nextCol > 5) continue;
+                const key = `${nextRow},${nextCol}`;
+                if (taken.has(key)) continue;
+                taken.add(key);
+                return [nextRow, nextCol];
+            }
+        }
+    }
+    return position;
+}
+
+/**
+ * 让耐久/控制英雄顶在前排，输出与支援落在职责列。
+ * 优先在职责列内随机找一组“互不相邻、至少跨三行”的落点；
+ * 随机搜索失败时才退回固定阵型，保证布阵永远能完成。
+ */
 export function chooseComputerDeployment(heroIds: string[], opponentHeroes: Hero[]): ComputerDeployment[] {
     const heroes = heroIds.map(id => ({ id, ratings: ratingsForHeroId(id) }));
     const unassigned = [...heroes];
@@ -678,20 +969,27 @@ export function chooseComputerDeployment(heroIds: string[], opponentHeroes: Hero
     const striker = takeBest(item => item.ratings.输出 * 1.3 + item.ratings.机动 + item.ratings.控制 * 0.4);
     const support = takeBest(item => item.ratings.支援 * 1.5 + item.ratings.覆盖 + item.ratings.生存 * 0.3);
     const flex = unassigned[0];
+    const roles: DeploymentRoles = { vanguard, striker, support, flex };
 
-    const rows = [0, 1, 2, 3, 4, 5]
-        .sort((left, right) => rowThreatFromOpponent(right, opponentHeroes) - rowThreatFromOpponent(left, opponentHeroes));
-    const primaryRow = rows[0] ?? 2;
-    const secondaryRow = rows.find(row => Math.abs(row - primaryRow) >= 2) ?? (primaryRow <= 2 ? 4 : 1);
-    const supportRow = Math.max(1, Math.min(4, Math.round((primaryRow + secondaryRow) / 2)));
-    const flexRow = [1, 2, 3, 4].find(row => row !== primaryRow && row !== secondaryRow && row !== supportRow) ?? 3;
+    const spread = chooseSpreadDeployment(opponentHeroes);
+    if (spread) {
+        return DEPLOYMENT_ROLE_ORDER.map(role => ({
+            heroId: roles[role].id,
+            position: spread[role],
+        }));
+    }
 
-    return [
-        { heroId: vanguard.id, position: [primaryRow, 3] },
-        { heroId: striker.id, position: [secondaryRow, 3] },
-        { heroId: flex.id, position: [flexRow, 4] },
-        { heroId: support.id, position: [supportRow, 5] },
-    ];
+    // 兜底：随机搜索失败时退回固定阵型，旧逻辑只在这里使用。
+    const formation = COMPUTER_FORMATIONS[Math.floor(Math.random() * COMPUTER_FORMATIONS.length)];
+    const baseRow = pickFormationBaseRow(formation, opponentHeroes);
+    const taken = new Set<string>();
+
+    return (Object.keys(roles) as Array<keyof typeof roles>).map(role => {
+        const slot = formation[role];
+        const row = Math.max(0, Math.min(BOARD_SIZE - 1, baseRow + slot.dRow));
+        const position = resolveCollision([row, formationCol(slot.dCol)] as Position, taken);
+        return { heroId: roles[role].id, position };
+    });
 }
 
 /**
@@ -849,6 +1147,7 @@ function exposurePenalty(state: GameState, player: Player): number {
 }
 
 export function evaluateComputerBoard(state: GameState, player: Player): number {
+    if (state.phase === 'ended' && state.winner) return state.winner === player ? TERMINAL_SCORE : -TERMINAL_SCORE;
     const friendly = heroesFor(state, player).reduce((total, hero) => total + heroBoardValue(hero), 0);
     const enemy = enemiesFor(state, player).reduce((total, hero) => total + heroBoardValue(hero), 0);
     // 防守意识按难度加权：把己方暴露扣掉、把敌方暴露视为额外优势，
@@ -866,9 +1165,8 @@ function cloneGameState(state: GameState): GameState {
     const data = Object.fromEntries(dataEntries);
     // Skill 定义携带 execute 函数，不能直接 structuredClone；模拟时会从技能表重新取得它。
     data.selectedSkill = null;
-    // 日志和战后统计不参与局面评分。长局若在每个候选技能中反复深拷贝它们，会造成明显的二次增长。
+    // 日志不参与评分；统计中的施法次数参与镜花的换身限制，不能连同日志一起清空。
     data.battleLog = [];
-    data.battleStatistics = {};
     return structuredClone(data) as GameState;
 }
 
@@ -929,23 +1227,26 @@ function estimateThreatAtPosition(attacker: Hero, position: Position, defender: 
                 defender,
                 skill.baseDamage,
                 skill.scalesWithAttack ?? false,
-                skill.ignoreDefense ?? false
+                skill.ignoreDefense ?? false,
+                { expectedCrit: true }
             ).finalDamage * hits;
         } else {
             const custom = customSkillDamage(attacker, skill.id, position, defender);
             if (custom === null) continue;
-            damage = DamageCalculator.calculate(attacker, defender, custom, false).finalDamage;
+            damage = DamageCalculator.calculate(attacker, defender, custom, false, false, { expectedCrit: true }).finalDamage;
         }
         threat = Math.max(threat, damage);
     }
     return Math.max(0, threat - defender.shield);
 }
 
-/** 技能是否处于冷却中（目前只有莫问技能1有冷却系统）。 */
+/** 技能是否处于冷却中（莫问技能1 / 戴尔技能2 / 项羽技能二）。 */
 function isSkillOnCooldown(hero: Hero, skill: Skill): boolean {
     if (skill.id === 'mowen_skill1' && (hero.counters['mowen_skill1_cd'] ?? 0) > 0) return true;
     // 时空旅者·戴尔技能2「时空置换」冷却
     if (skill.id === 'dai_skill2' && (hero.counters['dai_skill2_cd'] ?? 0) > 0) return true;
+    // 西楚霸王·项羽技能二「盖世」冷却
+    if (skill.id === 'xiangyu_skill2' && (hero.counters['xiangyu_skill2_cd'] ?? 0) > 0) return true;
     // 惊鸿·止水「止水决渊」：既没在蓄力也攒不出惊鸿时，这一手无事可做，别白占一次出手
     if (skill.id === 'jinghong_skill2') {
         return (hero.counters['jinghong_charge_round'] ?? -1) < 0
@@ -973,7 +1274,8 @@ function estimateDamageAgainst(attacker: Hero, target: Hero): number {
             target,
             base,
             skill.scalesWithAttack ?? false,
-            skill.ignoreDefense ?? false
+            skill.ignoreDefense ?? false,
+            { expectedCrit: true }
         ).finalDamage;
         maxDamage = Math.max(maxDamage, damage);
     }
@@ -1010,6 +1312,46 @@ function targetPriority(state: GameState, caster: Hero, skill: Skill, position: 
 function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position[][] {
     if (!caster.position) return [];
 
+    // 跃阵是中途友军→落点的两段操作，锁定后不能换另一名踏板。
+    if (skill.id === WENREN_SKILL1_ID) {
+        const locked = getWenrenWaypoint(caster);
+        const plans = locked
+            ? getWenrenLandingPlans(caster, state, locked)
+            : getAllWenrenLeapPlans(caster, state);
+        const ringFoes = (plan: { to: Position }) => wenrenRingCells(plan.to)
+            .filter(([row, col]) => {
+                const unit = state.board[row]?.[col];
+                return unit?.owner !== caster.owner && unit?.state === HeroState.ALIVE;
+            }).length;
+        const sorted = [...plans].sort((left, right) =>
+            ringFoes(right) - ringFoes(left) || right.distance - left.distance);
+        const seen = new Set<string>();
+        const sets: Position[][] = [];
+        for (const plan of sorted) {
+            const key = plan.to.join(',');
+            if (seen.has(key)) continue;
+            seen.add(key);
+            sets.push([plan.allyPosition, plan.to]);
+            if (sets.length >= 36) break;
+        }
+        return sets;
+    }
+
+    // 双飞燕技能一：手里还有镖时枚举八方向 3 格内、且没有叠在自己镖位上的落点；
+    // 两把镖都已掷出时只剩“点自己”结三角——把镖叠回同一格撑不出第二段，方案里直接不给。
+    if (skill.id === SHUANGFEIYAN_SKILL1_ID) {
+        const out = getShuangfeiyanBoomerangs(state, caster);
+        if (out.length >= 2) return [[caster.position]];
+        return getShuangfeiyanThrowCells(caster.position)
+            .filter(cell => out.every(effect => chebyshevDistance(cell, effect.position) >= 2))
+            .map(cell => [cell]);
+    }
+
+    // 双飞燕技能二：只枚举空格上的自镖，被敌人或队友占住的镖位点了也是白放
+    if (skill.id === SHUANGFEIYAN_SKILL2_ID) {
+        return getShuangfeiyanPickupCells(state, caster).map(cell => [cell]);
+    }
+
     if (
         skill.id === 'dilan_skill1' || skill.id === 'dilan_skill2'
         || skill.id === 'zuizhendao_skill1' || skill.id === 'yunying_skill2'
@@ -1018,21 +1360,9 @@ function buildTargetSets(state: GameState, caster: Hero, skill: Skill): Position
         return MovementSystem.getCrossPositions(caster.position).map(position => [position]);
     }
 
-    // 轩辕神君・昭神「御剑连破」：两段式点击——第一步点周身正方向一格定 G 的起笔（旋向），
-    // 第二步点那一笔描得到、踩着自己飞剑的空格。枚举所有 (起笔, 落点) 配对。
+    // 首跳不踩剑，续跳必须踩剑；与真实高亮、三跳上限共用同一份合法落点。
     if (skill.id === 'xuanyuan_skill1' && isXuanyuan(caster) && isZhaoShen(caster)) {
-        const sets: Position[][] = [];
-        for (let dir = 0; dir < 4; dir++) {
-            const startCell = getGStartCell(caster.position, dir);
-            if (!startCell) continue;
-            for (const plan of getGMovePlans(caster.position, dir)) {
-                const landing = plan.to;
-                if (state.board[landing[0]][landing[1]] !== null) continue;
-                if (!findFlyingSwordAt(state, landing, caster.id)) continue;
-                sets.push([startCell, landing]);
-            }
-        }
-        return sets;
+        return getXuanyuanLeapCells(caster, state).map(landing => [landing]);
     }
 
     // 折光「棱光千折」：周身八格都是方向标（含斜向），每个方向各成一个方案
@@ -1251,11 +1581,6 @@ function configureSimulationChoices(
         caster.counters['__nanfeng_skill2_dir'] =
             direction === 'up' ? 0 : direction === 'down' ? 1 : direction === 'left' ? 2 : 3;
     }
-    if (skill.id === 'xuanyuan_skill1' && caster.position && targetPositions.length >= 2) {
-        // 两段式点击：第一步的 G 起笔格换算成旋向编码，供技能结算沿那一笔描
-        const dirCode = gStartCodeFromCell(caster.position, targetPositions[0]);
-        if (dirCode !== null) caster.counters['__xuanyuan_leap_start'] = dirCode;
-    }
     if (skill.id === 'baize_skill2') {
         const dead = heroesFor(state, caster.owner)
             .filter(hero => hero.state === HeroState.DEAD)
@@ -1269,6 +1594,10 @@ function configureSimulationChoices(
         if (landing && isBoardPosition(landing) && state.board[landing[0]][landing[1]] === null) {
             state.daiReviveHeroId = chooseComputerStasisReviveTarget(state, caster.owner)?.id;
         }
+    }
+    if (skill.id === WENREN_SKILL1_ID && targetPositions.length >= 2) {
+        // 跃阵两段点击：方案首点是中途友军，末点才是落点（引擎会把它写进 __extended_target）
+        setWenrenWaypoint(caster, targetPositions[0]);
     }
     if (skill.id === 'jetzmi_skill2') {
         const dead = heroesFor(state, caster.owner)
@@ -1294,7 +1623,25 @@ function skillTypeBias(skill: Skill): number {
     }
 }
 
-function simulateSkillPlan(
+/** 同局面使用共同随机样本，候选之间可比较，也不会因之前评估过多少方案而换一套运气。 */
+function simulationSeed(state: GameState, caster: Hero): number {
+    return state.roundNumber * 104729 + state.actionsThisTurn * 1009
+        + (caster.position?.[0] ?? 0) * 37 + (caster.position?.[1] ?? 0) * 101
+        + (caster.owner === 'player1' ? 17 : 53);
+}
+
+function simulateSkillPlan(state: GameState, caster: Hero, skill: Skill, targets: Position[]): ComputerSkillPlan | null {
+    const samples = currentDifficulty === 'master' ? 3 : currentDifficulty === 'normal' ? 2 : 1;
+    const seed = simulationSeed(state, caster);
+    const outcomes = Array.from({ length: samples }, (_, sample) =>
+        withAiSimulationRandom(seed, sample, samples, () => simulateSkillSample(state, caster, skill, targets)));
+    const valid = outcomes.find((outcome): outcome is ComputerSkillPlan => outcome !== null);
+    if (!valid) return null;
+    // 失败样本按本次出手未产生收益计，不能仅取成功样本来高估概率技能。
+    return { ...valid, score: outcomes.reduce((total, outcome) => total + (outcome?.score ?? 0), 0) / samples };
+}
+
+function simulateSkillSample(
     state: GameState,
     caster: Hero,
     skill: Skill,
@@ -1354,25 +1701,13 @@ function simulateSkillPlan(
         }
 
         if (skill.id === 'hanjiangxue_skill2') {
-            // 冰晶封路：放在敌方阵型附近封锁走位并生成冰甲点，距离越近价值越高
-            const [row, col] = targetPositions[0] ?? [-1, -1];
-            if (!isBoardPosition([row, col]) || simulated.board[row][col] !== null) return null;
-            // 已有冰晶的格子会被技能结算直接拒绝（施法失败不消耗行动），
-            // 若这里不当无效方案处理，AI 会每步重复同一个必败落点，对局原地空转
-            if (simulated.boardEffects?.some(effect =>
-                effect.type === 'ice-crystal' && effect.position[0] === row && effect.position[1] === col
-            )) return null;
-            const nearbyEnemies = enemiesFor(simulated, simulatedCaster.owner).filter(enemy =>
-                enemy.position &&
-                MovementSystem.getManhattanDistance([row, col], enemy.position) <= 2
-            ).length;
-            const nearestEnemyDistance = enemiesFor(simulated, simulatedCaster.owner)
-                .filter(enemy => enemy.position)
-                .reduce((best, enemy) => Math.min(best, MovementSystem.getManhattanDistance([row, col], enemy.position!)), 99);
-            const score = 10
-                + nearbyEnemies * 5
-                + Math.max(0, 6 - nearestEnemyDistance) * 1.5
-                + (simulatedCaster.counters['__hanjiangxue_extra_used'] === 1 ? -4 : 0);
+            // 寒天领域不产生即时伤害，靠“还能出手的友方 × 场上敌人”估它接下来两回合的叠寒天价值
+            const readyAllies = heroesFor(simulated, simulatedCaster.owner)
+                .filter(ally => ally.state === HeroState.ALIVE && !ally.hasActedThisTurn).length;
+            const livingEnemies = enemiesFor(simulated, simulatedCaster.owner)
+                .filter(enemy => enemy.state === HeroState.ALIVE).length;
+            const hasDomain = !!findHanjiangxueDomain(simulated, simulatedCaster.owner);
+            const score = 8 + readyAllies * 3 + Math.min(4, livingEnemies) * 2 - (hasDomain ? 6 : 0);
             return { skillId: skill.id, targetPositions, score };
         }
 
@@ -1466,6 +1801,24 @@ function simulateSkillPlan(
             };
         }
 
+        if (skill.id === 'xiyueci_skill2') {
+            // 明灯不产生即时伤害，价值全在场地，所以静态计分：灯只照敌方，数的是"圈里几个敌人的影子
+            // 真的落在盘内"（贴边那一侧的影子会出界，出了界这一盏就白点），再加她自己能不能躲进灯下吃免伤。
+            const cell = targetPositions[targetPositions.length - 1];
+            if (!cell || !isBoardPosition(cell) || simulated.board[cell[0]][cell[1]] !== null) return null;
+            if (findLampAt(simulated, cell)) return null;
+            const lit = enemiesFor(simulated, simulatedCaster.owner).filter(enemy =>
+                enemy.position && shadowCellOf(cell, enemy.position) !== null).length;
+            const sheltered = simulatedCaster.position
+                && chebyshev(simulatedCaster.position, cell) <= LAMP_AURA_RANGE;
+            const live = litLamps(simulated).filter(lamp => lamp.sourceHeroId === simulatedCaster.id).length;
+            return {
+                skillId: skill.id,
+                targetPositions,
+                score: 3 + lit * 4 + (sheltered ? 3 : 0) - Math.max(0, live - 1) * 4,
+            };
+        }
+
         if (skill.id === 'yunxiu_skill1') {
             // 云是"这一拍压住谁、下一拍还压谁"的场地，不是即时伤害：
             // 通用模拟只看得到点中的那一格有没有人，会把她当成只会挠一下的近战。
@@ -1544,6 +1897,11 @@ function simulateSkillPlan(
         const result = runWithoutSkillFx(() =>
             SkillSystem.executeSkill(simulatedCaster, skill, targetPositions, simulated));
         if (!result.success) return null;
+        // executeSkill 不保证收尾判胜；必须复用引擎的替补/排程复活口径，不能自行数人头。
+        GameEngine.checkWinCondition(simulated);
+        if (simulated.phase === 'ended' && simulated.winner) {
+            return { skillId: skill.id, targetPositions, score: evaluateComputerBoard(simulated, caster.owner) };
+        }
         const afterScore = evaluateComputerBoard(simulated, caster.owner);
         // 斩杀确认：对比模拟前后的敌方状态，被真实击杀或暂时阵亡的目标给予额外奖励。
         let kills = 0;
@@ -1569,11 +1927,21 @@ function simulateSkillPlan(
                     ((simulatedCaster.counters['朔'] ?? 0) + (simulatedCaster.counters['望'] ?? 0)) * getWangshuMultiplier(simulatedCaster)
                     - ((caster.counters['朔'] ?? 0) + (caster.counters['望'] ?? 0)) * getWangshuMultiplier(caster))))
             : 0;
+        // 闻人翊悬：破妄是昭神的门票，涨层本身有价值；踏入昭神另给形态分。
+        // 技能二会花掉一半破妄，按层从收益里扣回一点，避免 AI 只会攒不会放。
+        let wenrenBonus = 0;
+        if (isWenren(caster)) {
+            const gained = getWenrenPos(simulatedCaster) - getWenrenPos(caster);
+            const enteredZhaoShen = isWenrenZhaoShen(simulatedCaster) && !isWenrenZhaoShen(caster);
+            wenrenBonus = Math.max(-6, gained * WENREN_POS_VALUE)
+                + (enteredZhaoShen ? WENREN_ZHAOSHEN_VALUE : 0);
+        }
         const meaningfulResult = Math.abs(afterScore - beforeScore) > 0.25 || damage > 0 || healing > 0 || effectValue > 0 || moonValue > .25;
         const lastSkillIndex = caster.counters['__ai_last_skill_index'];
         const skillIndex = caster.skill1Id === skill.id ? 0 : 1;
         // 天威联动：拥有"击杀敌人后立即再动"天威的英雄，每次击杀还能白赚一轮行动
-        const tianweiBonus = kills > 0 && simulatedCaster.tianweiId ? kills * TIANWEI_KILL_BONUS : 0;
+        const tianweiBonus = kills > 0 && simulatedCaster.tianweiId && caster.tianweiId !== 'xiangyu_tianwei'
+            ? kills * TIANWEI_KILL_BONUS : 0;
         // 悟空技能2：召唤的分身每个都能再打一轮，场上分身越多价值越高
         const cloneBonus = skill.id === 'wukong_skill2'
             ? countWukongClones(simulated, caster.id) * WUKONG_CLONE_STRIKE_VALUE
@@ -1608,16 +1976,33 @@ function simulateSkillPlan(
                 effect.type === 'wind-blade' && effect.sourceHeroId === caster.id
               ).length * 3
             : 0;
-        // 轩辕神君「御剑·归元」：每把回收/附着的飞剑折成 10% 免伤，是实打实的生存收益；
-        // 不计分的话它经常 0 伤而被施法闸门拦下，飞剑铺满地也永远不会收。
+        // 归元只为真正少挨的伤害、即将过期的防护和下一轮可命中的附剑计分。
+        // 不能把免伤面板无限累加当作无限收益，否则会原地回收→射回→再回收直到30回合。
         let swordBonus = 0;
         if (skill.id === 'xuanyuan_skill2' && result.success) {
-            const teamMitigation = (snapshot: GameState) =>
-                (snapshot.player1Heroes.concat(snapshot.player2Heroes))
-                    .filter(hero => hero.owner === caster.owner)
-                    .reduce((sum, hero) => sum + (hero.effects.find(effect =>
-                        effect.name === '御剑免伤')?.value ?? 0), 0);
-            swordBonus = Math.max(0, teamMitigation(simulated) - teamMitigation(state)) * 40;
+            let protectedDamage = 0;
+            let returnDamage = 0;
+            for (const before of heroesFor(state, caster.owner)) {
+                const after = findHero(simulated, before.id);
+                if (!after?.position || after.state !== HeroState.ALIVE) continue;
+                protectedDamage += Math.max(0, incomingPressure(state, before).damage - incomingPressure(simulated, after).damage);
+                const previousWard = before.effects.find(effect => effect.name === '御剑免伤');
+                if (previousWard && previousWard.duration <= 1) {
+                    const unprotected = { ...before, effects: before.effects.filter(effect => effect.name !== '御剑免伤') };
+                    protectedDamage += Math.max(0, incomingPressure(state, unprotected).damage - incomingPressure(simulated, after).damage) * .5;
+                }
+                const extraSwords = Math.max(0, (after.counters['御剑'] ?? 0) - (before.counters['御剑'] ?? 0));
+                if (extraSwords > 0) {
+                    for (const victim of enemiesFor(simulated, caster.owner)) {
+                        if (victim.state !== HeroState.ALIVE || !victim.position ||
+                            MovementSystem.getManhattanDistance(after.position, victim.position) !== 1) continue;
+                        returnDamage += DamageCalculator.calculate(simulatedCaster, victim,
+                            ATTACHED_SWORD_SHOT_DAMAGE * extraSwords, false, false, { canCrit: false, expectedCrit: true }).finalDamage;
+                    }
+                }
+            }
+            if (damage <= 0 && protectedDamage <= 0 && returnDamage <= 0) return null;
+            swordBonus = protectedDamage * .6 + returnDamage * .5;
         }
         // 花弄影的「重演」在行动末才结算，execute 返回值里一分不显：从模拟盘面读回
         // 影子与招式记忆，把影子的补刀计入本次施法收益；影格本身还是下一手「弄影」
@@ -1860,6 +2245,55 @@ function simulateSkillPlan(
                 ? extraActionValue(beneficiary)
                 : 0);
         }, 0);
+        // 双飞燕的三角收口：AI 看的是“掷完这手之后，两把镖能不能把一片敌人罩进第二段”，
+        // 不是这一挠打了几点。叠镖位已在 buildTargetSets 拦掉，这里再拦空三角与空放。
+        let boomerangBonus = 0;
+        if (skill.id === SHUANGFEIYAN_SKILL1_ID && caster.position) {
+            const outBefore = getShuangfeiyanBoomerangs(state, caster).length;
+            if (outBefore >= 2) {
+                if ((result.damageDealt?.length ?? 0) === 0) return null;
+            } else {
+                const outAfter = getShuangfeiyanBoomerangs(simulated, simulatedCaster);
+                if (outAfter.length < 2) {
+                    if (damage === 0) return null;
+                } else if (simulatedCaster.position) {
+                    const [first, second] = outAfter;
+                    const area2 = getShuangfeiyanTriangleArea2(
+                        simulatedCaster.position,
+                        first.position,
+                        second.position
+                    );
+                    if (area2 > 0) {
+                        const triangleCells = getShuangfeiyanTriangleCells(
+                            simulatedCaster.position,
+                            first.position,
+                            second.position
+                        );
+                        const foes = enemiesFor(simulated, caster.owner).filter(enemy =>
+                            enemy.state === HeroState.ALIVE && enemy.position &&
+                            triangleCells.some(([row, col]) =>
+                                row === enemy.position![0] && col === enemy.position![1])
+                        ).length;
+                        if (foes === 0 && damage === 0) return null;
+                        boomerangBonus = foes * SHUANGFEIYAN_AI_FOE_VALUE
+                            + Math.min(
+                                SHUANGFEIYAN_AI_AREA_VALUE_CAP,
+                                triangleCells.length * SHUANGFEIYAN_AI_AREA_VALUE_PER_CELL
+                            )
+                            + Math.min(
+                                SHUANGFEIYAN_AI_GAP_VALUE_CAP,
+                                chebyshevDistance(first.position, second.position) * SHUANGFEIYAN_AI_GAP_VALUE_PER_CELL
+                            );
+                    } else if (damage === 0) {
+                        return null;
+                    } else {
+                        // 双镖同线也能用“三角”那一手刮过去，但那只是退化的一条线：
+                        // 轻罚一下，逼 AI 优先把两把镖撑成真正的第二段的范围。
+                        boomerangBonus = -SHUANGFEIYAN_AI_COLLINEAR_PENALTY;
+                    }
+                }
+            }
+        }
         const score = afterScore - beforeScore
             + damage * AGGRESSION.damageWeight
             + healing * AGGRESSION.healingWeight
@@ -1880,7 +2314,9 @@ function simulateSkillPlan(
             + buffValueBonus
             + zoneMarkBonus
             + moonValue
+            + wenrenBonus
             + extraActionBonus
+            + boomerangBonus
             + (meaningfulResult ? skillTypeBias(skill) : 0)
             // 技能轮换：最近一次用过的技能减分，促使 AI 换着放技能
             - (lastSkillIndex === skillIndex ? SKILL_REPEAT_PENALTY : 0);
@@ -1889,6 +2325,101 @@ function simulateSkillPlan(
     } catch {
         return null;
     }
+}
+
+/**
+ * 婉儿连冲：在真实克隆盘上短程搜索，包含毛笔消失、目标死亡、反击和实际落点。
+ * 每次只执行第一段，实际结算后再规划；未来分支最多保留三条，避免深链拖慢界面。
+ */
+export function chooseComputerShangguanDash(state: GameState, caster: Hero): ComputerSkillPlan | null {
+    if (caster.skill2Id !== 'shangguan_skill2' || !caster.position || caster.state !== HeroState.ALIVE || caster.hasActedThisTurn) return null;
+    const directions: Position[] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const existingHits = state.shangguanDashState?.heroId === caster.id
+        ? [...state.shangguanDashState.hitTargets] : [];
+    const aliveEnemies = enemiesFor(state, caster.owner).filter(enemy => enemy.state === HeroState.ALIVE && !enemy.id.includes('|')).map(enemy => enemy.id);
+    const baseScore = evaluateComputerBoard(state, caster.owner);
+    const basePosition = scoreComputerPosition(state, caster, caster.position);
+    // 搜索中间节点先用低成本的物质分筛枝；只对前三个收势点计算完整威胁与落点安危。
+    // 否则四方向×三层×三样本会反复做数百次火力网估算，导致这一手明显卡顿。
+    const material = (snapshot: GameState) =>
+        heroesFor(snapshot, caster.owner).reduce((sum, hero) => sum + heroBoardValue(hero), 0)
+        - enemiesFor(snapshot, caster.owner).reduce((sum, hero) => sum + heroBoardValue(hero), 0) * 1.08;
+    const baseMaterial = material(state);
+    const depth = currentDifficulty === 'master' ? 3 : currentDifficulty === 'normal' ? 2 : 1;
+    const samples = currentDifficulty === 'master' ? 3 : 1;
+    type Node = { state: GameState; hits: string[]; damage: number; score: number };
+    const scoreNode = (snapshot: GameState, hero: Hero, damage: number) => {
+        GameEngine.checkWinCondition(snapshot);
+        if (snapshot.phase === 'ended') return evaluateComputerBoard(snapshot, caster.owner);
+        if (hero.state !== HeroState.ALIVE || !hero.position) return -TERMINAL_SCORE;
+        if (damage <= 0) return 0; // 单纯撞碎毛笔不是收益，但仍允许继续搜索它之后的路线。
+        const killed = enemiesFor(snapshot, caster.owner).filter(enemy =>
+            aliveEnemies.includes(enemy.id) && enemy.state === HeroState.DEAD).length;
+        const tempDead = enemiesFor(snapshot, caster.owner).filter(enemy =>
+            aliveEnemies.includes(enemy.id) && enemy.state === HeroState.TEMP_DEAD).length;
+        return material(snapshot) - baseMaterial + damage * AGGRESSION.damageWeight
+            + killed * KILL_SCORE_BONUS + tempDead * TEMP_DEAD_SCORE_BONUS;
+    };
+    const advance = (node: Node, direction: Position): Node | null => {
+        const snapshot = cloneGameState(node.state);
+        const hero = findHero(snapshot, caster.id);
+        if (!hero?.position || hero.state !== HeroState.ALIVE) return null;
+        const [dr, dc] = direction;
+        const scan = scanShangguanDashDirection(hero, dr, dc, node.hits, snapshot);
+        if (!scan.ok) return null;
+        try {
+            const result = performShangguanDashSegment(hero, dr, dc, node.hits, snapshot);
+            if (!result.success || !result.hitId) return null;
+            syncPositionAnchoredEffects(snapshot);
+            const damage = node.damage + (result.damage ?? 0);
+            return { state: snapshot, hits: [...node.hits, result.hitId], damage, score: scoreNode(snapshot, hero, damage) };
+        } catch {
+            // 反击可先让婉儿离场，底层后续落点代码因此无法完成。
+            // 这不是"没生成候选"：丢掉该样本会高估自杀路线，必须保留为负收益。
+            if (hero.state !== HeroState.ALIVE || !hero.position) {
+                return { state: snapshot, hits: node.hits, damage: node.damage, score: -TERMINAL_SCORE };
+            }
+            return null;
+        }
+    };
+    const candidates: ComputerSkillPlan[] = [];
+    for (const direction of directions) {
+        const scores: number[] = [];
+        for (let sample = 0; sample < samples; sample++) {
+            const score = withAiSimulationRandom(simulationSeed(state, caster), sample, samples, () => runWithoutSkillFx(() => {
+                const first = advance({ state, hits: existingHits, damage: 0, score: 0 }, direction);
+                if (!first) return null;
+                const finalists = [first];
+                let frontier = [first];
+                for (let step = 1; step < depth; step++) {
+                    const next: Node[] = [];
+                    for (const node of frontier) {
+                        if (node.state.phase === 'ended' || node.state.pendingBoardAction) continue;
+                        for (const dir of directions) {
+                            const child = advance(node, dir);
+                            if (child) { finalists.push(child); next.push(child); }
+                        }
+                    }
+                    frontier = next.sort((a, b) => b.score - a.score).slice(0, 3);
+                    if (frontier.length === 0) break;
+                }
+                return Math.max(...finalists.sort((a, b) => b.score - a.score).slice(0, 3).map(node => {
+                    if (Math.abs(node.score) >= TERMINAL_SCORE || node.damage <= 0) return node.score;
+                    const hero = findHero(node.state, caster.id)!;
+                    return node.score + evaluateComputerBoard(node.state, caster.owner) - baseScore
+                        - (material(node.state) - baseMaterial)
+                        + (scoreComputerPosition(node.state, hero, hero.position!) - basePosition) * .2;
+                }));
+            }));
+            if (score !== null) scores.push(score);
+        }
+        if (scores.length === 0) continue;
+        candidates.push({ skillId: 'shangguan_skill2', targetPositions: [[
+            caster.position[0] + direction[0], caster.position[1] + direction[1],
+        ]], score: scores.reduce((total, score) => total + score, 0) / samples
+            - (caster.counters.__ai_last_skill_index === 1 ? SKILL_REPEAT_PENALTY : 0) });
+    }
+    return candidates.sort((a, b) => b.score - a.score)[0] ?? null;
 }
 
 /** 一次 AI 技能决策的候选清单快照，供回放与离线复盘分析"当时还有哪些选择、为什么选它" */
@@ -1913,6 +2444,11 @@ export function chooseComputerSkillPlan(
         const skill = getSkill(skillId);
         // 冷却感知：冷却中的技能不再进入模拟，避免浪费计算并让 AI 优先使用就绪技能
         if (!skill || isSkillOnCooldown(caster, skill)) continue;
+        if (skill.id === 'shangguan_skill2') {
+            const chain = chooseComputerShangguanDash(state, caster);
+            if (chain) candidates.push(chain);
+            continue;
+        }
         if (skill.id === 'wukong_skill2') {
             // 分身指挥要求本回合未移动，且场上已有分身或射程内有敌人才有意义
             if (caster.hasMovedThisTurn) continue;
@@ -2239,6 +2775,29 @@ export function scoreComputerPosition(state: GameState, hero: Hero, position: Po
         }
     }
 
+    if (hero.passiveId === 'damo_passive') {
+        // 达摩的站位价值：贴身站到一个“推出 1 格后正好顶到边”的位置，
+        // 这一撞才既吃满基础伤害又补撞山。第一格就顶墙也算撞山（一格没动）。
+        let slamBonus = 0;
+        for (const enemy of enemies) {
+            const dr = enemy.position![0] - position[0];
+            const dc = enemy.position![1] - position[1];
+            if (Math.abs(dr) + Math.abs(dc) !== 1) continue;
+            const dirRow = Math.sign(dr);
+            const dirCol = Math.sign(dc);
+            const first: Position = [enemy.position![0] + dirRow, enemy.position![1] + dirCol];
+            if (!MovementSystem.inBounds(first)) {
+                slamBonus += 6;
+                continue;
+            }
+            if (state.board[first[0]][first[1]] !== null) continue;
+            const second: Position = [first[0] + dirRow, first[1] + dirCol];
+            slamBonus += MovementSystem.inBounds(second) ? 2 : 6;
+        }
+        score += Math.min(12, slamBonus);
+        if (vajraLayers(hero) >= VAJRA_MAX) score += 2;
+    }
+
     if (ratings.支援 >= 7) {
         // 照应分按"越近越值、但每个队友只算前一档的一半"给：
         // 不设递减的话奶妈会把全队吸成一坨，扎堆罚永远追不上那份贴人奖励。
@@ -2320,7 +2879,13 @@ export function chooseComputerMove(state: GameState, hero: Hero): Position | nul
     const currentScore = scoreComputerPosition(state, hero, hero.position);
     const candidates = positions
         .map(position => ({ position, score: scoreComputerPosition(state, hero, position) }))
-        .filter(candidate => candidate.score > currentScore + 1.25);
+        .filter(candidate => candidate.score > currentScore + 1.25)
+        .filter(candidate => {
+            const moved = simulateComputerMove(state, hero, candidate.position);
+            const mover = moved && findHero(moved, hero.id);
+            // 没有联合施法方案时也不能退回"抬脚必死"的普通移动。
+            return !!mover && mover.state === HeroState.ALIVE && !!mover.position;
+        });
 
     // 镜花·水月的交换跳板（真身/水月/月座）不是普通移动落点，寻路永远不会枚举它们，
     // AI 队友因此从不知道去踩白拿的护盾、更不会踏座接镜花归场：
@@ -2596,7 +3161,7 @@ const JOINT_MIN_PLAN_SCORE = 30;
  * 这类技能必须先手释放——先普通移动一步会把它们的前提花光（合击直接判定"已移动过"放不出来）。
  */
 export function isSelfPropellingSkill(skillId: string | undefined): boolean {
-    return skillId === 'youjun_skill1' || skillId === 'wukong_skill2' || skillId === 'aoyuan_skill2' || skillId === 'xuanyuan_skill1';
+    return skillId === 'youjun_skill1' || skillId === 'wukong_skill2' || skillId === 'aoyuan_skill2' || skillId === 'xuanyuan_skill1' || skillId === 'shangguan_skill2';
 }
 
 /**
@@ -2681,7 +3246,23 @@ export function planJointMoveForHero(
     return best;
 }
 
-/** 模拟"移动到 position 后立刻放技能"：克隆棋盘、搬位置，再走完整技能模拟。 */
+/** 只修改克隆盘；走权威路径结算，保留镜联动、羽化、风刃、冰晶及陷阱挂起。 */
+export function simulateComputerMove(state: GameState, caster: Hero, position: Position): GameState | null {
+    const simulated = cloneGameState(state);
+    const mover = findHero(simulated, caster.id);
+    if (!mover || mover.hasMovedThisTurn || mover.state !== HeroState.ALIVE) return null;
+    return withAiSimulationRandom(simulationSeed(state, caster), 0, 1, () => runWithoutSkillFx(() => {
+        if (!MovementSystem.moveHero(mover, position, simulated)) return null;
+        if (isXuanyuan(mover)) driftFlyingSwords(simulated, mover);
+        if (mover.passiveId === 'daizong_passive') clearStance(mover);
+        if (mover.name === '琉璃') SkillSystem.removeGuardEffectsFromLiuli(mover.id, simulated);
+        mover.hasMovedThisTurn = true;
+        syncPositionAnchoredEffects(simulated);
+        return simulated;
+    }));
+}
+
+/** 模拟"真实移动后立刻放技能"，移动的受伤/拾取收益也计入，不能只给移动后的技能计分。 */
 function simulateHeroMoveThenSkill(
     state: GameState,
     caster: Hero,
@@ -2689,14 +3270,17 @@ function simulateHeroMoveThenSkill(
 ): ComputerSkillPlan | null {
     try {
         if (state.board[position[0]][position[1]] !== null) return null;
-        const simulated = cloneGameState(state);
+        const simulated = simulateComputerMove(state, caster, position);
+        if (!simulated) return null;
         const movedCaster = findHero(simulated, caster.id);
         if (!movedCaster || !movedCaster.position) return null;
-        simulated.board[movedCaster.position[0]][movedCaster.position[1]] = null;
-        movedCaster.position = position;
-        simulated.board[position[0]][position[1]] = movedCaster;
-        movedCaster.hasMovedThisTurn = true;
-        return chooseComputerSkillPlan(simulated, movedCaster);
+        GameEngine.checkWinCondition(simulated);
+        // 已死或被钩走待选落点，就不存在"到达计划格后立即施法"这个方案。
+        if (movedCaster.state !== HeroState.ALIVE || simulated.pendingBoardAction || simulated.phase === 'ended') return null;
+        const plan = chooseComputerSkillPlan(simulated, movedCaster);
+        if (!plan) return null;
+        return { ...plan, score: plan.score >= TERMINAL_SCORE ? plan.score
+            : plan.score + evaluateComputerBoard(simulated, caster.owner) - evaluateComputerBoard(state, caster.owner) };
     } catch {
         return null;
     }
