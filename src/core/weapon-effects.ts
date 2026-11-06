@@ -18,6 +18,22 @@ function armed(hero: { weaponId?: string | null }, weaponId: string): boolean {
     return hero.weaponId === weaponId;
 }
 
+const WENDAO_STACKS = '问道';
+
+/** 问道：本次只读取旧层数；20% 仅用于真正轮到墨阑的额外行动。 */
+export function moranWeaponSkillDamage(hero: Hero, state: GameState, baseDamage: number): number {
+    if (!armed(hero, 'moran')) return baseDamage;
+    const damage = baseDamage + (hero.counters[WENDAO_STACKS] ?? 0);
+    const extra = state.performingExtraAction && state.activeHero?.id === hero.id;
+    return extra ? damage * 1.2 : damage;
+}
+
+/** 每次实际出招结算后记一层，两招共用；不走按命中对象计数的伤害钩子。 */
+export function recordMoranWeaponAttack(hero: Hero): void {
+    if (!armed(hero, 'moran')) return;
+    hero.counters[WENDAO_STACKS] = (hero.counters[WENDAO_STACKS] ?? 0) + 1;
+}
+
 /** 登场（布阵落子、补员上场、临时拉人）时的一次性初始化 */
 export function applyWeaponOnArrival(hero: Hero): void {
     if (!hero.weaponId) return;

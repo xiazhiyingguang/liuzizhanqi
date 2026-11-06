@@ -1,13 +1,15 @@
 import { nextBattleLogId } from './battle-log-id';
+import { FLOWER_SKILL1, FLOWER_SKILL2, flowerArea, flowerPlacementCells, isFlowerBlindCell, finishFlowerAttack, revealFlowerAttacker } from './flower-fog';
 import { BOARD_SIZE, Hero, Skill, Position, GameState, SkillExecuteResult, HeroState } from '../types/game';
 import { MovementSystem } from './movement-system';
 import { DamageCalculator } from './damage-calculator';
+import { canglanTargetPositions, isCanglanSkill } from './canglan';
 import { EffectManager } from './effect-manager';
 import { zhizhiValue } from './hero-zhizhi';
 import { recordBattleSkillUse } from './battle-statistics';
 import { youjunDashMaxDistance } from './wind-blade';
 import { filterPositionsByRage, getRageBinder, rageBlocksCast } from './taunt';
-import { getJinghongOuterRing, isJinghongCharging, isJinghongReleaseWindow, isLingxiEchoPending, findHnyShadow, getHnyFanPositions } from '../data/extended-heroes';
+import { getJinghongOuterRing, isJinghongCharging, isJinghongReleaseWindow, isLingxiEchoPending, findHnyShadow, getHnyFanPositions, syncPositionAnchoredEffects } from '../data/extended-heroes';
 import { getWangshuAllies } from './wangshu';
 import { jiangtaigongDragCells } from './water-marsh';
 import { dragonDashDistance, dragonSummonCells } from './dragon-orbit';
@@ -68,6 +70,9 @@ export class SkillSystem {
         gameState?: GameState
     ): Position[] {
         if (!caster.position) return [];
+        if (skill.id===FLOWER_SKILL1) return gameState ? flowerPlacementCells(gameState,caster) : [];
+        if (skill.id===FLOWER_SKILL2) return flowerArea(caster.position);
+        if (isCanglanSkill(skill.id)) return canglanTargetPositions(caster, skill.id, gameState);
 
         // 双飞燕技能一：手里有镖时点八方向3格内的落点；两把镖都在外时只剩“点自己”结算三角
         if (skill.id === SHUANGFEIYAN_SKILL1_ID) {
@@ -411,6 +416,16 @@ export class SkillSystem {
                 success: false,
                 log: [`${caster.name}被${rageBinder?.name ?? '血契'}锁住，这一击必须落在它身上`],
             };
+        }
+
+        // 盲点空格也算出手。只在合法射程内、没有英雄/灯影可命中时消耗这一击。
+        if (targetPositions.length===1 && isFlowerBlindCell(skill,caster,gameState,targetPositions[0]) &&
+            this.getValidTargetPositions(caster,skill,gameState).some(([r,c])=>r===targetPositions[0][0]&&c===targetPositions[0][1]) &&
+            !this.getHeroesAtPositions(targetPositions,caster,'enemy',gameState).length) {
+            revealFlowerAttacker(gameState,caster);
+            if (finishFlowerAttack(gameState,caster)) syncPositionAnchoredEffects(gameState);
+            recordBattleSkillUse(gameState,caster,skill.id);
+            return {success:true,damageDealt:[],log:[`${caster.name}向花雾盲击，未命中目标`]};
         }
 
         // 如果技能有自定义执行函数，使用自定义函数
@@ -789,6 +804,7 @@ export class SkillSystem {
 
         // 检查是否有有效目标
         const validPositions = this.getValidTargetPositions(caster, skill, gameState);
+        if (validPositions.some(cell=>isFlowerBlindCell(skill,caster,gameState,cell))) return true;
         if (skill.targetType === 'empty') {
             return validPositions.some(([row, col]) => gameState.board[row][col] === null);
         }

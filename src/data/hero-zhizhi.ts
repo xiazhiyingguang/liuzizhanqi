@@ -21,6 +21,7 @@ export interface ZhizhiEntry {
 
 /** 键必须是英雄模板 id：英雄图鉴里出现的每一个人，这里都要有三条 */
 const ZHIZHI_DRAFTS: Record<string, readonly (string | null)[]> = {
+    flower_fog: [null,null,null],
     // ===== 武曲：近战锋刃 =====
     moran: ['生命增加 10', '为道解除后的那次立即出手，技能伤害提升 40%', '为道期间的免伤提升到 60%'],
     zhenxiao: ['技能耗血 20% → 15%', '生命 46 → 54', '金银错回击 6 → 8'],
@@ -81,7 +82,7 @@ const ZHIZHI_DRAFTS: Record<string, readonly (string | null)[]> = {
     // ===== 素问：恢复与净化 =====
     baize: ['生命增加 8', '「白泽之力」的提升 10% → 15%，上限 50% → 60%', '开局自带 1 层「天禄」'],
     bard: ['生命增加 10', '「和声」每次攻击回复 5 → 6', '技能二作用范围 1 格 → 3 格'],
-    xubai: ['黑白球每颗回复 4 → 5', '登场被动的回复 8 → 10', '黑白球同时净化一层负面效果'],
+    xubai: ['黑白球每颗回复 4 → 5', '首次登场神威的回复 8 → 10', '每颗黑白球同时净化一层负面效果'],
     wangshu: ['生命增加 10（50 → 60）', '移动力 2 → 3', '满月倍率 80% → 100%'],
 
     // ===== 化识：远程与场地 =====
@@ -113,6 +114,7 @@ const ZHIZHI_DRAFTS: Record<string, readonly (string | null)[]> = {
     yunxiu: ['生命 50 → 58', '雷云落雷伤害 2 → 4', null],
     damo: ['生命 +10', '金刚每层回复 2 → 3', null],
     xiangyu: ['生命 +10', '破阵冲锋伤害 6 → 8', '霸王镇守护盾 10 → 15'],
+    canglan: ['生命 50 → 58', '潮锋每层幻化增伤、凝水每层幻化吸血均由20%提升到25%', '每次施法前的幻化概率提升由25个百分点增至30个百分点'],
     daizong: ['生命 +10', '镇守承转 40% → 50%', '不动如山 25%/50%/回复10% → 30%/60%/15%'],
     xuanyuan: ['技能一跃迁与周圈伤害各 +1', '技能二剑气伤害 6 → 7', '每把飞剑的御剑免伤 10% → 12%'],
     wenren: ['生命增加 8', '技能一基础伤害 8 → 10', '技能二每层暴击率 +5%（普通 5%→10%，昭神 10%→15%）'],
@@ -182,6 +184,7 @@ export const ZHIZHI_STAT_BONUSES: Record<string, Partial<Record<ZhizhiTier, Zhiz
     yunxiu: { 1: { maxHp: 8 } },
     damo: { 1: { maxHp: 10 } },
     xiangyu: { 1: { maxHp: 10 } },
+    canglan: { 1: { maxHp: 8 } },
     daizong: { 1: { maxHp: 10 } },
     wenren: { 1: { maxHp: 8 } },
     shuangfeiyan: { 1: { maxHp: 8 }, 2: { moveRange: 1 } },

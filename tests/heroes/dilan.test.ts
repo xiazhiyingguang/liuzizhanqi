@@ -9,7 +9,7 @@ import {
     getDilanFeatherStacks,
     DILAN_FEATHER_DURATION,
 } from '../../src/data/extended-heroes';
-import { chenyuanSkill1, dilanSkill1, dilanSkill2, zuizhendaoSkill2 } from '../../src/data/extended-skills';
+import { aoyuanSkill2, chenyuanSkill1, dilanSkill1, dilanSkill2, zuizhendaoSkill2 } from '../../src/data/extended-skills';
 import { useGameStore } from '../../src/store/game-store';
 import { addHero, makeGameState } from '../helpers/game-state';
 
@@ -108,7 +108,7 @@ describe('帝兰完整机制', () => {
         expect(guardian.currentHp).toBe(guardian.maxHp);
     });
 
-    it('己方技能造成的换位不再触发羽化', () => {
+    it('目标自己一方的技能换位不触发敌方羽化', () => {
         const state = makeGameState();
         const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
         const caster = addHero(state, 'zuizhendao', 'player2', [0, 0]);
@@ -121,23 +121,37 @@ describe('帝兰完整机制', () => {
         expect(output.success).toBe(true);
         expect(caster.position).toEqual([0, 3]);
         expect(ally.position).toEqual([0, 0]);
-        expect(caster.currentHp, '换身是醉枕刀自己放技能挪的位，不该吃羽化').toBe(caster.maxHp);
+        expect(caster.currentHp).toBe(caster.maxHp);
         expect(ally.currentHp).toBe(ally.maxHp);
     });
 
-    it('位移归属方决定羽化是否记账：羽化来源同队才算', () => {
+    it('带羽化的敌人用自己的技能冲刺，不触发羽化', () => {
+        const state = makeGameState();
+        const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
+        const runner = addHero(state, 'aoyuan', 'player2', [2, 0]);
+        runner.defense = 0;
+        runner.maxHp = 300;
+        runner.currentHp = 300;
+        addDilanFeather(runner, dilan, 2);
+
+        runner.counters['__extended_target'] = 2 * 6 + 3;   // 沿横线冲到 [2,3]，走过 3 格
+        const output = SkillSystem.executeSkill(runner, aoyuanSkill2, [], state);
+
+        expect(output.success).toBe(true);
+        expect(runner.position).toEqual([2, 3]);
+        expect(runner.currentHp).toBe(300);
+    });
+
+    it('普通移动及羽化来源方的强制位移触发，目标自己一方的技能不触发', () => {
         const state = makeGameState();
         const dilan = addHero(state, 'dilan', 'player1', [5, 5]);
         const enemy = addHero(state, 'baize', 'player2', [0, 0]);
         addDilanFeather(enemy, dilan, 2);
 
-        // 被"敌方"（目标自己那侧）的技能挪动：不算
-        expect(DamageCalculator.applyDilanMovementDamage(enemy, 2, state, 'player2')).toBe(0);
-        expect(enemy.currentHp).toBe(enemy.maxHp);
-
-        // 被羽化来源那侧推出去：每格 1 点
-        expect(DamageCalculator.applyDilanMovementDamage(enemy, 2, state, 'player1')).toBe(2);
-        expect(enemy.currentHp).toBe(enemy.maxHp - 2);
+        expect(DamageCalculator.applyDilanMovementDamage(enemy, 2, state, enemy.owner)).toBe(0);
+        expect(DamageCalculator.applyDilanMovementDamage(enemy, 2, state, dilan.owner)).toBe(2);
+        expect(DamageCalculator.applyDilanMovementDamage(enemy, 2, state)).toBe(2);
+        expect(enemy.currentHp).toBe(enemy.maxHp - 4);
     });
 
     it('沉渊把羽化目标拖过来时按拖拽格数触发羽化', () => {

@@ -856,8 +856,8 @@ export function createHero(
         xuanxiao: {
             name: '玄霄',
             class: '天师',
-            maxHp: 45,
-            moveRange: 3,
+            maxHp: 55,
+            moveRange: 2,
             skill1Id: 'xuanxiao_skill1',
             skill2Id: 'xuanxiao_skill2',
             passiveId: 'xuanxiao_passive',
@@ -1090,7 +1090,7 @@ export function getHeroInfo(heroId: string) {
         xuanxiao: {
             name: '玄霄',
             class: '天师',
-            description: '强化友方，令队友再次行动。生命45，移动力3'
+            description: '首次登场为当时在场的友方英雄增加移动力，能强化友方并令两格内的队友再次行动。生命55，基础移动力2'
         },
         nightowl: {
             name: '暗影猎手·夜枭',

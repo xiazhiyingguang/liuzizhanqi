@@ -8,6 +8,7 @@ import { XuanyuanSwordGlyph } from './BladeChoreographyFx';
 import { HuanongyingShadowGlyph } from './HuanongyingSceneFx';
 import type { ReplayArea, ReplayFrame, ReplayStatic, ReplayUnit } from '../../core/battle-replay';
 import type { BoardEffect, Hero } from '../../types/game';
+import { FlowerFogLayer } from './TideFlowerSceneFx';
 
 interface ReplayBoardProps {
     frame: ReplayFrame;
@@ -29,7 +30,7 @@ export default function ReplayBoard({ frame, statics, deltas, cellSize }: Replay
     const unitsAt = (row: number, col: number): ReplayUnit | undefined =>
         frame.units.find(unit => unit.r === row && unit.c === col);
     const areasAt = (row: number, col: number): ReplayArea[] =>
-        frame.areas.filter(area => area.type !== 'thunder-cloud' && area.r === row && area.c === col);
+        frame.areas.filter(area => area.type !== 'thunder-cloud' && area.type !== 'flower-fog' && area.r === row && area.c === col);
 
     return (
         <div
@@ -70,6 +71,9 @@ export default function ReplayBoard({ frame, statics, deltas, cellSize }: Replay
                         {frame.areas.filter(area => area.type === 'thunder-cloud').map((area, index) =>
                             <ThunderCloudField key={`cloud-${index}`} position={[area.r, area.c]} owner={area.owner} duration={area.duration} />)}
                     </div>}
+                    <FlowerFogLayer fields={frame.areas.filter(area => area.type === 'flower-fog').map((area, index) => ({
+                        key: String(index), center: [area.r, area.c],
+                    }))} />
                 </div>
             </div>
         </div>
@@ -138,6 +142,7 @@ function ReplayPiece({
 }
 
 const AREA_TITLES: Record<BoardEffect['type'], string> = {
+    'flower-fog': '花雾',
     'wind-blade': '风刃',
     'wind-lane': '风道',
     'ice-crystal': '冰晶',

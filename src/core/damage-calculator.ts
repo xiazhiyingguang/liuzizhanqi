@@ -59,6 +59,7 @@ import {
     XIANGRUI_TRIGGER_STACKS,
     YUNYING_VAMPIRE_EFFECT,
     purgeYinyangLinksOf,
+    syncPositionAnchoredEffects,
     getJinghuaStacks,
     JINGHONG_MAX,
 } from '../data/extended-heroes';
@@ -92,6 +93,9 @@ import {
 } from './xiangyu';
 import { findDaizongBulwark, hasStance, queueDaizongLamp, recordStanceDamage, stillnessDefense, stanceConversion } from './mountain-stance';
 import { SHADOW_DAMAGE_RATE, SHADOW_TRANSFER_KEY, clearShadowTransfers, lampMitigationFor, leaveWakeLamp } from './lamp-shadow';
+import { FLOWER_TIANWEI, finishFlowerAttack, isFlowerDecoy, removeFlowerDecoy, revealFlowerAttacker } from './flower-fog';
+import { triggerFlowerEscape } from '../data/flower-fog-skills';
+import { CANGLAN_TIANWEI, CONDENSED_WATER, TIDE_EDGE, gainCanglanLayer } from './canglan';
 
 type DamageCalculationOptions = {
     /** 本次普通伤害段必定暴击。 */
@@ -144,6 +148,7 @@ export class DamageCalculator {
      */
     private static battleRound = 1;
     private static activeSkillCaster: Hero | null = null;
+    private static activeFlowerAttackState: GameState | null = null;
     private static damageDepth = 0;
     private static passiveDepth = 0;
     private static skillDamage = new WeakSet<DamageResult>();
@@ -151,8 +156,15 @@ export class DamageCalculator {
     /** 主动施放入口。结算链内的被动不继承追击资格。 */
     static withActiveSkill<T>(caster: Hero, run: () => T): T {
         const previous = this.activeSkillCaster;
+        const previousFlowerState = this.activeFlowerAttackState;
         this.activeSkillCaster = caster;
-        try { return run(); } finally { this.activeSkillCaster = previous; }
+        this.activeFlowerAttackState = null;
+        try {
+            const result = run();
+            // 必须等本次技能的后续位移完成，不能在伤害循环里把棋子换走。
+            if (this.activeFlowerAttackState && finishFlowerAttack(this.activeFlowerAttackState,caster)) syncPositionAnchoredEffects(this.activeFlowerAttackState);
+            return result;
+        } finally { this.activeSkillCaster = previous; this.activeFlowerAttackState = previousFlowerState; }
     }
 
     static setBattleRound(roundNumber: number): void {
@@ -834,10 +846,8 @@ export class DamageCalculator {
     /**
      * 结算羽化的逐格固定伤害；返回本次移动造成的总伤害。
      *
-     * movedByOwner 省略 = 目标在自己行动阶段主动走的路，羽化照常逐格掉血。
-     * 传入"造成这次位移的一方"时，只有他和羽化来源同队（我方把敌人吹开、拖过来、
-     * 顺着风道推走）才记账；敌方技能造成的位移——包括目标自己的冲刺、瞬移、
-     * 换位、传送——不再触发羽化，羽化因此只惩罚"被对手摆布的位置"和"自己抬脚走路"。
+     * 不传 movedByOwner 表示普通走格；技能/强制位移必须传实际施术方。
+     * 仅羽化来源那一方造成的强制位移触发，目标自己或队友的技能位移不触发。
      */
     static applyDilanMovementDamage(
         target: Hero,
@@ -857,7 +867,7 @@ export class DamageCalculator {
                     source.passiveId === 'youjun_passive') &&
                 source.state === HeroState.ALIVE &&
                 source.owner !== target.owner &&
-                (!movedByOwner || movedByOwner === source.owner)
+                (movedByOwner === undefined || movedByOwner === source.owner)
             );
 
         let totalDamage = 0;
@@ -876,6 +886,26 @@ export class DamageCalculator {
             totalDamage += damage.finalDamage;
         }
         return totalDamage;
+    }
+
+    /**
+     * 直接改棋盘的技能位移。默认是目标自己一方的技能，不触发敌方羽化；
+     * 若用于敌方施加的强制位移，必须显式传入施术方。
+     */
+    static applyFeatherForDisplacement(
+        target: Hero,
+        from: Position | null,
+        to: Position | null,
+        gameState: GameState,
+        movedByOwner: Player = target.owner
+    ): number {
+        if (!from || !to) return 0;
+        return this.applyDilanMovementDamage(
+            target,
+            Math.abs(from[0] - to[0]) + Math.abs(from[1] - to[1]),
+            gameState,
+            movedByOwner
+        );
     }
 
     /**
@@ -943,6 +973,11 @@ export class DamageCalculator {
         isAreaDamage: boolean = false
     ): void {
         const targetWasAlive = target.state === HeroState.ALIVE;
+        if (targetWasAlive && attacker.owner!==target.owner && this.activeSkillCaster===attacker &&
+            this.damageDepth===1 && this.passiveDepth===0 && !damageResult.logTag) {
+            if (!this.activeFlowerAttackState) revealFlowerAttacker(gameState, attacker);
+            this.activeFlowerAttackState = gameState;
+        }
         // 记这一次"出手"的发起者与被命中者：纸鸢的追击要在整组结算完之后才追（群攻随机取一个）
         if (this.attackTrace) {
             if (!this.attackTrace.initiator) this.attackTrace.initiator = attacker;
@@ -1457,6 +1492,7 @@ export class DamageCalculator {
         actualTarget.currentHp = immortal
             ? Math.max(1, actualTarget.currentHp - remainingDamage)
             : Math.max(0, actualTarget.currentHp - remainingDamage);
+        damageResult.appliedHpDamage = Math.max(0, hpBeforeDamage - actualTarget.currentHp);
         const actualHpDamage = Math.min(hpBeforeDamage, Math.max(0, remainingDamage));
         recordBattleDamage(gameState, attacker, actualTarget, actualHpDamage, damageResult.shieldDamage);
 
@@ -1982,6 +2018,11 @@ export class DamageCalculator {
      */
     private static handleDeath(target: Hero, killer: Hero, gameState: GameState): boolean {
         const deathPosition = target.position ? [...target.position] as [number, number] : null;
+        if (isFlowerDecoy(target)) {
+            removeFlowerDecoy(gameState,target);
+            this.addBattleLog(gameState,{type:'effect',player:killer.owner,message:'被击中的身影碎成花瓣'});
+            return false; // 不是有效击杀，不触发天威、悬赏、亡灵统计或召唤物反噬。
+        }
         if (target.passiveId === 'wither_lord_passive') {
             const lives = target.counters['wither_lives'] ?? 0;
             if (lives > 1) {
@@ -2268,8 +2309,10 @@ export class DamageCalculator {
             if (tianweiHero.tianweiId === 'dilan_tianwei' && deathPosition) {
                 tianweiHero.counters['__dilan_kill_pos'] = deathPosition[0] * 6 + deathPosition[1];
             }
+            if (tianweiHero.tianweiId===FLOWER_TIANWEI && deathPosition) tianweiHero.counters['__flower_kill_pos']=deathPosition[0]*6+deathPosition[1];
             this.triggerTianwei(tianweiHero, gameState);
             delete tianweiHero.counters['__dilan_kill_pos'];
+            delete tianweiHero.counters['__flower_kill_pos'];
         }
         if (killer.id !== target.id && killer.owner !== target.owner) {
             this.resolveBountyRewards(target, killer, gameState, deathPosition);
@@ -2380,7 +2423,15 @@ export class DamageCalculator {
             return;
         }
         hero.counters['__lianzhi_tianwei_group'] = this.currentAttackGroup ?? 0;
-        if (hero.tianweiId === 'daizong_tianwei') {
+        if (hero.tianweiId===FLOWER_TIANWEI) {
+            const pos=hero.counters['__flower_kill_pos'];
+            triggerFlowerEscape(hero,gameState,pos===undefined?undefined:[Math.floor(pos/6),pos%6]);
+        } else if (hero.tianweiId === CANGLAN_TIANWEI) {
+            gainCanglanLayer(hero, TIDE_EDGE);
+            gainCanglanLayer(hero, CONDENSED_WATER);
+            this.addBattleLog(gameState, { type: 'tianwei', player: hero.owner,
+                message: `${hero.name}触发「一剑回潮」：潮锋${hero.counters[TIDE_EDGE]}层，凝水${hero.counters[CONDENSED_WATER]}层` });
+        } else if (hero.tianweiId === 'daizong_tianwei') {
             // 传灯不当场生效：把这一次天威交给下一个出手的友方（在 endHeroAction 里兑现）
             queueDaizongLamp(hero);
             this.addBattleLog(gameState, {
@@ -2486,10 +2537,6 @@ export class DamageCalculator {
                     });
                 }
             }
-        } else if (hero.tianweiId === 'pipa_tianwei') {
-            const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
-            const target = allies.filter(item => item.state === HeroState.ALIVE).sort((a, b) => a.currentHp - b.currentHp)[0];
-            if (target) this.applyHeal(target, hero.counters['pipa_last_skill2_damage'] ?? 0, gameState, hero);
         } else if (hero.tianweiId === 'bounty_tianwei') {
             // 击杀后向随机一个存活敌人追加猎杀令（致知3：改为所有存活敌人）
             const enemies = (hero.owner === 'player1' ? gameState.player2Heroes : gameState.player1Heroes)

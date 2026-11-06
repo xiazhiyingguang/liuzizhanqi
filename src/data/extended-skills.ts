@@ -1,4 +1,6 @@
 import { nextBattleLogId } from '../core/battle-log-id';
+import { triggerXuanxiaoEntrance } from '../core/xuanxiao';
+import { triggerPipaEntrance } from '../core/pipa';
 import { requestBladeScene, type BladeStroke } from '../core/blade-choreography';
 import type { SkillAreaBounds } from '../core/skill-fx';
 import { collectImpactPositions } from '../core/skill-fx';
@@ -26,6 +28,8 @@ import {
     triggerHookBite,
 } from '../core/water-marsh';
 import { DamageCalculator } from '../core/damage-calculator';
+import { executeFlowerDecoy, executeFlowerFog } from './flower-fog-skills';
+import { executeCanglanSlash, executeCanglanSweep } from './canglan-skills';
 import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
 import { MovementSystem } from '../core/movement-system';
@@ -449,7 +453,7 @@ export const pipaSkill1: Skill = {
     id: 'pipa_skill1',
     name: '五弦流转',
     type: 'buff',
-    description: '为两格内所有友方施加音符：其伤害附加琵琶基础攻击力25%，并为琵琶积累和弦',
+    description: '为两格内所有友方施加1回合音符：其每次造成伤害时附加琵琶基础攻击力25%，并为琵琶积累1点和弦',
     rangeType: 'single',
     range: 2,
     targetType: 'ally',
@@ -461,7 +465,7 @@ export const pipaSkill1: Skill = {
             EffectManager.addEffect(target, {
                 type: 'buff',
                 name: '音符',
-                duration: 2,
+                duration: 1,
                 value: 0.25,
                 sourceHeroId: caster.id,
                 description: '攻击时附加琵琶基础攻击力25%的伤害',
@@ -489,7 +493,6 @@ export const pipaSkill2: Skill = {
         // 致知2：每层和弦的伤害 3 → 4
         const damage = damageOne(caster, target, chord * zhizhiValue(caster, 2, 3, 4), gameState);
         EffectManager.setCounter(caster, '和弦', 0);
-        caster.counters['pipa_last_skill2_damage'] = damage.finalDamage;
         return { ...result([`${caster.name}消耗${chord}层和弦`]), damageDealt: [damage.finalDamage] };
     },
 };
@@ -761,7 +764,7 @@ export const heroXSkill2: Skill = {
         if (deltaRow > 1 || deltaCol > 1 || deltaRow + deltaCol === 0) {
             return fail('只能瞬移到周围一格范围');
         }
-        // 自己的技能位移不吃羽化（skillMovement），但沿途风刃照常结算
+        // 自身技能位移不触发敌方羽化，沿途风刃仍照常结算
         if (!MovementSystem.moveHero(caster, target, gameState, 2, { ignoreBindingZone: true, skillMovement: true })) return fail('无法瞬移到该位置');
         if (caster.state !== HeroState.ALIVE) {
             return result([`${caster.name}在跃迁途中阵亡`]);
@@ -1551,6 +1554,7 @@ export const zuizhendaoSkill1: Skill = {
         gameState.board[fromR][fromC] = null;
         gameState.board[end[0]][end[1]] = caster;
         caster.position = end;
+        DamageCalculator.applyFeatherForDisplacement(caster, [fromR, fromC], end, gameState);
         const output = result();
         // 自报真实冲刺序列（含绕路）：特效沿这条路径逐格铺光影，做到真正的"跟踪"
         output.fxCoveredPositions = plan.path;
@@ -1604,7 +1608,9 @@ export const zuizhendaoSkill2: Skill = {
         gameState.board[ar][ac] = caster;
         caster.position = [ar, ac];
         ally.position = [cr, cc];
-        // 换位是己方技能造成的位移，不再吃羽化逐格伤害
+        // 换位同样是位移：两具身体各按走过的格数吃一次羽化
+        DamageCalculator.applyFeatherForDisplacement(caster, [cr, cc], [ar, ac], gameState);
+        DamageCalculator.applyFeatherForDisplacement(ally, [ar, ac], [cr, cc], gameState);
         const output = result();
         // 周围一圈（8方向）敌人
         const ring = MovementSystem.getAreaPositions(caster.position, 3);
@@ -2401,6 +2407,7 @@ export function performShangguanDashSegment(
         if (gameState.board[hr][hc] === caster) gameState.board[hr][hc] = null;
         gameState.board[lr][lc] = caster;
         caster.position = [lr, lc];
+        DamageCalculator.applyFeatherForDisplacement(caster, [hr, hc], [lr, lc], gameState);
     }
     return output;
 }
@@ -2600,7 +2607,8 @@ export const youjunSkill1: Skill = {
         caster.position = landing;
         // 疾掠的落点同样算"停留过的位置"，天威归翎会从这里收回飞刀
         markYoujunKnifeSpot(caster);
-        // 疾掠是她自己冲出去的位移，不吃羽化；流血仍按格结算
+        // 疾掠也是位移，照样吃羽化；流血仍按格结算
+        DamageCalculator.applyDilanMovementDamage(caster, dashDistance, gameState, caster.owner);
         DamageCalculator.applyBleedMovementDamage(caster, dashDistance, gameState);
 
         // 消耗已武装的疾掠刷新；收回冲刺路径上的风刃（刷新供下一轮冲锋使用）
@@ -2922,28 +2930,37 @@ function purgeNegativeEffects(target: Hero): string[] {
     return purged;
 }
 
-function purgeRandomNegativeEffect(target: Hero): string | null {
+function removeXubaiEffectLayer(target: Hero, picked: Hero['effects'][number]): void {
+    target.effects = (picked.stackCount ?? 1) > 1
+        ? target.effects.map(effect => effect === picked ? { ...effect, stackCount: picked.stackCount! - 1 } : effect)
+        : target.effects.filter(effect => effect !== picked);
+}
+
+function purgeRandomNegativeEffect(target: Hero, oneLayer = false): string | null {
     const negatives = target.effects.filter(effect => effect.type === 'debuff');
     if (negatives.length === 0) return null;
     const picked = negatives[Math.floor(Math.random() * negatives.length)];
-    target.effects = target.effects.filter(effect => effect !== picked);
+    if (oneLayer) removeXubaiEffectLayer(target, picked);
+    else target.effects = target.effects.filter(effect => effect !== picked);
     return picked.name;
 }
 
 /**
  * 黑白球结算：某个友方英雄行动开始时，若其生命低于上限40%，
  * 逐颗消耗叙白存着的黑白球，每颗回复4点，直到回到40%以上或用尽。
- * 每个英雄每轮只结算一次；只在被选中行动的一方触发，因此敌方回合完全不回血。
+ * 只在自己的实际行动入口调用；行动序号防止同一手反复点人重复结算，再动则独立结算。
  */
 export function settleXubaiOrbs(hero: Hero, gameState: GameState): string | null {
-    if (hero.state !== HeroState.ALIVE) return null;
-    if (hero.counters['__xubai_orb_round'] === gameState.roundNumber) return null;
-    hero.counters['__xubai_orb_round'] = gameState.roundNumber;
+    if (gameState.phase !== 'battle' || hero.owner !== gameState.currentPlayer || !hero.position ||
+        hero.state !== HeroState.ALIVE || hero.hasActedThisTurn || EffectManager.isStunned(hero)) return null;
+    const serial = hero.counters['__actionSerial'] ?? 0;
+    if (hero.counters['__xubai_orb_action'] === serial) return null;
 
     const keeper = getLivingHeroes(getAllies(hero, gameState)).find(candidate =>
-        candidate.passiveId === 'xubai_passive' && (candidate.counters['黑白球'] ?? 0) > 0
+        candidate.passiveId === 'xubai_passive' && !!candidate.position && (candidate.counters['黑白球'] ?? 0) > 0
     );
     if (!keeper) return null;
+    hero.counters['__xubai_orb_action'] = serial;
 
     const logIdsBefore = new Set(gameState.battleLog.map(entry => entry.id));
     let consumed = 0;
@@ -2954,10 +2971,10 @@ export function settleXubaiOrbs(hero: Hero, gameState: GameState): string | null
     while (hero.currentHp < hero.maxHp * XUBAI_HP_THRESHOLD && (keeper.counters['黑白球'] ?? 0) > 0) {
         keeper.counters['黑白球'] = (keeper.counters['黑白球'] ?? 0) - 1;
         // 致知3：每颗球顺带净化一层负面效果
-        if (hasZhizhi(keeper, 3) && purgeRandomNegativeEffect(hero)) purged += 1;
+        if (hasZhizhi(keeper, 3) && purgeRandomNegativeEffect(hero, true)) purged += 1;
+        consumed++;
         const gained = DamageCalculator.applyHeal(hero, orbHeal, gameState, keeper);
         if (gained <= 0) break;
-        consumed++;
         healed += gained;
     }
     if (consumed === 0) return null;
@@ -2971,14 +2988,32 @@ export function settleXubaiOrbs(hero: Hero, gameState: GameState): string | null
         (purged > 0 ? `，并净化${purged}层负面效果` : '');
 }
 
+/** 回合末只去掉一层负面控制状态；有多名候选时优先照顾生命比例最低的友方。 */
+export function settleXubaiRoundEnd(hero: Hero, gameState: GameState): void {
+    if (!hero.position || hero.state !== HeroState.ALIVE) return;
+    const status = (unit: Hero) => unit.effects.find(effect =>
+        (effect.type === 'stun' || effect.type === 'control') && effect.duration !== 0);
+    const target = getLivingHeroes(getAllies(hero, gameState))
+        .filter(unit => unit.position && status(unit))
+        .sort((a, b) => a.currentHp / a.maxHp - b.currentHp / b.maxHp)[0];
+    const picked = target && status(target);
+    if (!picked) return;
+    removeXubaiEffectLayer(target, picked);
+    gameState.battleLog.push({
+        id: nextBattleLogId(), type: 'passive', player: hero.owner, timestamp: Date.now(),
+        message: `${hero.name}回合末为${target.name}净化了一层负面状态「${picked.name}」`,
+    });
+}
+
 /**
- * 被动「初雪」：叙白每场战斗首次登场时，恢复登场位置3×3范围内友方（含自己）8点生命，
+ * 神威「初雪」：叙白每场战斗首次登场时，恢复登场位置3×3范围内友方（含自己）8点生命，
  * 并各净化随机1个负面效果。补员上场也算登场，但整场只触发一次。
  */
 export function triggerXubaiEntrance(hero: Hero, gameState: GameState): void {
     if (hero.state !== HeroState.ALIVE || !hero.position) return;
-    if (hero.counters['__xubai_entered'] === 1) return;
+    if (hero.counters['__xubai_entered'] === 1 || gameState.xubaiEntranceTriggered?.[hero.owner]) return;
     hero.counters['__xubai_entered'] = 1;
+    gameState.xubaiEntranceTriggered = { ...gameState.xubaiEntranceTriggered, [hero.owner]: true };
 
     const cells: Position[] = [hero.position, ...MovementSystem.getAreaPositions(hero.position, 3)];
     const nearby = cells
@@ -2989,7 +3024,7 @@ export function triggerXubaiEntrance(hero: Hero, gameState: GameState): void {
     const names: string[] = [];
     const affected: Position[] = [];
     const logIdsBefore = new Set(gameState.battleLog.map(log => log.id));
-    // 致知2：登场被动的回复 8 → 10
+    // 致知2：登场神威的回复 8 → 10
     const entranceHeal = zhizhiValue(hero, 2, 8, 10);
     for (const ally of nearby) {
         const healed = DamageCalculator.applyHeal(ally, entranceHeal, gameState, hero);
@@ -3005,7 +3040,7 @@ export function triggerXubaiEntrance(hero: Hero, gameState: GameState): void {
         id: nextBattleLogId(),
         type: 'passive',
         player: hero.owner,
-        message: `${hero.name}初至战场，抚育周围友军：${names.join('、')}`,
+        message: `${hero.name}触发神威「初雪」，抚育周围友军：${names.join('、')}`,
         timestamp: Date.now(),
     });
     requestSkillFx({ skillId: 'xubai_entrance', owner: hero.owner, sourceHeroId: hero.id,
@@ -3085,7 +3120,8 @@ export const xubaiSkill1: Skill = {
     baseHeal: 8,
     execute: (caster, targets, gameState) => {
         const ally = targets.find(target =>
-            target.owner === caster.owner && target.state === HeroState.ALIVE);
+            target.owner === caster.owner && target.state === HeroState.ALIVE && target.position && caster.position &&
+            Math.max(Math.abs(target.position[0] - caster.position[0]), Math.abs(target.position[1] - caster.position[1])) <= 2);
         if (!ally) return fail('范围内没有可治疗的友方');
 
         const purged = purgeNegativeEffects(ally);
@@ -3811,7 +3847,8 @@ export function castLiaoyuanHundredSlash(
             syncPositionAnchoredEffects(gameState);
             // 直线穿敌，普通寻路走不通：与惊鸿绕后同一口径手动落位后逐格补回移动连带结算
             const steps = Math.max(Math.abs(landing[0] - origin[0]), Math.abs(landing[1] - origin[1]));
-            // 天威是自己落过去的位移，不吃羽化；流血仍逐格结算
+            // 天威是自己落过去的位移，羽化与流血都按格记账
+            DamageCalculator.applyDilanMovementDamage(caster, steps, gameState, caster.owner);
             DamageCalculator.applyBleedMovementDamage(caster, steps, gameState);
         }
 
@@ -4053,7 +4090,8 @@ export const jinghongSkill1: Skill = {
             caster.position = behind;
             caster.hasMovedThisTurn = true;
             const steps = Math.max(Math.abs(behind[0] - start[0]), Math.abs(behind[1] - start[1]));
-            // 绕后是她自己掠过去的位移，不吃羽化；流血仍逐格结算
+            // 绕后是她自己掠过去的位移，羽化与流血都按格结算
+            DamageCalculator.applyDilanMovementDamage(caster, steps, gameState, caster.owner);
             DamageCalculator.applyBleedMovementDamage(caster, steps, gameState);
             retractWindBladesOnCells(caster, [target.position, behind], gameState);
             output.log.push(`${caster.name}掠过${target.name}身侧，落向其后`);
@@ -4452,7 +4490,8 @@ export function resolveJinghuaSwapMove(
             gameState.board[fromR][fromC] = null;
             gameState.board[seatR][seatC] = mover;
             mover.position = [seatR, seatC];
-            // 踏座归位是己方技能位移，不吃羽化
+            // 踏座归位属于自身技能位移，不触发敌方羽化
+            DamageCalculator.applyFeatherForDisplacement(mover, [fromR, fromC], [seatR, seatC], gameState);
             mover.counters['__jinghua_seat_return_pending'] = 1;
             return 'moonseat';
         }
@@ -4466,7 +4505,9 @@ export function resolveJinghuaSwapMove(
         gameState.board[jr][jc] = mover;
         mover.position = [jr, jc];
         jinghua.position = [mr, mc];
-        // 镜面互换是己方技能位移，不吃羽化
+        // 镜面互换是两具身体都挪了位：各按走过的格数吃一次羽化
+        DamageCalculator.applyFeatherForDisplacement(mover, [mr, mc], [jr, jc], gameState);
+        DamageCalculator.applyFeatherForDisplacement(jinghua, [jr, jc], [mr, mc], gameState);
         addJingyingFromSwap(jinghua, mover, gameState);
         pushJinghuaLog(gameState, mover.owner, `${mover.name}与${jinghua.name}穿过镜面互换了位置`);
         return 'self';
@@ -4483,7 +4524,8 @@ export function resolveJinghuaSwapMove(
         mover.position = [to[0], to[1]];
         moon.position = [mr, mc];
         EffectManager.addShield(mover, jinghuaMoonShield(jinghua));
-        // 借月换影是己方技能位移，不吃羽化
+        // 借月换影同样按位移记账：羽化逐格掉血
+        DamageCalculator.applyFeatherForDisplacement(mover, [mr, mc], to, gameState);
         addJingyingFromSwap(jinghua, mover, gameState);
         pushJinghuaLog(gameState, mover.owner,
             `${mover.name}借水月换影，不耗移动力掠至月影处并获得${jinghuaMoonShield(jinghua)}点护盾，月影退回其原位`);
@@ -4519,7 +4561,9 @@ export const jinghuaSkill1: Skill = {
         caster.position = [ar, ac];
         ally.position = [cr, cc];
         const output = result();
-        // 换身是己方技能位移，不吃羽化
+        // 己方技能换身不触发敌方羽化
+        DamageCalculator.applyFeatherForDisplacement(caster, [cr, cc], [ar, ac], gameState);
+        DamageCalculator.applyFeatherForDisplacement(ally, [ar, ac], [cr, cc], gameState);
         // 换身把队友恰好送进水月格里：落地即结一次踏月收益（5点护盾），
         // 之后他每次移动还能再来踩月；月影本体留在镜花的出发格
         EffectManager.addShield(ally, jinghuaMoonShield(caster));
@@ -4625,6 +4669,9 @@ export const jinghuaSkill2: Skill = {
         });
         gameState.boardEffects = effects;
         output.log.push(`${caster.name}退入月座，静候有人踏月而来`);
+        if (rookie.passiveId === 'xuanxiao_passive') triggerXuanxiaoEntrance(rookie, gameState);
+        if (rookie.passiveId === 'xubai_passive') triggerXubaiEntrance(rookie, gameState);
+        if (rookie.passiveId === 'pipa_passive') triggerPipaEntrance(rookie, gameState);
         output.fxCoveredPositions = [oldPos, landing];
         return output;
     },
@@ -4893,6 +4940,8 @@ export const huanongyingSkill2: Skill = {
         gameState.board[newR][newC] = caster;
         caster.position = [newR, newC];
         shadow.position = [oldR, oldC];
+        // 身体和影子都算挪了位：羽化按格记账（影子不是真身，只给身体记）
+        DamageCalculator.applyFeatherForDisplacement(caster, [oldR, oldC], [newR, newC], gameState);
         // 与惊鸿绕后同口径：位移算一次正常移动，之后不能再步行
         caster.hasMovedThisTurn = true;
         caster.counters['__hny_last_attack'] = 2;
@@ -5223,6 +5272,7 @@ export function castZhiguangKaleidoscope(
             gameState.board[origin[0]][origin[1]] = null;
             gameState.board[landing[0]][landing[1]] = caster;
             caster.position = [...landing] as Position;
+            DamageCalculator.applyFeatherForDisplacement(caster, origin, landing, gameState);
             syncPositionAnchoredEffects(gameState);
         }
 
@@ -6398,10 +6448,11 @@ function xuanyuanLeapStrike(
         }
     });
 
-    // 骑剑落位：这是技能自带的跳跃位移，不吃羽化逐格伤害
+    // 骑剑落位：跳跃位移照样逐格吃羽化
     gameState.board[start[0]][start[1]] = null;
     gameState.board[landing[0]][landing[1]] = caster;
     caster.position = [landing[0], landing[1]];
+    DamageCalculator.applyFeatherForDisplacement(caster, start, landing, gameState);
 
     const ringCells: Position[] = [];
     for (let dr = -1; dr <= 1; dr++) {
@@ -6640,10 +6691,11 @@ export const wenrenSkill1: Skill = {
         // 普通态只有基础伤害；昭神才把飞跃距离一并烧进落点那一圈
         const damageAmount = base + (zhaoShen ? distance : 0);
 
-        // 飞跃是技能自带的位移，不吃羽化逐格伤害
+        // 飞跃是位移，按真实飞跃距离（两段之和）逐格吃羽化
         gameState.board[start[0]][start[1]] = null;
         gameState.board[landing[0]][landing[1]] = caster;
         caster.position = [landing[0], landing[1]];
+        DamageCalculator.applyDilanMovementDamage(caster, distance, gameState, caster.owner);
 
         const ring = wenrenRingCells(landing);
         const output = result();
@@ -6902,6 +6954,7 @@ export const shuangfeiyanSkill2: Skill = {
         gameState.board[fromRow][fromCol] = null;
         gameState.board[row][col] = caster;
         caster.position = [row, col];
+        DamageCalculator.applyFeatherForDisplacement(caster, [fromRow, fromCol], [row, col], gameState);
 
         const ring = MovementSystem.getAreaPositions([row, col], 3);
         const output = result();
@@ -7100,6 +7153,8 @@ export const damoSkill1: Skill = {
             gameState.board[slideFrom[0]][slideFrom[1]] = caster;
             caster.position = [...slideFrom] as Position;
             caster.hasMovedThisTurn = true;
+            // 达摩自己也跟着滑了一格，这一格同样吃羽化
+            DamageCalculator.applyFeatherForDisplacement(caster, origin, slideFrom, gameState);
         }
         output.fxCoveredPositions = [origin, slideFrom, outcome.to];
         gameState.skillFxExtras = {
@@ -7305,6 +7360,28 @@ export const xiangyuSkill2: Skill = {
 };
 
 export const EXTENDED_SKILLS: Record<string, Skill> = {
+    flower_fog_skill1: {
+        id: 'flower_fog_skill1', name: '移花', type: 'summon',
+        rangeType: 'single', range: 2, targetType: 'any', targetCount: 1,
+        description: '随机映照一名我方存活本体，在其两格内的空格放10生命花影，可立即交换一次。花影持续两回合；之后本体主动攻击有50%概率换影。',
+        execute: executeFlowerDecoy,
+    },
+    flower_fog_skill2: {
+        id: 'flower_fog_skill2', name: '雾里藏刃', type: 'damage', baseDamage: 7,
+        rangeType: 'area', range: 1, areaSize: 3, targetType: 'any', targetCount: 1,
+        description: '在自身3×3内选中心铺两回合花雾，可刺击新雾中的一名敌人造成7伤。施法前同处已有花雾时额外3伤。',
+        execute: executeFlowerFog,
+    },
+    canglan_skill1: {
+        id: 'canglan_skill1', name: '截潮', type: 'damage', baseDamage: 8, rangeType: 'single', range: 1, targetType: 'any', targetCount: 1,
+        description: '沿八方向攻击相邻一名敌人，造成8点伤害并叠1层潮锋。幻化：贯穿同方向前两格，各造成10点伤害。',
+        execute: executeCanglanSlash,
+    },
+    canglan_skill2: {
+        id: 'canglan_skill2', name: '回澜', type: 'damage', baseDamage: 4, rangeType: 'area', areaSize: 3, range: 0, targetType: 'self', targetCount: 'all',
+        description: '对周围3×3内敌人造成4点伤害并叠1层凝水。幻化：范围扩大到5×5，伤害提升至6点。',
+        execute: executeCanglanSweep,
+    },
     damo_skill1: damoSkill1,
     damo_skill2: damoSkill2,
     xiangyu_skill1: xiangyuSkill1,

@@ -222,6 +222,8 @@ export type RecoveryFxTheme =
     | 'time-seam' | 'time-gate' | 'bone-soul' | 'lantern' | 'sun-thread';
 
 export interface SkillFxProfile {
+    /** 一次施法一张跨格墨绘；不挂通用逐格特效。 */
+    inkScene?: 'tide-cut' | 'tide-cut-phantom' | 'tide-sweep' | 'tide-sweep-phantom' | 'flower-decoy' | 'flower-mist' | 'flower-stab';
     stance?: 'snow-break' | 'ink-stealth' | 'overlord-guard' | 'overlord-convert';
     arrival?: 'frost-lock' | 'hair-clone';
     /** 一次出手一张场景，不复制逐格泛光。 */
@@ -324,6 +326,9 @@ export interface MirrorBladeStrike {
 
 /** 技能级档案（键为裸技能 ID） */
 export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
+    flower_fog_skill1: { kind: 'blessing', inkScene: 'flower-decoy', durationMs: 710, c1: '#6a435c', c2: '#e6bdc4', fxArea: 'none' },
+    flower_fog_skill2: { kind: 'radial-burst', inkScene: 'flower-mist', durationMs: 640, c1: '#7e5970', c2: '#efe4e6', fxArea: 'none' },
+    flower_fog_stab: { kind: 'pierce', inkScene: 'flower-stab', durationMs: 650, impactMs: 230, c1: '#4c344c', c2: '#f0c8ce', fxArea: 'none' },
     // ===== 初代定制（样式固化，配色保留原 CSS）=====
     wukong_skill1: { kind: 'wukong-clone', durationMs: 1300 },
     wukong_skill2: { kind: 'wukong-staff', durationMs: 980, impactMs: 250 },
@@ -606,6 +611,10 @@ export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
     daizong_skill2: { kind: 'radial-burst', durationMs: 1240, impactMs: 340, c1: '#4a4e66', c2: '#dfe2ee', fxArea: 3 },
     // 达摩：一苇渡江是贴身冲撞，起手拖一条暗金冲刺痕、落点砸出撞山尘裂；
     // 易筋四拳是自身周围的连打，每一拳落到一个真实命中格，不铺整圈底光。
+    canglan_skill1: { kind: 'arc-slash', inkScene: 'tide-cut', durationMs: 650, impactMs: 205, c1: '#205858', c2: '#e4f0d9', fxArea: 'none' },
+    canglan_skill1_phantom: { kind: 'arc-slash', inkScene: 'tide-cut-phantom', durationMs: 800, impactMs: 205, c1: '#174950', c2: '#e6f3df', fxArea: 'none' },
+    canglan_skill2: { kind: 'radial-burst', inkScene: 'tide-sweep', durationMs: 730, impactMs: 225, c1: '#286867', c2: '#e2eed6', fxArea: 'none' },
+    canglan_skill2_phantom: { kind: 'radial-burst', inkScene: 'tide-sweep-phantom', durationMs: 900, impactMs: 225, c1: '#21565f', c2: '#e3f1dd', fxArea: 'none' },
     damo_skill1: { kind: 'shadow-dash', durationMs: 920, impactMs: 240, c1: '#b08d57', c2: '#f7ead0', fxArea: 'none' },
     damo_skill2: { kind: 'radial-burst', durationMs: 1040, impactMs: 220, c1: '#c9a24b', c2: '#fff3cf', fxArea: 'none' },
     // 项羽：破阵是贴身冲撞 + 楚歌回响；盖世是前方 2×3 的宽幅刀气（赤黑 / 烽金）
@@ -841,6 +850,9 @@ export function computeFxLogImpactDelayMs(event: SkillFxEvent, cell: Position, l
 
 /** 所有表现层使用同一抵达时间，实际战斗状态不等待动画。 */
 export function computeFxImpactDelayMs(event: SkillFxEvent, cell: Position): number {
+    if (event.profile.inkScene === 'tide-cut-phantom') return 205 + 95 * Math.max(0, cellSteps(event.fromPos, cell) - 1);
+    if (event.profile.inkScene === 'tide-sweep-phantom') return 225 + 110 * Math.max(0, cellSteps(event.fromPos, cell) - 1);
+    if (event.profile.inkScene && event.profile.impactMs !== undefined) return event.profile.impactMs;
     if (event.choreography) return event.choreography.strokes.find(stroke => stroke.to[0] === cell[0] && stroke.to[1] === cell[1])?.arrive ?? 430;
     const kind = event.profile.kind;
     if (isSwallowFx(kind)) return swallowHitMs(event, cell);

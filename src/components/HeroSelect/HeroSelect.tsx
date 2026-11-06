@@ -3,7 +3,7 @@ import { AVAILABLE_HERO_IDS, getHeroInfo } from '../../data/heroes';
 import InkButton from '../ui/InkButton';
 import InkCard from '../ui/InkCard';
 import InkDivider from '../ui/InkDivider';
-import HeroAvatar from '../ui/HeroAvatar';
+import HeroIcon from '../ui/HeroIcon';
 import SetupExitButton from '../GameSetup/SetupExitButton';
 
 export default function HeroSelect() {
@@ -103,12 +103,10 @@ export default function HeroSelect() {
                                                 ? `radial-gradient(circle, rgba(212,168,67,0.15), transparent)`
                                                 : `radial-gradient(circle, rgba(26,26,26,0.04), transparent)`
                                         }}>
-                                        <HeroAvatar
+                                        <HeroIcon
                                             heroId={heroId}
-                                            heroName={info.name}
-                                            size={64}
-                                            className="h-16 w-16 rounded-full object-cover"
-                                            fallbackClassName={isSelected ? 'text-gold-dark' : 'text-ink-light'}
+                                            size={40}
+                                            className={isSelected ? 'text-gold-dark' : 'text-ink-light'}
                                         />
                                     </div>
 

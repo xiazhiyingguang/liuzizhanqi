@@ -28,6 +28,7 @@ import { LingxiRippleFx, LingxiWaterTouchFx } from './LingxiRippleFx';
 import { LingxiTideCastFx, LingxiTideImpactFx } from './LingxiTideFx';
 import { MechanismSkillFx } from './MechanismSkillFx';
 import { HuanongyingSceneFx } from './HuanongyingSceneFx';
+import { TideFlowerSceneFx } from './TideFlowerSceneFx';
 import { isHnyFx } from '../../core/huanongying-fx';
 import '../../styles/wukong-skill-fx.css';
 import '../../styles/zhiyuan-skill-fx.css';
@@ -2883,6 +2884,7 @@ function AreaLightPathFx({ event }: { event: SkillFxEvent }) {
 
 /** AOE 整体特效渲染入口：渲染在棋盘网格层（跨格子绝对定位），每个事件一张 */
 export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
+    if (event.profile.inkScene) return <TideFlowerSceneFx event={event} />;
     if (isHnyFx(event.profile.kind)) return null;
     if (event.profile.crafted || event.profile.spectral || event.profile.mechanism) return null;
     if (['yunying-sweep', 'lingxi-wave', 'lingxi-fan'].includes(event.profile.kind)) return null;

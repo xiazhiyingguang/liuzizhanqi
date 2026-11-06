@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { flowerDecoyBodyId } from '../../core/flower-fog';
 import { resolveHeroTemplateId } from '../../data/hero-assets';
 import { AVAILABLE_HERO_IDS } from '../../data/heroes';
 
@@ -591,13 +592,34 @@ function JinghuaIcon() {
 }
 
 function WenrenIcon() {
-    // 闻人翊悬 — 越过友军的一跃：虚线是飞越轨迹，圈点是中途踏板，身后落点烧起一簇火
+    // 闻人翊悬 · 火行：向右上腾起的火焰，左下两笔像跃起时拖下的火尾。
     return (
         <Stroke>
-            <path d="M5 24 Q14 7 25 21" strokeWidth={1} opacity={0.42} strokeDasharray="3 3" />
-            <circle cx={14.5} cy={15.5} r={2.2} strokeWidth={1.4} />
-            <path d="M24 27 Q20.6 22 24.2 18.2 Q24.8 21 26.8 21.6 Q28.4 23.6 27.2 25.8 Q26 28 24 27Z" strokeWidth={1.4} />
-            <path d="M9 27 Q5.5 25.5 4.6 22" strokeWidth={1} opacity={0.4} />
+            <path d="M14.5 27.8C9 26.7 7.2 21.9 9.8 17.4c.2 2.2 1.4 3.1 2.6 3.5C11 14.4 16.1 8.8 24.7 4.3c-2.5 4.1-3.1 7.6-1.6 11.1 1-.8 1.8-2.1 2.2-3.7 5.1 7.5 1.7 14.8-4.9 16.1" strokeWidth={1.9} />
+            <path d="M15.8 27.8c-2.3-2.8-.9-6.1 3.7-9.4-.7 2.8 2.5 4.2 1 7.6-.3.7-.9 1.3-1.5 1.8" strokeWidth={1.45} />
+            <path d="M3.9 23.2l3.6-4.2m-.9 8.2 2.1-2.1" strokeWidth={1.35} opacity={0.62} />
+        </Stroke>
+    );
+}
+
+function CanglanIcon() {
+    // 沧澜剑客·顾行舟：一剑截潮，浪尖在剑锋前回卷。
+    return (
+        <Stroke>
+            <path d="m10.8 18.4 11-12.2 5.6-1.7-1.8 5.6-12.1 11.1Z" />
+            <path d="m8.6 16.4 6.8 6.7m-3.2-3.2-5.8 5.7" />
+            <path d="M4 27.7c4.2 1.3 7.9.7 11.4-2.2 3.1-2.6 5.6-6.4 9.2-6.4 2.1 0 3.6 1.3 3.8 3.1-1.3-.9-3-.5-4.4.8-1.8 1.7-3 3.4-5.8 4.6" strokeWidth={1.5} opacity={0.68} />
+        </Stroke>
+    );
+}
+
+function FlowerFogIcon() {
+    // 雾里看花：五瓣花只露在雾线上方，下半部以两笔云气留白。
+    return (
+        <Stroke>
+            <path d="M13.4 6.8c-.8-5 6-5 5.2 0 4.5-2.3 7.1 3.8 2.4 5.4 3.6 3.3-1 7.8-4.9 4.6-3.9 3.2-8.6-1.3-4.9-4.6-4.7-1.6-2.2-7.7 2.2-5.4Z" strokeWidth={1.65} />
+            <circle cx="16" cy="10.7" r="1.15" fill="currentColor" stroke="none" />
+            <path d="M4.6 21.4h9.3c1.9 0 3.1-1.4 5.4-1.4h8.1M8.1 26h7.2c2.3 0 3.2-1.3 5.2-1.3h3.6" strokeWidth={1.6} opacity={0.65} />
         </Stroke>
     );
 }
@@ -859,6 +881,8 @@ const iconMap: Record<string, () => JSX.Element> = {
     feixue: () => <FeixueIcon />,
     fengling: () => <FenglingIcon />,
     dilan: () => <DilanIcon />,
+    flower_fog: () => <FlowerFogIcon />,
+    canglan: () => <CanglanIcon />,
     nanfeng: () => <NanfengIcon />,
     shangguan: () => <ShangguanIcon />,
     // 这三名的键沿用立绘资产命名（resolveHeroTemplateId 会把 youjun/chenyuan/dai 归一化成它们）
@@ -894,8 +918,9 @@ const iconMap: Record<string, () => JSX.Element> = {
 export const HERO_ICON_IDS = Object.keys(iconMap);
 
 export default function HeroIcon({ heroId, size = 32, className = '' }: HeroIconProps) {
-    const baseId = resolveHeroTemplateId(heroId) ?? AVAILABLE_HERO_IDS.find(templateId =>
-        heroId.startsWith(`${templateId}-player1-`) || heroId.startsWith(`${templateId}-player2-`)) ?? heroId;
+    const bodyId = flowerDecoyBodyId(heroId) ?? heroId;
+    const baseId = resolveHeroTemplateId(bodyId) ?? AVAILABLE_HERO_IDS.find(templateId =>
+        bodyId.startsWith(`${templateId}-player1-`) || bodyId.startsWith(`${templateId}-player2-`)) ?? bodyId;
 
     const IconComponent = iconMap[baseId] || (() => <DefaultIcon />);
 

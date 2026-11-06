@@ -1,4 +1,5 @@
 import { Skill, Hero, GameState, SkillExecuteResult, HeroState, Position } from '../types/game';
+import { XUANXIAO_REPRISE_RANGE } from '../core/xuanxiao';
 import { DamageCalculator } from '../core/damage-calculator';
 import { EffectManager } from '../core/effect-manager';
 import { GameEngine } from '../core/game-engine';
@@ -7,6 +8,7 @@ import { MovementSystem } from '../core/movement-system';
 import { enterNightowlStealth } from '../core/nightowl-stealth';
 import { enemiesOnCells } from '../core/lamp-shadow';
 import { hasZhizhi, zhizhiValue } from '../core/hero-zhizhi';
+import { moranWeaponSkillDamage, recordMoranWeaponAttack } from '../core/weapon-effects';
 import {
     HANJIANGXUE_DOMAIN_DURATION,
     HANJIANGXUE_DOMAIN_TYPE,
@@ -328,16 +330,20 @@ export const xuanxiaoSkill2: Skill = {
     id: 'xuanxiao_skill2',
     name: '惊鸿再舞',
     type: 'special',
-    description: '令一格内一名友方英雄立即行动一次',
+    description: '令自身周围两格（5×5）内一名友方英雄立即完整行动一次',
     rangeType: 'area',
-    range: 1,
-    areaSize: 3,
+    range: XUANXIAO_REPRISE_RANGE,
+    areaSize: 2 * XUANXIAO_REPRISE_RANGE + 1,
     targetType: 'ally',
     targetCount: 1,
     execute: (caster, targets, gameState) => {
         const target = targets[0];
         if (!target || target.state !== HeroState.ALIVE) {
             return { success: false, log: [`${caster.name}没有找到可再动的友方`] };
+        }
+        if (!caster.position || !target.position ||
+            Math.max(Math.abs(caster.position[0] - target.position[0]), Math.abs(caster.position[1] - target.position[1])) > XUANXIAO_REPRISE_RANGE) {
+            return { success: false, log: ['惊鸿再舞只能选择周围两格内的友方英雄'] };
         }
         target.counters['__extra_preActed'] = target.hasActedThisTurn ? 1 : 0;
         target.counters['__extra_preMoved'] = target.hasMovedThisTurn ? 1 : 0;
@@ -481,15 +487,16 @@ export const moranSkill1: Skill = {
 
         // 计算伤害
         // 致知2："为道"解除后的立即出手，技能伤害提升40%（一次性消耗）
-        let skillDamage = 10;
+        let skillDamage = moranWeaponSkillDamage(caster, gameState, 10);
         let burstText = '';
         if (caster.counters['talent_2'] && caster.counters['__weidao_burst']) {
-            skillDamage = Math.floor(skillDamage * 1.4);
+            skillDamage *= 1.4;
             delete caster.counters['__weidao_burst'];
             burstText = '（为道爆发+40%）';
         }
         const damageResult = DamageCalculator.calculate(caster, target, skillDamage, false);
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
+        recordMoranWeaponAttack(caster);
 
         result.damageDealt?.push(damageResult.finalDamage);
         // 数额/暴击/击杀交给引擎的 damage 与 kill 日志，这里只补一句这一击多吃了什么
@@ -557,15 +564,16 @@ export const moranSkill2: Skill = {
         // 计算伤害
         // 基础伤害设为15，不随攻击力变化
         // 致知2："为道"解除后的立即出手，技能伤害提升40%（一次性消耗）
-        let skillDamage = 15;
+        let skillDamage = moranWeaponSkillDamage(caster, gameState, 15);
         let burstText = '';
         if (caster.counters['talent_2'] && caster.counters['__weidao_burst']) {
-            skillDamage = Math.floor(skillDamage * 1.4);
+            skillDamage *= 1.4;
             delete caster.counters['__weidao_burst'];
             burstText = '（为道爆发+40%）';
         }
         const damageResult = DamageCalculator.calculate(caster, target, skillDamage, false);
         DamageCalculator.applyDamage(target, damageResult, caster, gameState);
+        recordMoranWeaponAttack(caster);
 
         result.damageDealt?.push(damageResult.finalDamage);
         if (burstText) {
@@ -1436,11 +1444,12 @@ export const guyingSkill1: Skill = {
 
         grantGuyingHanxing(caster, result, markedBefore, duanxue);
 
-        // 技能自带的突进位移不吃羽化
+        // 自身技能突进不触发敌方羽化
         gameState.board[cr][cc] = null;
         gameState.board[landingPos[0]][landingPos[1]] = caster;
         caster.position = landingPos;
         caster.hasMovedThisTurn = true;
+        DamageCalculator.applyFeatherForDisplacement(caster, [cr, cc], landingPos, gameState);
 
         result.log.unshift(
             `${caster.name}${duanxue ? '断雪·穿透斩' : '使用技能1'}命中${struck.length}名敌人，共造成${totalDamage}点伤害，并移动到(${landingPos[0] + 1},${landingPos[1] + 1})`

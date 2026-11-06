@@ -9,6 +9,7 @@ import { MovementSystem } from './movement-system';
 import { SkillSystem } from './skill-system';
 import { getWangshuMultiplier, getWangshuPhase } from './wangshu';
 import { DamageCalculator } from './damage-calculator';
+import { chooseFlowerAnswer, resolveFlowerChoice } from '../data/flower-fog-skills';
 import { withAiSimulationRandom } from './ai-simulation-random';
 import { GameEngine } from './game-engine';
 import { windLaneAxis, windLaneCells, windLaneDirectionFromCode } from './wind-lane';
@@ -276,7 +277,7 @@ function customSkillDamage(caster: Hero, skillId: string, position: Position, ta
                 ? (caster.counters['亡灵共鸣'] ?? 0)
                 : 6 + (caster.counters['亡灵共鸣'] ?? 0);
         case 'pipa_skill2':
-            return (caster.counters['和弦'] ?? 0) * 3;
+            return (caster.counters['和弦'] ?? 0) * zhizhiValue(caster, 2, 3, 4);
         case 'bounty_skill2':
             return 8;
         case 'wangcai_skill1':
@@ -1897,6 +1898,10 @@ function simulateSkillSample(
         const result = runWithoutSkillFx(() =>
             SkillSystem.executeSkill(simulatedCaster, skill, targetPositions, simulated));
         if (!result.success) return null;
+        if (skill.id==='flower_fog_skill2' && simulated.pendingBoardAction?.type==='flower-stab') {
+            const target=chooseFlowerAnswer(simulated,simulatedCaster);
+            if(target)runWithoutSkillFx(()=>resolveFlowerChoice(simulated,simulatedCaster,target));
+        }
         // executeSkill 不保证收尾判胜；必须复用引擎的替补/排程复活口径，不能自行数人头。
         GameEngine.checkWinCondition(simulated);
         if (simulated.phase === 'ended' && simulated.winner) {

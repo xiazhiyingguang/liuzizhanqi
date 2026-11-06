@@ -16,13 +16,18 @@ describe('武器图鉴数据', () => {
         expect(new Set(WEAPON_CODEX.map(weapon => weapon.id)).size).toBe(WEAPON_CODEX.length);
     });
 
-    it('每件武器都有主人、有效体系，且器名不重复', () => {
+    it('每件武器都有主人、有效体系；已定名的器名不重复', () => {
         for (const weapon of WEAPON_CODEX) {
             expect(weapon.heroName.trim(), `${weapon.id} 缺少专属英雄`).not.toBe('');
-            expect(weapon.name).not.toBe(UNNAMED_WEAPON);
             expect(WEAPON_SYSTEMS, `${weapon.id} 体系越界`).toContain(weapon.system);
+            if (weapon.name === UNNAMED_WEAPON) {
+                expect(weapon.effects).toEqual([]);
+                expect(weapon.implemented).toBe(false);
+            }
         }
-        expect(new Set(WEAPON_CODEX.map(weapon => weapon.name)).size).toBe(WEAPON_CODEX.length);
+        expect(WEAPON_CODEX.filter(w => w.name === UNNAMED_WEAPON).map(w => w.id)).toEqual(['flower_fog', 'canglan']);
+        const named = WEAPON_CODEX.filter(w => w.name !== UNNAMED_WEAPON);
+        expect(new Set(named.map(weapon => weapon.name)).size).toBe(named.length);
     });
 
     it('体系跟随英雄职业，两处不会再各写一份', () => {

@@ -1,5 +1,8 @@
 ﻿import { create } from 'zustand';
 import { nextBattleLogId, battleLogSeq } from '../core/battle-log-id';
+import { canglanForm, isCanglanSkill, lockCanglanCast } from '../core/canglan';
+import { FLOWER_SKILL1, FLOWER_SKILL2, flowerChoiceCells, isFlowerChoice, lockFlowerBody, isFlowerDecoy, startFlowerAction } from '../core/flower-fog';
+import { resolveFlowerChoice } from '../data/flower-fog-skills';
 import { sharesFormShiftCast, collectFormShiftLogIds } from '../core/mechanism-fx-events';
 import { BOARD_SIZE, GameState, Hero, Position, BattleLogEntry, HeroState, Player } from '../types/game';
 import { AVAILABLE_HERO_IDS, applyHeroWeapon, createHero, createWukongClone, getMirrorOwnerIdFromCloneId, getWukongCritRate } from '../data/heroes';
@@ -7,6 +10,8 @@ import { isWeaponImplemented } from '../data/weapon-codex';
 import { applyWeaponOnArrival } from '../core/weapon-effects';
 import { applyZhizhiForMode, heroXRedirectCost, zhizhiValue } from '../core/hero-zhizhi';
 import { getSkill } from '../data/skills';
+import { triggerXuanxiaoEntrance } from '../core/xuanxiao';
+import { triggerPipaEntrance } from '../core/pipa';
 import { MovementSystem } from '../core/movement-system';
 import { SkillSystem } from '../core/skill-system';
 import { GameEngine } from '../core/game-engine';
@@ -301,11 +306,12 @@ function finalizeLibaiChain(
         const [homeRow, homeCol] = chain.home;
         const moved = homeRow !== hero.position[0] || homeCol !== hero.position[1];
         if (moved) {
-            // 醉步归位是李太白自己的技能位移，不吃羽化
+            // 醉步归位属于自身技能位移，不触发敌方羽化
             const [oldRow, oldCol] = hero.position;
             if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
             hero.position = [homeRow, homeCol];
             state.board[homeRow][homeCol] = hero;
+            DamageCalculator.applyFeatherForDisplacement(hero, [oldRow, oldCol], [homeRow, homeCol], state);
             addLog({
                 type: 'passive',
                 player: hero.owner,
@@ -341,6 +347,9 @@ function syncEngineFlowFields(state: GameState): Partial<GameStore> {
         // 区域效果：引擎会 map/filter 出新数组（回合开始递减、行动结束撤除），
         // 不随流程字段一起提交的话，store 会一直持有过期那份（已消散的格子仍然挡路）
         boardEffects: [...(state.boardEffects ?? [])],
+        xuanxiaoEntranceTriggered: state.xuanxiaoEntranceTriggered,
+        xubaiEntranceTriggered: state.xubaiEntranceTriggered,
+        pipaEntranceTriggered: state.pipaEntranceTriggered,
         // 替补制补员挂起三件套 + 替补席
         reinforcingPlayer: state.reinforcingPlayer,
         reinforcementSelectableHeroId: state.reinforcementSelectableHeroId,
@@ -418,6 +427,7 @@ export function getPendingActionCells(
     if (!canLocalOperatePending(state, pending.heroId)) return [];
     const hero = [...state.player1Heroes, ...state.player2Heroes]
         .find(item => item.id === pending.heroId);
+    if (isFlowerChoice(pending.type)) return hero ? flowerChoiceCells(state,hero) : [];
     if (pending.type === 'yunying-liehuo' || pending.type === 'yunying-tianwei') {
         if (!hero?.position) return [];
         if (pending.type === 'yunying-tianwei') return getYunyingTianweiLandings(hero, state);
@@ -443,7 +453,7 @@ export function getPendingActionCells(
 }
 
 /** 推导挂起选格所需的最小上下文：棋盘数据 + 本地身份相关的 store 字段 */
-type PendingChoiceContext = Pick<GameState, 'pendingBoardAction' | 'player1Heroes' | 'player2Heroes' | 'board'>
+type PendingChoiceContext = Pick<GameState, 'pendingBoardAction' | 'player1Heroes' | 'player2Heroes' | 'board' | 'boardEffects'>
     & Partial<Pick<GameStore, 'isOnlineMode' | 'isAiMode' | 'localPlayerNumber' | 'suppressOnlineBroadcast'>>;
 
 /**
@@ -502,7 +512,7 @@ function abandonGenericPendingPick(state: GameState, hero: Hero): boolean {
     state.battleLog = useGameStore.getState().battleLog;
     state.pendingBoardAction = undefined;
     const heldAction = state.currentPlayer === hero.owner && state.selectedHero?.id === hero.id;
-    if (heldAction) GameEngine.endHeroAction(hero, state);
+    if (heldAction && state.phase !== 'ended') GameEngine.endHeroAction(hero, state);
     useGameStore.setState({
         ...syncEngineFlowFields(state),
         ...mergeEngineLogs(state),
@@ -792,6 +802,9 @@ export function createOnlineStateSnapshot(state: GameStore) {
         matchId: state.matchId,
         board: state.board,
         boardEffects: state.boardEffects,
+        xuanxiaoEntranceTriggered: state.xuanxiaoEntranceTriggered,
+        xubaiEntranceTriggered: state.xubaiEntranceTriggered,
+        pipaEntranceTriggered: state.pipaEntranceTriggered,
         player1Heroes: state.player1Heroes,
         player2Heroes: state.player2Heroes,
         currentPlayer: state.currentPlayer,
@@ -900,6 +913,9 @@ const createInitialState = (): GameState => ({
     selectedSkill: null,
     battleLog: [],
     battleStatistics: {},
+    xuanxiaoEntranceTriggered: undefined,
+    xubaiEntranceTriggered: undefined,
+    pipaEntranceTriggered: undefined,
     deathCounters: {
         player1Dead: 0,
         player2Dead: 0,
@@ -1270,12 +1286,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 player: 'player1',
                 message: '战斗开始！第1轮'
             });
-            // 叙白被动「初雪」：首次登场按落位抚育周围友军
+            // 叙白神威「初雪」：首次登场按落位抚育周围友军
             const live = get();
             for (const hero of [...live.player1Heroes, ...live.player2Heroes]) {
                 if (hero.passiveId === 'xubai_passive') triggerXubaiEntrance(hero, live);
+                if (hero.passiveId === 'xuanxiao_passive') triggerXuanxiaoEntrance(hero, live);
+                if (hero.passiveId === 'pipa_passive') triggerPipaEntrance(hero, live);
             }
             set({
+                xuanxiaoEntranceTriggered: live.xuanxiaoEntranceTriggered,
+                xubaiEntranceTriggered: live.xubaiEntranceTriggered,
+                pipaEntranceTriggered: live.pipaEntranceTriggered,
                 board: live.board.map(row => [...row]),
                 player1Heroes: [...live.player1Heroes],
                 player2Heroes: [...live.player2Heroes],
@@ -1473,8 +1494,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             message: `${hero.name}从替补席上场！`
         });
 
-        // 叙白被动「初雪」：补员上场同样算一次登场（内部计数器保证整场只触发一次）
+        // 叙白神威「初雪」：补员上场同样算一次登场
         if (hero.passiveId === 'xubai_passive') triggerXubaiEntrance(hero, get());
+        if (hero.passiveId === 'xuanxiao_passive') triggerXuanxiaoEntrance(hero, get());
+        if (hero.passiveId === 'pipa_passive') triggerPipaEntrance(hero, get());
 
         // 用最新状态驱动引擎续跑：可能还有其他待补员方，或恢复被挂起的回合流程
         const latest = get();
@@ -1506,6 +1529,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             board: [...finalState.board],
             player1Heroes: [...finalState.player1Heroes],
             player2Heroes: [...finalState.player2Heroes],
+            xuanxiaoEntranceTriggered: finalState.xuanxiaoEntranceTriggered,
+            xubaiEntranceTriggered: finalState.xubaiEntranceTriggered,
+            pipaEntranceTriggered: finalState.pipaEntranceTriggered,
         });
 
         sendOnlineActionIfNeeded(get(), {
@@ -1517,6 +1543,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     selectHeroForAction: (hero: Hero | null) => {
         const state = get();
+        if (hero && isFlowerDecoy(hero)) return;
         if (state.suppressOnlineBroadcast) {
             set({
                 selectedHero: hero,
@@ -1602,12 +1629,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
         }
 
-        // 叙白「黑白凝珠」：英雄行动开始时结算黑白球（每人每轮一次，只在行动方触发）
+        // 叙白「黑白凝珠」：只在自己的行动开始结算，重复点选不重复结算。
         const orbMessage = hero && hero.owner === state.currentPlayer
             ? settleXubaiOrbs(hero, state)
             : null;
         // 泠汐「潮声相和」：下一个出手的友方领走泠汐积攒的助力层数
         const assistLayers = hero ? grantLingxiAssist(hero, state) : 0;
+        if (hero && hero.owner===state.currentPlayer && !hero.hasActedThisTurn) startFlowerAction(state,hero);
 
         set({
             selectedHero: hero,
@@ -2446,6 +2474,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             return;
         }
 
+        // 两招共用同一个待施法判定，先锁定形态，再计算可点格。
+        if (isCanglanSkill(skill.id)) lockCanglanCast(hero);
+        if (skill.id===FLOWER_SKILL1) lockFlowerBody(state,hero);
+
         // 显示技能范围
         const rangePositions = SkillSystem.getValidTargetPositions(
             hero,
@@ -2467,6 +2499,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
             skillRange: rangePositions,
             moveRange: []
         });
+
+        if (isCanglanSkill(skill.id) && rangePositions.length === 0) {
+            get().addLog({ type: 'system', player: hero.owner,
+                message: `本次为${canglanForm(hero) ? '幻化' : '普通'}施法，当前范围内没有合法敌人；可改选技能或移动` });
+        }
 
         if (skill.id === 'youjun_skill1') {
             get().addLog({
@@ -3884,6 +3921,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 否则控制权立刻交给对手，表现为"对手先行动一轮，她再补放燎原"。
         // 天威落点、血誓横扫中心等同类扣住：挂起槽一次只存一个。
         if (isPendingPickOfActor(state.pendingBoardAction, hero.id)) {
+            // 花影/铺雾走纯快照，不发施法 action；用日志锚点给对端重建起手演出。
+            if ((skill.id === FLOWER_SKILL1 || skill.id === FLOWER_SKILL2) && hero.position) {
+                const current = get();
+                const anchor = [...current.battleLog].reverse().find(log => log.type === 'skill' && result.log.includes(log.message));
+                if (anchor) publishSkillFxAnchor({
+                    skillId: skill.id, sourceHeroId: hero.id, owner: hero.owner,
+                    fromPos: [...hero.position], targetPos: [...targetPos],
+                    coveredPositions: result.fxCoveredPositions ?? [targetPos],
+                    impactPositions: [], damagePositions: [], logIds: [anchor.id],
+                }, current);
+            }
             const pendingCells = getPendingActionCells(state);
             set({
                 ...syncEngineFlowFields(state),
@@ -3959,7 +4007,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         else if (pending.type === 'yunying-tianwei') finishYunyingTianweiPick(state, hero, null);
         else if (pending.type === 'zhiguang-tianwei') finishZhiguangTianweiPick(state, hero, null);
         else if (pending.type === 'jiangtaigong-hook') finishHookThrowPick(state, hero, null);
-        else if (pending.type === 'xueqi-tianwei' || pending.type === 'schrodinger-tianwei') {
+        else if (pending.type === 'xueqi-tianwei' || pending.type === 'schrodinger-tianwei' || isFlowerChoice(pending.type)) {
             // 这两类天威没有"作废"分支可比照：不跃/不重排，只把扣住的控制权还回去
             abandonGenericPendingPick(state, hero);
         }
@@ -4004,6 +4052,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 只有该英雄所属方能点，否则对手点击同步高亮会在本地操纵别人的天威、两端分叉卡死
         if (!canLocalOperatePending(state, pending.heroId, options?.byComputer)) {
             get().addLog({ type: 'system', player: hero.owner, message: '当前无法操作' });
+            return;
+        }
+
+        if (isFlowerChoice(pending.type)) {
+            if (!resolveFlowerChoice(state,hero,targetPos)) return;
+            GameEngine.checkWinCondition(state);
+            if (state.phase!=='ended' && state.pendingBoardAction) {
+                const cells=getPendingActionCells(state);
+                set({...syncEngineFlowFields(state),...mergeEngineLogs(state),board:state.board.map(row=>[...row]),
+                    player1Heroes:[...state.player1Heroes],player2Heroes:[...state.player2Heroes],skillRange:cells,highlightedPositions:cells,moveRange:[]});
+                sendOnlineStateIfNeeded(get());
+            } else abandonGenericPendingPick(state,hero);
             return;
         }
 
@@ -4174,10 +4234,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
             state.battleLog = get().battleLog;
 
             if (moved) {
-                // 天威跃击是血契自己的技能位移，不吃羽化，落地必然还在
+                // 天威跃击属于自身技能位移，不触发敌方羽化
                 state.board[casterFromPos[0]][casterFromPos[1]] = null;
                 hero.position = [landingRow, landingCol];
                 state.board[landingRow][landingCol] = hero;
+                DamageCalculator.applyFeatherForDisplacement(hero, casterFromPos, [landingRow, landingCol], state);
             }
 
             // 横扫以落点为中心：血契人在哪里，血誓就扫哪里
@@ -4235,7 +4296,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         hero.position = targetPos;
         state.board[row][col] = hero;
         syncPositionAnchoredEffects(state);
-        // 量子跃迁是薛定谔自己的技能位移，不吃羽化
+        // 量子跃迁属于自身技能位移，不触发敌方羽化
+        DamageCalculator.applyFeatherForDisplacement(hero, [oldRow, oldCol], targetPos, state);
 
         const affected = MovementSystem.getPositionsInRange(targetPos, 2);
         DamageCalculator.asOneAttack(() => {
@@ -4297,11 +4359,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             get().addLog({ type: 'system', player: hero.owner, message: '该位置已被占用，无法瞬移' });
             return;
         }
-        // 瞬移：李太白自己的技能位移，不吃羽化
+        // 李太白自己的技能瞬移不触发敌方羽化
         const [oldRow, oldCol] = hero.position;
         if (state.board[oldRow][oldCol] === hero) state.board[oldRow][oldCol] = null;
         hero.position = [position[0], position[1]];
         state.board[position[0]][position[1]] = hero;
+        DamageCalculator.applyFeatherForDisplacement(hero, [oldRow, oldCol], [position[0], position[1]], state);
         syncPositionAnchoredEffects(state);
         const pending = chain.pending.filter((_, i) => i !== idx);
         state.libaiChainState = { ...chain, pending, awaitingPosition: false };
@@ -4537,6 +4600,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         // 自己引出来的挂起还没答，就不算这次行动结束（否则血契/薛定谔的天威落点会漂到对手回合）
         const held = state.pendingBoardAction;
+        if (held && isFlowerChoice(held.type) && state.selectedHero?.id===held.heroId && canLocalOperatePending(state,held.heroId)) {
+            abandonGenericPendingPick(state,state.selectedHero);
+            return;
+        }
         if (held && state.selectedHero && state.selectedHero.state === HeroState.ALIVE
             && isPendingPickOfActor(held, state.selectedHero.id)) {
             const cells = getPendingActionCells(state);

@@ -74,6 +74,8 @@ export const EXTENDED_HERO_IDS = [
     'xiyueci',
     'damo',
     'xiangyu',
+    'flower_fog',
+    'canglan',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
@@ -113,7 +115,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill1Id: 'pipa_skill1',
         skill2Id: 'pipa_skill2',
         passiveId: 'pipa_passive',
-        tianweiId: 'pipa_tianwei',
+        tianweiId: '',
     },
     bounty: {
         name: '赏金猎人',
@@ -505,6 +507,12 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
         skill2Id: 'damo_skill2',
         passiveId: 'damo_passive',
     },
+    canglan: {
+        name: '沧澜剑客·顾行舟', class: '武曲', maxHp: 50, moveRange: 2, baseAttack: 0,
+        skill1Id: 'canglan_skill1', skill2Id: 'canglan_skill2', passiveId: 'canglan_passive', tianweiId: 'canglan_tianwei',
+    },
+    flower_fog: { name:'雾里看花', class:'武曲', maxHp:50, moveRange:2, baseAttack:0,
+        skill1Id:'flower_fog_skill1', skill2Id:'flower_fog_skill2', passiveId:'flower_fog_passive', tianweiId:'flower_fog_tianwei' },
     xiangyu: {
         name: '西楚霸王·项羽',
         class: '霸魁',
@@ -587,6 +595,8 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
 };
 
 export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; description: string }> = {
+    flower_fog: { name:'雾里看花', class:'武曲', description:'移花惑敌，铺雾刺杀，击杀后隐入新雾。生命50，移动力2' },
+    canglan: { name: '沧澜剑客·顾行舟', class: '武曲', description: '截潮蓄锋，回澜凝水，幻化时爆发与吸血。生命50，移动力2' },
     wangshu: { name: '望舒', class: '素问', description: '月相盈亏，朔望转化伤害与恢复。生命50，移动力2' },
     skeletonking: { name: '骸骨君王·厄瑞波斯', class: '武曲', description: '死亡计数、护盾与复活。生命48，移动力2' },
     jetzmi: { name: '亡灵城主·杰茨米', class: '武曲', description: '暂时死亡切换形态。生命45，移动力2' },

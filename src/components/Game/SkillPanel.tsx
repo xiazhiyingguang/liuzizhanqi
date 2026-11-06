@@ -1,6 +1,7 @@
 import { useGameStore } from '../../store/game-store';
 import { GameEngine } from '../../core/game-engine';
 import { getSkill } from '../../data/skills';
+import { canglanChance, canglanForm } from '../../core/canglan';
 import { getHeroInfo } from '../../data/heroes';
 import { heroXRedirectCost } from '../../core/hero-zhizhi';
 import { isXuanyuan } from '../../core/xuanyuan-form';
@@ -131,6 +132,7 @@ export default function SkillPanel() {
 
     const skill1 = getSkill(selectedHero.skill1Id);
     const skill2 = getSkill(selectedHero.skill2Id);
+    const canglanPhantom = selectedHero.passiveId === 'canglan_passive' && canglanForm(selectedHero) === true;
     const isP1 = selectedHero.owner === 'player1';
     // 李太白被动链：等待瞬移时禁用技能按钮；整个链期间禁用普通移动/撤回
     const libaiChainActive = !!libaiChainState && libaiChainState.heroId === selectedHero.id;
@@ -190,6 +192,10 @@ export default function SkillPanel() {
 
             {/* 操作列表 */}
             <div className="space-y-2 overflow-y-auto flex-1 min-h-0 light-scrollbar pr-1">
+                {selectedHero.passiveId === 'canglan_passive' && <div className="ink-surface px-2 py-1.5 text-[11px] text-ink-light font-body" data-testid="canglan-cast-state">
+                    <span className="font-title">{canglanForm(selectedHero) === undefined ? `下次幻化 ${canglanChance(selectedHero)}%` : canglanForm(selectedHero) ? '幻化 · 已锁定' : '普通 · 已锁定'}</span>
+                    <span className="ml-2">潮锋 {selectedHero.counters['潮锋'] ?? 0}/2 · 凝水 {selectedHero.counters['凝水'] ?? 0}/2</span>
+                </div>}
                 {/* 移动 / 撤回 */}
                 {selectedHero.hasMovedThisTurn && !selectedHero.hasActedThisTurn && !libaiChainActive && !shangguanDashActive ? (
                     <button
@@ -240,11 +246,11 @@ export default function SkillPanel() {
                         <div className="flex items-center justify-between mb-0.5">
                             <div className="flex items-center gap-2">
                                 <span className="text-indigo-ink font-title text-sm">技</span>
-                                <span className="font-body text-sm text-ink">{skill1.name}</span>
+                                <span className="font-body text-sm text-ink">{canglanPhantom ? '幻化·' : ''}{skill1.name}</span>
                             </div>
                             {skill1.baseDamage && (
                                 <span className="text-[10px] text-vermillion font-body">
-                                    {skill1.baseDamage}伤
+                                    {canglanPhantom ? 10 : skill1.baseDamage}伤
                                 </span>
                             )}
                         </div>
@@ -270,11 +276,11 @@ export default function SkillPanel() {
                         <div className="flex items-center justify-between mb-0.5">
                             <div className="flex items-center gap-2">
                                 <span className="text-purple-700 font-title text-sm">术</span>
-                                <span className="font-body text-sm text-ink">{skill2.name}</span>
+                                <span className="font-body text-sm text-ink">{canglanPhantom ? '幻化·' : ''}{skill2.name}</span>
                             </div>
                             {skill2.baseDamage && (
                                 <span className="text-[10px] text-vermillion font-body">
-                                    {skill2.baseDamage}伤
+                                    {canglanPhantom ? 6 : skill2.baseDamage}伤
                                 </span>
                             )}
                         </div>

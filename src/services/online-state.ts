@@ -26,6 +26,7 @@ import type { Player, Position } from '../types/game';
 
 const isCloneHero = (hero: any) => {
     if (!hero) return false;
+    if (typeof hero.id==='string' && hero.id.startsWith('flower-decoy|')) return true;
     if (hero?.counters?.['__isClone'] === 1) return true;
     if (typeof hero?.id === 'string' && (hero.id.startsWith('wukong-clone|') || hero.id.startsWith('mirror-clone|'))) {
         return true;
@@ -136,6 +137,9 @@ const CLEAR_WHEN_MISSING_KEYS = [
     'reinforceResumeContext',
     'resumePlayer',
     'pendingForcedActionHeroId',
+    'xuanxiaoEntranceTriggered',
+    'xubaiEntranceTriggered',
+    'pipaEntranceTriggered',
     'forcedActionResumePlayer',
     'skillFxExtras'
 ] as const;
@@ -244,6 +248,11 @@ export function commitOnlineCastReplay(replay: OnlineCastReplay | null): void {
 
     const extras = state.skillFxExtras;
     useGameStore.setState({ skillFxExtras: undefined });
+    // 已随日志重建的花雾选格起手，不再由同一份快照的施法动作重复播放。
+    if (resolveSkillFx(replay.skillId).inkScene && freshLogs.some(entry => {
+        const anchor = entry.details?.skillFxRequest as PendingSkillFxRequest | undefined;
+        return anchor?.skillId === replay.skillId && anchor.sourceHeroId === replay.sourceHeroId;
+    })) return;
     const fromPos = extras?.fromPos ?? replay.fromPos;
     const targetPos = extras?.targetPos ?? replay.targetPos;
     const angleDeg = computeFxAngleDeg(fromPos, targetPos);

@@ -1,4 +1,5 @@
 import { nextBattleLogId } from './battle-log-id';
+import { expireFlowerDecoys, startFlowerAction } from './flower-fog';
 import { isXuanyuan } from './xuanyuan-form';
 import { fireAttachedSwords, hasAttachedSwords } from './flying-sword';
 import { requestMechanismFx } from './mechanism-fx';
@@ -13,6 +14,7 @@ import { findSoulLampBeneficiary, isJinghongCharging, placeBounties, purgeYinyan
 import { resolveHnyReplay, resolveLingxiEcho1, settleJinghuaSeatReturn, settleXuechangAtTurnStart, SHANGGUAN_BRUSH_DAMAGE, shangguanSkillDamage, placeZhiguangPassivePrism, tickJinghuaMoonSeats, requestSkillFx } from '../data/extended-skills';
 import { consumeZhiyuanTianweiLead } from './kite-spool';
 import { resolveXihuanBlessing } from '../data/extended-skills';
+import { settleXubaiOrbs, settleXubaiRoundEnd } from '../data/extended-skills';
 import { isRealCharacterHero, recordBattleHealing } from './battle-statistics';
 import { lanesAtPosition, windLaneNextCell } from './wind-lane';
 import { applyStillnessReward, consumeDaizongLamp } from './mountain-stance';
@@ -328,6 +330,7 @@ export class GameEngine {
             .filter(effect => effect.duration > 0 || effect.type === 'wind-lane');
 
         // 触发回合开始效果
+        expireFlowerDecoys(gameState);
         this.triggerTurnStartEffects(gameState);
 
         // 添加日志
@@ -556,6 +559,8 @@ export class GameEngine {
                 gameState.forcedActionResumePlayer = hero.owner;
                 gameState.currentPlayer = forcedHero.owner;
                 gameState.activeHero = forcedHero;
+                startFlowerAction(gameState, forcedHero);
+                this.settleXubaiAtActionStart(forcedHero, gameState);
                 this.addLog(gameState, {
                     type: 'system',
                     player: forcedHero.owner,
@@ -637,6 +642,8 @@ export class GameEngine {
                 // 切换控制权给该英雄的拥有者
                 gameState.currentPlayer = extraHero.owner;
                 gameState.activeHero = extraHero;
+                startFlowerAction(gameState, extraHero);
+                this.settleXubaiAtActionStart(extraHero, gameState);
 
                 // 添加日志
                 this.addLog(gameState, {
@@ -743,6 +750,11 @@ export class GameEngine {
 
         // 开始新回合
         this.startNewTurn(gameState);
+    }
+
+    private static settleXubaiAtActionStart(hero: Hero, gameState: GameState): void {
+        const message = settleXubaiOrbs(hero, gameState);
+        if (message) this.addLog(gameState, { type: 'passive', player: hero.owner, message });
     }
 
     /**
@@ -1017,10 +1029,11 @@ export class GameEngine {
         if (hero.passiveId === 'pipa_passive' && hero.position) {
             const allies = hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
             const count = allies.filter(item =>
-                item.state === HeroState.ALIVE && item.position &&
-                MovementSystem.getManhattanDistance(hero.position!, item.position) <= 1
+                item.id !== hero.id && item.state === HeroState.ALIVE && item.position &&
+                Math.abs(hero.position![0] - item.position[0]) <= 1 &&
+                Math.abs(hero.position![1] - item.position[1]) <= 1
             ).length;
-            this.applyDirectHeal(hero, Math.min(5, count * 2), gameState);
+            if (count > 0) this.applyDirectHeal(hero, Math.min(8, count * 2), gameState);
         }
 
         for (const wangcai of (hero.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes)
@@ -1107,7 +1120,7 @@ export class GameEngine {
             gameState.board[destination[0]][destination[1]] = hero;
             hero.position = destination;
             pushed = true;
-            // 风道是铺道那一方摆布的位移，所以羽化照常记账（敌方羽化来源同队才吃）
+            // 风道推移按强制位移记账，羽化照常逐格掉血
             DamageCalculator.applyDilanMovementDamage(hero, 1, gameState, lane.owner);
             this.addLog(gameState, {
                 type: 'passive',
@@ -1353,6 +1366,10 @@ export class GameEngine {
         // 夕月辞的「身后留灯」：灯不问主人还在不在，到回合末就照着两格内的友方回血。
         // 放在按人循环之外——她本人已经阵亡，不会进 allHeroes 里那一轮。
         healFromWakeLamps(gameState);
+        // 在其他回合末效果之后、下一轮状态递减之前，净化本轮留下的一层控制。
+        for (const hero of allHeroes) {
+            if (hero.passiveId === 'xubai_passive') settleXubaiRoundEnd(hero, gameState);
+        }
     }
 
     /**

@@ -184,6 +184,8 @@ export interface SkillExecuteResult {
 
 /** 伤害结果 */
 export interface DamageResult {
+    /** 实际扣掉的生命（不含盾、过量伤害或锁血保留值）。 */
+    appliedHpDamage?: number;
     finalDamage: number;       // 最终伤害
     isCrit: boolean;           // 是否暴击
     vampireAmount: number;     // 吸血量
@@ -252,7 +254,7 @@ export interface DeathCounters {
 /** 棋盘上的持续区域效果 */
 export interface BoardEffect {
     id: string;
-    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook' | 'thunder-cloud' | 'lightning-rod' | 'flying-sword' | 'boomerang' | 'lit-lamp' | 'wake-lamp' | 'hanjiangxue-domain';
+    type: 'blade-mark' | 'dark-circle' | 'ice-crystal' | 'sand-dune' | 'brush' | 'wind-lane' | 'binding-zone' | 'wind-blade' | 'water-moon' | 'moon-seat' | 'shadow-mark' | 'light-prism' | 'water-marsh' | 'fish-hook' | 'thunder-cloud' | 'lightning-rod' | 'flying-sword' | 'boomerang' | 'lit-lamp' | 'wake-lamp' | 'hanjiangxue-domain' | 'flower-fog';
     position: Position;
     owner: Player;
     sourceHeroId: string;
@@ -283,6 +285,12 @@ export interface HeroRoundSnapshot {
 
 /** 游戏状态 */
 export interface GameState {
+    /** 玄霄的登场神威每方每局最多一次，不是后续登场增益。 */
+    xuanxiaoEntranceTriggered?: Partial<Record<Player, boolean>>;
+    /** 叙白首次登场神威的队伍级记录，镜花替补退席再登场也不会重置。 */
+    xubaiEntranceTriggered?: Partial<Record<Player, boolean>>;
+    /** 五弦琵琶的登场神威每方每局最多一次。 */
+    pipaEntranceTriggered?: Partial<Record<Player, boolean>>;
     /** 单局唯一标识，用于长期统计去重。 */
     matchId?: string;
 
@@ -404,7 +412,10 @@ export interface GameState {
     // 时空旅者·戴尔：每回合开始时记录的全体存活单位快照（生命与效果），供「时空回溯」恢复
     heroSnapshots?: Record<string, HeroRoundSnapshot>;
     pendingBoardAction?: {
-        type: 'schrodinger-tianwei' | 'xueqi-tianwei' | 'yunying-liehuo' | 'yunying-tianwei' | 'zhiguang-tianwei' | 'jiangtaigong-hook';
+        type: 'schrodinger-tianwei' | 'xueqi-tianwei' | 'yunying-liehuo' | 'yunying-tianwei' | 'zhiguang-tianwei' | 'jiangtaigong-hook' | 'flower-swap' | 'flower-stab' | 'flower-escape';
+        flowerShadowId?: string;
+        flowerCenter?: Position;
+        flowerAmbushIds?: string[];
         heroId: string;
         /** 姜太公「鱼钩」上钩后等待玩家点选抛掷落点：被钩住的那名敌人 */
         hookTargetId?: string;

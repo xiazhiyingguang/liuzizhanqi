@@ -30,6 +30,9 @@ import { noteAiDecision } from '../services/battle-replay';
 import { GameEngine } from '../core/game-engine';
 import { useGameStore } from '../store/game-store';
 import { getSkill } from '../data/skills';
+import { lockCanglanCast } from '../core/canglan';
+import { FLOWER_PASSIVE, isFlowerChoice, lockFlowerBody } from '../core/flower-fog';
+import { chooseFlowerAnswer } from '../data/flower-fog-skills';
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
 import { HeroState } from '../types/game';
 import { computeMaxEnemyPath, getLibaiFrontRect } from '../data/extended-skills';
@@ -827,6 +830,12 @@ function executeBattleStep(
         const hero = [...state.player1Heroes, ...state.player2Heroes]
             .find(candidate => candidate.id === state.pendingBoardAction?.heroId);
         if (hero?.owner === aiPlayer) {
+            if (isFlowerChoice(state.pendingBoardAction.type)) {
+                const pos=chooseFlowerAnswer(state,hero);
+                if(pos && state.currentPlayer===hero.owner)store.resolvePendingBoardAction(pos,{byComputer:true});
+                else store.abandonPendingBoardAction();
+                return;
+            }
             if (state.pendingBoardAction.type === 'jiangtaigong-hook') {
                 // 玩家在自己回合里踩了电脑埋的鱼钩：这一格只有电脑答得了。
                 // 不能走下面"挂起漂到别人回合就作废"那条——照它办，姜太公的钩子对人类走位永远不咬
@@ -881,6 +890,9 @@ function executeBattleStep(
     }
 
     if (configurePassiveChoice(state, caster)) return;
+    // 以已锁定的形态规划实际出手，避免误把幻化射程当成普通射程。
+    if (caster.passiveId === 'canglan_passive') lockCanglanCast(caster);
+    if (caster.passiveId===FLOWER_PASSIVE) lockFlowerBody(state,caster);
 
     const skillAudit: AiDecisionAudit = { candidates: [], chosen: null };
     const skillPlan = chooseComputerSkillPlan(state, caster, undefined, skillAudit);

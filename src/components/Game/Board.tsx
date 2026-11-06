@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { useGameStore, getPendingActionCells } from '../../store/game-store';
+import { flowerDecoyBodyId, flowerViewer, hiddenByFlowerFog } from '../../core/flower-fog';
+import { FlowerFogLayer } from './TideFlowerSceneFx';
 import { Position, type Hero } from '../../types/game';
 import { GameEngine } from '../../core/game-engine';
 import type { SkillFxEvent } from '../../core/skill-fx';
@@ -116,6 +118,9 @@ const WIND_LANE_DIRECTION_LABELS: Record<'up' | 'down' | 'left' | 'right', strin
 
 /** 挂起选格时的提示语（天威/被动触发后必须在棋盘上说清楚"现在点哪"） */
 const PENDING_CHOICE_HINTS: Record<string, { title: string; detail: string }> = {
+    'flower-swap': { title:'移花换影', detail:'点花影交换本体与花影；点自己或结束行动保留原位。' },
+    'flower-stab': { title:'雾里藏刃', detail:'点雾中的敌人出剑；点自己或结束行动只铺雾。' },
+    'flower-escape': { title:'花开无声', detail:'点新雾中的空格移入并隐蔽；点自己或结束行动留在原位。' },
     'yunying-liehuo': { title: '烈火燎原', detail: '点选云缨相邻的方向格，决定这道火线烧向哪条线' },
     'yunying-tianwei': { title: '云缨·天威', detail: '点选一处与她同行、同列或同对角线的空格，枪光斩向那里' },
     'xueqi-tianwei': { title: '血契·天威', detail: '点选一处空格跃落' },
@@ -159,6 +164,7 @@ export default function Board() {
         selectDaiReviveTarget,
         releaseAutoBattle
     } = useGameStore();
+    const fogViewer=flowerViewer({currentPlayer,isOnlineMode,localPlayerNumber,isAiMode});
     const dragonPresentation = useAoyuanPresentation(skillFx);
     const swallowPresentation = useSwallowPresentation(skillFx);
     const hnyPresentation = useHuanongyingPresentation(skillFx);
@@ -175,7 +181,7 @@ export default function Board() {
         : undefined;
     const pendingChoiceCells = pendingBoardAction
         ? getPendingActionCells({
-            pendingBoardAction, player1Heroes, player2Heroes, board,
+            pendingBoardAction, player1Heroes, player2Heroes, board, boardEffects,
             isOnlineMode, isAiMode, localPlayerNumber, suppressOnlineBroadcast,
         })
         : [];
@@ -439,7 +445,7 @@ export default function Board() {
         }
 
         const hero = board[row][col];
-        if (hero) {
+        if (hero && !hiddenByFlowerFog(hero, { boardEffects }, fogViewer)) {
             selectHeroForAction(hero);
         }
     };
@@ -530,6 +536,7 @@ export default function Board() {
         };
 
         for (const event of skillFx) {
+            if (event.profile.inkScene) continue;
             if (isMartialSkill(event.skillId)) {
                 push(event.fromPos[0], event.fromPos[1], event, 'caster');
                 continue;
@@ -595,8 +602,14 @@ export default function Board() {
             <div className="battle-field battle-board-frame">
                 <div className="battle-board-grid">
                     {board.map((row, rowIndex) =>
-                        row.map((cell, colIndex) => {
-                            const isSelected = selectedHero?.position?.[0] === rowIndex &&
+                        row.map((actualCell, colIndex) => {
+                            const hidden=!!actualCell && hiddenByFlowerFog(actualCell,{boardEffects},fogViewer);
+                            const bodyId=actualCell && flowerDecoyBodyId(actualCell.id);
+                            const mirrored=actualCell && bodyId && actualCell.owner!==fogViewer ? [...player1Heroes,...player2Heroes].find(h=>h.id===bodyId) : undefined;
+                            const cell=hidden ? null : actualCell && mirrored ? {...mirrored,id:actualCell.id,position:actualCell.position} : actualCell;
+                            const enemyPair = actualCell && actualCell.owner !== fogViewer &&
+                                (bodyId || actualCell.counters['__flower_shadow_active']);
+                            const isSelected = !hidden && !enemyPair && selectedHero?.position?.[0] === rowIndex &&
                                 selectedHero?.position?.[1] === colIndex;
                             const moveTarget = isMoveTarget(rowIndex, colIndex);
                             const skillTarget = isSkillTarget(rowIndex, colIndex);
@@ -1287,11 +1300,14 @@ export default function Board() {
                     )}
 
                     <ThunderCloudLayer effects={boardEffects} />
+                    <FlowerFogLayer fields={boardEffects?.filter(effect => effect.type === 'flower-fog').map(effect => ({
+                        key: effect.id, center: effect.position, friendly: effect.owner === fogViewer,
+                    })) ?? []} />
 
                     {/* AOE 整体特效：覆盖整个作用范围的一体化动效（冲击波/火海/雷暴…），
                         单元素跨格子铺在区域包围盒上，与逐格特效叠加而非替代 */}
                     {skillFx.map(event =>
-                        event.areaBounds ? (
+                        event.areaBounds || event.profile.inkScene ? (
                             <SkillAreaFx key={`area-${event.id}`} event={event} />
                         ) : null
                     )}

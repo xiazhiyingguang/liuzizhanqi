@@ -20,6 +20,8 @@ import { isYunxiuCloudFx } from './yunxiu-cloud-fx';
 import { isSwallowFx } from './swallow-fx';
 import { isHnyFx } from './huanongying-fx';
 import { isMartialSkill } from './martial-fx';
+import { CANGLAN_SKILL1, CANGLAN_SKILL2, canglanCells } from './canglan';
+import { flowerArea } from './flower-fog';
 import type { BladeScene, BladeStroke } from './blade-choreography';
 import {
     computeFxAngleDeg,
@@ -115,6 +117,7 @@ export function previewCellVariants(
     row: number,
     col: number
 ): Array<'caster' | 'target' | 'impact' | 'area'> {
+    if (event.profile.inkScene) return [];
     if (isMartialSkill(event.skillId) || event.profile.stance || event.profile.arrival || event.profile.choreography || isSwallowFx(event.profile.kind) || isHnyFx(event.profile.kind)) return event.fromPos[0] === row && event.fromPos[1] === col ? ['caster'] : [];
     if (isYunxiuCloudFx(event.profile.kind)) return event.targetPos[0] === row && event.targetPos[1] === col ? ['target'] : [];
     const variants: Array<'caster' | 'target' | 'impact' | 'area'> = [];
@@ -130,6 +133,22 @@ export function previewCellVariants(
 export function buildSkillPreviewScene(skillId: string) {
     const profile = resolveSkillFx(skillId);
     const skill = getSkill(skillId);
+    if (profile.inkScene) {
+        const scene = profile.inkScene;
+        const phantom = scene.endsWith('-phantom');
+        const cut = scene.startsWith('tide-cut'), sweep = scene.startsWith('tide-sweep');
+        const fromPos: Position = [3, 2];
+        const targetPos: Position = sweep ? fromPos : cut ? phantom ? [1, 4] : [2, 3] : [2, 4];
+        const coveredPositions = cut ? canglanCells(fromPos, CANGLAN_SKILL1, phantom, targetPos)
+            : sweep ? canglanCells(fromPos, CANGLAN_SKILL2, phantom)
+            : scene === 'flower-mist' ? flowerArea(targetPos) : [targetPos];
+        const damagePositions: Position[] = cut ? coveredPositions : sweep ? [[2, 3], phantom ? [4, 4] : [4, 2]]
+            : scene === 'flower-stab' ? [targetPos] : [];
+        const angleDeg = computeFxAngleDeg(fromPos, targetPos);
+        const event: SkillFxEvent = { id: 0, skillId, profile, owner: 'player1', fromPos, targetPos, angleDeg,
+            direction: computeFxDirection(angleDeg), bornAt: Date.now(), coveredPositions, damagePositions, impactPositions: damagePositions };
+        return { event, cols: 6, rows: 6 };
+    }
     if (isMartialSkill(skillId)) {
         const fromPos: Position = [2, 2], targetPos: Position = skillId === 'damo_skill1' ? [2, 5] : [2, 3];
         const flurry = skillId === 'damo_skill2', slash = skillId === 'xiangyu_skill2';

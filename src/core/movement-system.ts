@@ -16,7 +16,7 @@ import { isXuanyuan, getXuanyuanMovePlans } from './xuanyuan-form';
  */
 export interface MoveOptions {
     ignoreBindingZone?: boolean;
-    /** 这次 moveHero 是技能/连击造成的位移，而非行动阶段的主动走格：不吃羽化逐格伤害 */
+    /** 这次 moveHero 是技能/连击造成的位移，而非行动阶段的主动走格：不抢道、不算常规移动 */
     skillMovement?: boolean;
 }
 
@@ -657,16 +657,16 @@ export class MovementSystem {
         const hpBeforeMoveDamage = hero.currentHp;
         const hpBeforePartnerDamage = partner?.currentHp ?? 0;
 
-        // 只有行动阶段的主动走格吃羽化；技能借道 moveHero 的位移（血契瞬移、悟空连击走位）不算
-        if (!options?.skillMovement) {
-            DamageCalculator.applyDilanMovementDamage(hero, movePath.length, gameState);
-            if (partner && partnerFrom && partnerTo && partner.state === HeroState.ALIVE) {
-                DamageCalculator.applyDilanMovementDamage(
-                    partner,
-                    this.getManhattanDistance(partnerFrom, partnerTo),
-                    gameState
-                );
-            }
+        // 普通走格触发；自身技能位移不触发敌方羽化。
+        const skillOwner = options?.skillMovement ? hero.owner : undefined;
+        DamageCalculator.applyDilanMovementDamage(hero, movePath.length, gameState, skillOwner);
+        if (partner && partnerFrom && partnerTo && partner.state === HeroState.ALIVE) {
+            DamageCalculator.applyDilanMovementDamage(
+                partner,
+                this.getManhattanDistance(partnerFrom, partnerTo),
+                gameState,
+                skillOwner
+            );
         }
 
         // 游隼：累计本回合移动路径（疾掠的「上回合移动距离」倍率读取项）；

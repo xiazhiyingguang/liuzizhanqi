@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import HeroIcon, { HERO_ICON_IDS } from '../../src/components/ui/HeroIcon';
-import { resolveHeroTemplateId } from '../../src/data/hero-assets';
+import HeroAvatar from '../../src/components/ui/HeroAvatar';
+import { getHeroAvatarUrl, getHeroFullBodyUrl, resolveHeroTemplateId } from '../../src/data/hero-assets';
 import { AVAILABLE_HERO_IDS } from '../../src/data/heroes';
 
 /** HeroIcon 内部按 resolveHeroTemplateId 归一化后再查图标表，测试沿用同一口径 */
@@ -34,5 +35,15 @@ describe('英雄选将线性图标', () => {
         expect(fallback).toContain('M8 28 Q8 20 16 18 Q24 20 24 28');
         const dedicated = AVAILABLE_HERO_IDS.map(heroId => renderToStaticMarkup(<HeroIcon heroId={heroId} />));
         expect(dedicated).not.toContain(fallback);
+    });
+
+    it.each(['canglan', 'flower_fog'])('%s 暂无正式图片时，战斗头像和花影沿用专属线性图标', id => {
+        const deployedId = `${id}-player1-123`;
+        const decoyId = `flower-decoy|flower_fog-player1-456|${deployedId}`;
+        const icon = renderToStaticMarkup(<HeroIcon heroId={id} size={23} />);
+        expect(getHeroAvatarUrl(deployedId)).toBeUndefined();
+        expect(getHeroFullBodyUrl(id)).toBeUndefined();
+        expect(renderToStaticMarkup(<HeroAvatar heroId={deployedId} />)).toBe(icon);
+        expect(renderToStaticMarkup(<HeroAvatar heroId={decoyId} />)).toBe(icon);
     });
 });

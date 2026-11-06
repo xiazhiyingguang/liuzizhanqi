@@ -2,6 +2,7 @@ import { useGameStore } from '../../store/game-store';
 import { Hero, HeroState } from '../../types/game';
 import HeroAvatar from '../ui/HeroAvatar';
 import HeroStatusPopover from './HeroStatusPopover';
+import { flowerViewer, hiddenByFlowerFog } from '../../core/flower-fog';
 
 interface HeroListProps {
     player: 'player1' | 'player2';
@@ -18,6 +19,8 @@ export default function HeroList({ player, label }: HeroListProps) {
     const isAiMode = useGameStore(state => state.isAiMode);
     const aiPlayer = useGameStore(state => state.aiPlayer);
     const currentPlayer = useGameStore(state => state.currentPlayer);
+    const fogs = useGameStore(state => state.boardEffects);
+    const viewer = useGameStore(flowerViewer);
     const computerIsActing = Boolean(isAiMode && currentPlayer === aiPlayer);
 
     const isCloneHero = (hero: Hero) => {
@@ -48,6 +51,7 @@ export default function HeroList({ player, label }: HeroListProps) {
                     <p className="text-ink-faint text-sm font-body text-center py-4">暂无英雄</p>
                 ) : (
                     visibleHeroes.map(hero => {
+                        if(hiddenByFlowerFog(hero,{boardEffects:fogs},viewer)) return <div key={hero.id} className="game-card px-2.5 py-2 text-xs text-ink-faint" data-testid="flower-fog-hidden-roster">雾中 · 状态不可见</div>;
                         const isSelected = selectedHero?.id === hero.id;
                         const isAlive = hero.state === HeroState.ALIVE;
                         const isTempDead = hero.state === HeroState.TEMP_DEAD;

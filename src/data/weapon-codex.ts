@@ -39,8 +39,8 @@ interface WeaponDraft {
 const WEAPON_DRAFTS: Record<string, WeaponDraft> = {
     // ===== 武曲：锋刃破阵 =====
     moran: { name: '问道', implemented: true, effects: [
-        '每次攻击都会永久增加 1 点技能伤害。',
-        '特殊情况下额外出手时，技能伤害提升 20%。',
+        '每次攻击结算后，永久增加后续技能伤害 1 点；「入道」与「墨断」共享累计值，本次不吃新的一层。',
+        '额外行动中出手时，含已累计伤害的技能伤害提升 20%。',
     ] },
     zhenxiao: { name: '惊雷碎岳', implemented: true, effects: [
         '反击伤害增加 2。',

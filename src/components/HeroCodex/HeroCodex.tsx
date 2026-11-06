@@ -277,7 +277,7 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
                     <AbilityCard
                         mark="威"
                         title={hero.tianwei.name}
-                        subtitle="击杀触发"
+                        subtitle={hero.tianwei.triggerLabel ?? '击杀触发'}
                         description={hero.tianwei.description}
                         accent="#c0392b"
                         trailing={['feixue', 'wukong', 'guying', 'xiangyu'].includes(hero.id) ? <SkillFxPreview skillId={`${hero.id}_tianwei`} skillName={hero.tianwei.name} accent="#c0392b" /> : undefined}

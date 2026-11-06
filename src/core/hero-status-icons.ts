@@ -94,6 +94,7 @@ const NAME_GLYPH: Record<string, StatusGlyphId> = {
     盈照: 'sun', 金乌: 'sun', 玄龟: 'shield', 水月: 'moon', 月座: 'moon', 月相: 'moon',
     朔: 'moon', 望: 'moon', 镜影: 'mirror', 镜湖双照: 'mirror', 破镜之刃: 'mirror',
     花间一舞: 'flower', 花谢影不落: 'flower', 弄影: 'veil', 影子: 'veil', 重演: 'hourglass',
+    幻化: 'tide', 凝水: 'drop',
     明灯: 'flame', 灯影: 'veil', 身后留灯: 'bloom', 金刚: 'shield', 撞山: 'stun', 撞山眩晕: 'stun',
     楚歌: 'decline', 四面楚歌: 'decline', 霸王镇守: 'shield', 寒天领域: 'ice',
     血偿: 'drop', 禁血: 'drop', 血诏: 'drop', 血契锁: 'lock', 血誓横扫: 'drop',

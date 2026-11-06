@@ -34,6 +34,11 @@ const PANEL_HEIGHT_BUDGET = 370;
 const EDGE_GAP = 12;
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+const INK_SCENE_NAMES = {
+    'tide-cut': '截潮 · 青墨开锋', 'tide-cut-phantom': '幻化 · 剑分两浪',
+    'tide-sweep': '回澜 · 潮卷一周', 'tide-sweep-phantom': '幻化 · 双潮回卷',
+    'flower-decoy': '移花 · 花影凝形', 'flower-mist': '藏刃 · 花雾铺开', 'flower-stab': '藏刃 · 雾中一刺',
+};
 
 /** 特效舞台本体：演示棋盘 + 档案行 + 重播（图鉴卡内不直接展示，只在浮层里出现） */
 export function SkillFxStage({ skillId, accent }: { skillId: string; accent: string }) {
@@ -109,7 +114,7 @@ export function SkillFxStage({ skillId, accent }: { skillId: string; accent: str
             )}
 
             <div className="skill-fx-stage-meta">
-                <span className="skill-fx-stage-kind">{profile.stance === 'overlord-guard' ? '霸王镇守·甲影合拢' : profile.stance === 'overlord-convert' ? '霸王镇守·化伤为盾' : profile.stance === 'snow-break' ? '断雪·覆霜入势' : profile.stance === 'ink-stealth' ? '暗行·墨羽藏身' : profile.arrival === 'frost-lock' ? '绝对零度·凝冰' : profile.arrival === 'hair-clone' ? '毫毛凝形' : SKILL_FX_KIND_LABELS[profile.kind]}</span>
+                <span className="skill-fx-stage-kind">{profile.inkScene ? INK_SCENE_NAMES[profile.inkScene] : profile.stance === 'overlord-guard' ? '霸王镇守·甲影合拢' : profile.stance === 'overlord-convert' ? '霸王镇守·化伤为盾' : profile.stance === 'snow-break' ? '断雪·覆霜入势' : profile.stance === 'ink-stealth' ? '暗行·墨羽藏身' : profile.arrival === 'frost-lock' ? '绝对零度·凝冰' : profile.arrival === 'hair-clone' ? '毫毛凝形' : SKILL_FX_KIND_LABELS[profile.kind]}</span>
                 <span className="skill-fx-stage-duration">{profile.durationMs}ms</span>
                 {profile.c1 && (
                     <i className="skill-fx-stage-swatch" style={{ backgroundColor: profile.c1 }} />
@@ -120,7 +125,7 @@ export function SkillFxStage({ skillId, accent }: { skillId: string; accent: str
                 {profile.kind === 'ink' && !profile.stance && !profile.arrival && !profile.choreography ? (
                     <span className="skill-fx-stage-missing">未定制 · 通用兜底</span>
                 ) : (
-                    <code className="skill-fx-stage-code">{profile.stance ? '天威入势' : profile.arrival ? '天威到达' : profile.kind}</code>
+                    <code className="skill-fx-stage-code">{profile.inkScene ? '专属墨绘' : profile.stance ? '天威入势' : profile.arrival ? '天威到达' : profile.kind}</code>
                 )}
                 {!reducedMotion && (
                     <button
