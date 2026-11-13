@@ -25,7 +25,7 @@ describe('武器图鉴数据', () => {
                 expect(weapon.implemented).toBe(false);
             }
         }
-        expect(WEAPON_CODEX.filter(w => w.name === UNNAMED_WEAPON).map(w => w.id)).toEqual(['flower_fog', 'canglan']);
+        expect(WEAPON_CODEX.filter(w => w.name === UNNAMED_WEAPON).map(w => w.id)).toEqual(['flower_fog', 'canglan', 'qiyuan']);
         const named = WEAPON_CODEX.filter(w => w.name !== UNNAMED_WEAPON);
         expect(new Set(named.map(weapon => weapon.name)).size).toBe(named.length);
     });

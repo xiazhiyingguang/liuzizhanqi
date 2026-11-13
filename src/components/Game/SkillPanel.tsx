@@ -2,6 +2,7 @@ import { useGameStore } from '../../store/game-store';
 import { GameEngine } from '../../core/game-engine';
 import { getSkill } from '../../data/skills';
 import { canglanChance, canglanForm } from '../../core/canglan';
+import { QIYUAN_DELAY, QIYUAN_PASSIVE, qiyuanSkillKind } from '../../core/qiyuan';
 import { getHeroInfo } from '../../data/heroes';
 import { heroXRedirectCost } from '../../core/hero-zhizhi';
 import { isXuanyuan } from '../../core/xuanyuan-form';
@@ -17,6 +18,7 @@ export default function SkillPanel() {
         player1Heroes,
         player2Heroes,
         roundNumber,
+        qiyuanWishes,
         baizeReviveTargetHeroId,
         daiReviveHeroId,
         jetzmiSkill1Enhanced,
@@ -166,6 +168,10 @@ export default function SkillPanel() {
         .filter(hero => hero.state === 'temp_dead');
     const visibleCounters = Object.entries(selectedHero.counters)
         .filter(([name]) => /[\u3400-\u9fff]/.test(name));
+    const wishes = selectedHero.passiveId === QIYUAN_PASSIVE
+        ? qiyuanWishes?.filter(plan => plan.sourceHeroId === selectedHero.id) ?? [] : [];
+    const wishKind = qiyuanSkillKind(selectedSkill?.id ?? '');
+    const pendingWish = wishes.find(plan => plan.kind === wishKind);
 
     return (
         <div className="ink-panel p-4 h-full flex flex-col overflow-hidden" data-sfx="skill">
@@ -494,6 +500,28 @@ export default function SkillPanel() {
                         >
                             {wukongSkill2State.phase === 'pickWukongTarget' ? '跳过本体攻击' : '跳过这个分身'}
                         </button>
+                    </div>
+                )}
+
+                {selectedHero.passiveId === QIYUAN_PASSIVE && (wishKind || wishes.length > 0) && (
+                    <div className="ink-surface px-2 py-2 space-y-1 text-xs text-ink-light" data-testid="qiyuan-wishes">
+                        {wishes.map(plan => <p key={plan.kind}>{plan.kind === 'wish' ? '许愿' : '守愿'} ·
+                            第{plan.dueRound}轮兑现 · {plan.heal}点</p>)}
+                        {pendingWish ? <p>点击祈愿所在格提前兑现：治疗 {Math.floor(pendingWish.heal / 2)} 点，消耗本次施法。</p> : wishKind && <>
+                            <p>选择等待时长，再点{wishKind === 'wish' ? '友方' : '祈愿所在格'}：</p>
+                            <div className="flex gap-2">
+                                {([1, 2] as const).map(delay => <button key={delay} type="button"
+                                    data-testid={`qiyuan-delay-${delay}`}
+                                    aria-pressed={(selectedHero.counters[QIYUAN_DELAY] ?? 1) === delay}
+                                    onClick={() => {
+                                        selectedHero.counters[QIYUAN_DELAY] = delay;
+                                        useGameStore.setState({ selectedHero });
+                                    }}
+                                    className="rounded border border-ink/15 px-2 py-1 aria-pressed:bg-gold/20 aria-pressed:text-gold-dark">
+                                    等{delay}轮 · {(wishKind === 'wish' ? 12 : 5) * delay}点
+                                </button>)}
+                            </div>
+                        </>}
                     </div>
                 )}
 

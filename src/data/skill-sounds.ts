@@ -281,6 +281,8 @@ export const SKILL_SOUND_MAP: Record<string, SoundName> = {
     xiangyu_tianwei: 'buff', xiangyu_guard_convert: 'buff',
     canglan_skill1: 'slash', canglan_skill1_phantom: 'water', canglan_skill2: 'water', canglan_skill2_phantom: 'water',
     flower_fog_skill1: 'summon', flower_fog_skill2: 'wind', flower_fog_stab: 'slash',
+    qiyuan_skill1: 'buff', qiyuan_skill2: 'buff',
+    qiyuan_wish_arrive: 'heal', qiyuan_guard_arrive: 'heal', qiyuan_rescue: 'heal',
     // 补充场景保留材质登记，实际声音仍由原技能调度，避免重复响。
     choreography_leap: 'metal', choreography_drift: 'metal', choreography_recall: 'metal', choreography_attach: 'metal',
     choreography_volley: 'metal', choreography_order: 'coin', choreography_reward: 'coin', choreography_cuts: 'slash',

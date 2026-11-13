@@ -23,6 +23,7 @@ import { tickCloudsAtRoundStart } from './thunder-cloud';
 import { clearShuangfeiyanBoomerangState } from './boomerang';
 import { fierceAnnouncement } from './battle-tempo';
 import { healFromWakeLamps } from './lamp-shadow';
+import { settleQiyuanWishes } from '../data/qiyuan-skills';
 
 /**
  * 对局回合上限：打满即强制结算，按场上存活人数判定胜负；
@@ -331,6 +332,7 @@ export class GameEngine {
 
         // 触发回合开始效果
         expireFlowerDecoys(gameState);
+        settleQiyuanWishes(gameState);
         this.triggerTurnStartEffects(gameState);
 
         // 添加日志

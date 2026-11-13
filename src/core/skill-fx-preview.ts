@@ -20,6 +20,7 @@ import { isYunxiuCloudFx } from './yunxiu-cloud-fx';
 import { isSwallowFx } from './swallow-fx';
 import { isHnyFx } from './huanongying-fx';
 import { isMartialSkill } from './martial-fx';
+import { qiyuanCross } from './qiyuan';
 import { CANGLAN_SKILL1, CANGLAN_SKILL2, canglanCells } from './canglan';
 import { flowerArea } from './flower-fog';
 import type { BladeScene, BladeStroke } from './blade-choreography';
@@ -133,6 +134,19 @@ export function previewCellVariants(
 export function buildSkillPreviewScene(skillId: string) {
     const profile = resolveSkillFx(skillId);
     const skill = getSkill(skillId);
+    const inkScene = profile.inkScene;
+    if (inkScene?.startsWith('wish-') || inkScene?.startsWith('guard-')) {
+        const guard = inkScene.startsWith('guard-');
+        const fromPos: Position = [3, 2], targetPos: Position = guard ? fromPos : [2, 4];
+        const coveredPositions = guard ? qiyuanCross(fromPos) : [targetPos];
+        const softImpactPositions: Position[] = inkScene === 'guard-arrive' ? [[3, 2], [3, 4], [1, 2], [4, 2]]
+            : inkScene === 'wish-arrive' || inkScene === 'wish-rescue' ? [targetPos] : [];
+        const angleDeg = computeFxAngleDeg(fromPos, targetPos);
+        const event: SkillFxEvent = { id: 0, skillId, profile, sourceHeroId: 'qiyuan', owner: 'player1', fromPos, targetPos,
+            angleDeg, direction: computeFxDirection(angleDeg), bornAt: Date.now(), coveredPositions,
+            impactPositions: softImpactPositions, softImpactPositions, damagePositions: [] };
+        return { event, cols: 6, rows: 6 };
+    }
     if (profile.inkScene) {
         const scene = profile.inkScene;
         const phantom = scene.endsWith('-phantom');

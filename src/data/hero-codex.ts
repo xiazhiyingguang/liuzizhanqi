@@ -35,6 +35,14 @@ type CodexWriting = Omit<
 > & { skillNames?: [string, string] };
 
 const WRITING: Record<string, CodexWriting> = {
+    qiyuan: {
+        epithet: '不负所托', role: '延迟治疗 · 溢疗救援', difficulty: 2,
+        summary: '延后兑现治疗，存下溢出的治疗量救回濒死队友。',
+        tags: ['延迟治疗', '提前兑现', '溢出救援'], resource: '不负所托',
+        passive: { name: '不负所托', description: '祈愿的溢出治疗永久存储。祈愿在场时，友方在场英雄受到致命伤害，先扣到0，再用全部存量治疗；余量不回存，不计溢出伤害。' },
+        tianweiPending: true,
+        tips: ['许愿跟随目标，守愿按兑现时祈愿所在格结算；两招各能保留一个待兑现效果。', '提前兑现要花一次正常施法；奇数治疗量减半时向下取整。'],
+    },
     flower_fog: {
         epithet:'雾里藏刃',role:'花影惑敌 · 雾中刺杀',difficulty:3,tags:['独立花影','花雾','隐蔽'],resource:'花影与花雾（各维持两回合）',
         summary: '借友军制造花影，雾中出剑，击杀后借新雾藏身。',

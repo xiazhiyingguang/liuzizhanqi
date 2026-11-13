@@ -159,6 +159,7 @@ export default function Board() {
         player1Heroes,
         player2Heroes,
         roundNumber,
+        qiyuanWishes,
         selectedSkill,
         daiReviveHeroId,
         selectDaiReviveTarget,
@@ -797,6 +798,14 @@ export default function Board() {
                                     style={{ userSelect: 'none' }}
                                     className={`${cellClass}${daizongGuardedCells.has(`${rowIndex},${colIndex}`) ? ' cell-daizong-guard' : ''}${inHanjiangxueDomain ? ' cell-hanjiangxue-domain' : ''} battle-board-cell flex flex-col items-center justify-center`}
                                 >
+                                    {cell && qiyuanWishes?.some(plan => plan.targetHeroId === cell.id) && (
+                                        <span className="qy-pending-mark absolute left-1 top-1 z-[7] pointer-events-none px-1 text-[9px]"
+                                            data-kind={qiyuanWishes.some(plan => plan.targetHeroId === cell.id && plan.kind === 'wish') ? 'wish' : 'guard'}
+                                            data-testid="qiyuan-wish-marker">
+                                            {qiyuanWishes.filter(plan => plan.targetHeroId === cell.id)
+                                                .map(plan => `${plan.kind === 'wish' ? '愿' : '守'}${Math.max(0, plan.dueRound - roundNumber)}`).join(' · ')}
+                                        </span>
+                                    )}
                                     {cellContacts.map(hit => <HitContactFx key={hit.id} hit={hit} />)}
                                     {pickedCorner && (
                                         <span className="cell-picked-corner" aria-hidden="true">

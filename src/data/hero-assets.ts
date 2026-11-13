@@ -69,6 +69,7 @@ export const HERO_ASSET_IDS = [
     'schrodinger',
     'canglan',
     'flower_fog',
+    'qiyuan',
 ] as const;
 
 export type HeroAssetId = typeof HERO_ASSET_IDS[number];

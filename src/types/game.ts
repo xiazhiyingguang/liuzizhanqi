@@ -284,7 +284,16 @@ export interface HeroRoundSnapshot {
 }
 
 /** 游戏状态 */
+export interface QiyuanWish {
+    kind: 'wish' | 'guard';
+    sourceHeroId: string;
+    targetHeroId: string;
+    dueRound: number;
+    heal: number;
+}
+
 export interface GameState {
+    qiyuanWishes?: QiyuanWish[];
     /** 玄霄的登场神威每方每局最多一次，不是后续登场增益。 */
     xuanxiaoEntranceTriggered?: Partial<Record<Player, boolean>>;
     /** 叙白首次登场神威的队伍级记录，镜花替补退席再登场也不会重置。 */

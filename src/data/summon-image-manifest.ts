@@ -37,7 +37,7 @@ export const SUMMON_IMAGE_MANIFEST: Record<string, string> = {
   "/hero-images/full-body/玄霄.png": "/hero-images/summon/983978aaad72d7f2.webp",
   "/hero-images/full-body/琉璃.png": "/hero-images/summon/ff6e79d7a2fe685c.webp",
   "/hero-images/full-body/白泽.png": "/hero-images/summon/d3ea296b8ae05f37.webp",
-  "/hero-images/full-body/纸鸢.png": "/hero-images/summon/5cdb9211c696bbb5.webp",
+  "/hero-images/full-body/纸鸢.png": "/hero-images/summon/860123d253f8b5a9.webp",
   "/hero-images/full-body/绯雪.png": "/hero-images/summon/09362e9fa75e9e81.webp",
   "/hero-images/full-body/缚魂灯.png": "/hero-images/summon/6e005432f2c75f62.webp",
   "/hero-images/full-body/羲和.png": "/hero-images/summon/01aeba7b164aa53a.webp",
@@ -60,5 +60,6 @@ export const SUMMON_IMAGE_MANIFEST: Record<string, string> = {
   "/others/full-body/shamozhinu.png": "/hero-images/summon/c83c2a0ce1f50926.webp",
   "/hero-images/avatars/醉枕刀.png": "/hero-images/summon/d75f4bc337e9ce53.webp",
   "/hero-images/full-body/沧澜剑客·顾行舟.png": "/hero-images/summon/22717b56538bbbc2.webp",
-  "/hero-images/full-body/双飞燕.png": "/hero-images/summon/1cbc9fbce237b718.webp"
+  "/hero-images/full-body/双飞燕.png": "/hero-images/summon/1cbc9fbce237b718.webp",
+  "/hero-images/full-body/祈愿.png": "/hero-images/summon/39ae0d5d4faeed59.webp"
 };

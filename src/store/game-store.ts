@@ -347,6 +347,7 @@ function syncEngineFlowFields(state: GameState): Partial<GameStore> {
         // 区域效果：引擎会 map/filter 出新数组（回合开始递减、行动结束撤除），
         // 不随流程字段一起提交的话，store 会一直持有过期那份（已消散的格子仍然挡路）
         boardEffects: [...(state.boardEffects ?? [])],
+        qiyuanWishes: state.qiyuanWishes,
         xuanxiaoEntranceTriggered: state.xuanxiaoEntranceTriggered,
         xubaiEntranceTriggered: state.xubaiEntranceTriggered,
         pipaEntranceTriggered: state.pipaEntranceTriggered,
@@ -802,6 +803,7 @@ export function createOnlineStateSnapshot(state: GameStore) {
         matchId: state.matchId,
         board: state.board,
         boardEffects: state.boardEffects,
+        qiyuanWishes: state.qiyuanWishes,
         xuanxiaoEntranceTriggered: state.xuanxiaoEntranceTriggered,
         xubaiEntranceTriggered: state.xubaiEntranceTriggered,
         pipaEntranceTriggered: state.pipaEntranceTriggered,
@@ -913,6 +915,7 @@ const createInitialState = (): GameState => ({
     selectedSkill: null,
     battleLog: [],
     battleStatistics: {},
+    qiyuanWishes: undefined,
     xuanxiaoEntranceTriggered: undefined,
     xubaiEntranceTriggered: undefined,
     pipaEntranceTriggered: undefined,
@@ -1509,6 +1512,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             currentPlayer: finalState.currentPlayer,
             actionsThisTurn: finalState.actionsThisTurn,
             roundNumber: finalState.roundNumber,
+            qiyuanWishes: finalState.qiyuanWishes,
             phase: finalState.phase,
             winner: finalState.winner,
             activeHero: finalState.activeHero,

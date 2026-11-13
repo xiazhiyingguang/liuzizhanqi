@@ -223,7 +223,8 @@ export type RecoveryFxTheme =
 
 export interface SkillFxProfile {
     /** 一次施法一张跨格墨绘；不挂通用逐格特效。 */
-    inkScene?: 'tide-cut' | 'tide-cut-phantom' | 'tide-sweep' | 'tide-sweep-phantom' | 'flower-decoy' | 'flower-mist' | 'flower-stab';
+    inkScene?: 'tide-cut' | 'tide-cut-phantom' | 'tide-sweep' | 'tide-sweep-phantom' | 'flower-decoy' | 'flower-mist' | 'flower-stab'
+        | 'wish-cast' | 'wish-arrive' | 'guard-cast' | 'guard-arrive' | 'wish-rescue';
     stance?: 'snow-break' | 'ink-stealth' | 'overlord-guard' | 'overlord-convert';
     arrival?: 'frost-lock' | 'hair-clone';
     /** 一次出手一张场景，不复制逐格泛光。 */
@@ -326,6 +327,11 @@ export interface MirrorBladeStrike {
 
 /** 技能级档案（键为裸技能 ID） */
 export const SKILL_FX_PROFILES: Record<string, SkillFxProfile> = {
+    qiyuan_skill1: { kind: 'blessing', inkScene: 'wish-cast', durationMs: 900, c1: '#c44033', c2: '#ffe6a2', fxArea: 'none' },
+    qiyuan_skill2: { kind: 'blessing', inkScene: 'guard-cast', durationMs: 880, c1: '#af342f', c2: '#f3c477', fxArea: 'none' },
+    qiyuan_wish_arrive: { kind: 'heal-single', inkScene: 'wish-arrive', durationMs: 1030, impactMs: 350, c1: '#b83a31', c2: '#fbe6ad', fxArea: 'none' },
+    qiyuan_guard_arrive: { kind: 'heal-wave', inkScene: 'guard-arrive', durationMs: 1070, impactMs: 400, c1: '#b34335', c2: '#f8d381', fxArea: 'none' },
+    qiyuan_rescue: { kind: 'heal-single', inkScene: 'wish-rescue', durationMs: 890, impactMs: 230, c1: '#c44033', c2: '#fff3cd', fxArea: 'none' },
     flower_fog_skill1: { kind: 'blessing', inkScene: 'flower-decoy', durationMs: 710, c1: '#6a435c', c2: '#e6bdc4', fxArea: 'none' },
     flower_fog_skill2: { kind: 'radial-burst', inkScene: 'flower-mist', durationMs: 640, c1: '#7e5970', c2: '#efe4e6', fxArea: 'none' },
     flower_fog_stab: { kind: 'pierce', inkScene: 'flower-stab', durationMs: 650, impactMs: 230, c1: '#4c344c', c2: '#f0c8ce', fxArea: 'none' },

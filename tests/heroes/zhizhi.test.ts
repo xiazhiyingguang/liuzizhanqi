@@ -49,7 +49,7 @@ describe('致知登记表', () => {
                 .map(entry => `${heroId}:${entry.tier}`));
         // 上官婉儿致知三已在 2026-10 补齐（每层墨意+5%技能伤害，封顶30%）；
         // 霆渊、云岫与达摩的策划案第三条写着「暂无」，登记留白而不是偷偷补一条自拟增益
-        expect(blanks).toEqual(['flower_fog:1', 'flower_fog:2', 'flower_fog:3', 'tingyuan:3', 'yunxiu:3', 'damo:3']);
+        expect(blanks.sort()).toEqual(['flower_fog:1', 'flower_fog:2', 'flower_fog:3', 'qiyuan:1', 'qiyuan:2', 'qiyuan:3', 'tingyuan:3', 'yunxiu:3', 'damo:3'].sort());
     });
 });
 

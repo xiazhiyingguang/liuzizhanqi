@@ -23,7 +23,6 @@ describe('hero image assets', () => {
         for (const id of AVAILABLE_HERO_IDS) {
             const avatar = getHeroAvatarUrl(id);
             const fullBody = getHeroFullBodyUrl(id);
-            if (id === 'qiyuan' && !avatar && !fullBody) continue; // 等正式画稿，先显示专属线性图标
             expect(avatar, `${id} 缺少头像登记`).toBeTruthy();
             expect(fullBody, `${id} 缺少立绘登记`).toBeTruthy();
             expect(existsSync(resolve('public', avatar!.replace(/^\//, ''))), `${id} 头像文件缺失`).toBe(true);

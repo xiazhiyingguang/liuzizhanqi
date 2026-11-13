@@ -93,6 +93,7 @@ import {
 } from './xiangyu';
 import { findDaizongBulwark, hasStance, queueDaizongLamp, recordStanceDamage, stillnessDefense, stanceConversion } from './mountain-stance';
 import { SHADOW_DAMAGE_RATE, SHADOW_TRANSFER_KEY, clearShadowTransfers, lampMitigationFor, leaveWakeLamp } from './lamp-shadow';
+import { QIYUAN_PASSIVE, QIYUAN_RESERVE } from './qiyuan';
 import { FLOWER_TIANWEI, finishFlowerAttack, isFlowerDecoy, removeFlowerDecoy, revealFlowerAttacker } from './flower-fog';
 import { triggerFlowerEscape } from '../data/flower-fog-skills';
 import { CANGLAN_TIANWEI, CONDENSED_WATER, TIDE_EDGE, gainCanglanLayer } from './canglan';
@@ -1699,6 +1700,23 @@ export class DamageCalculator {
             });
         }
 
+        // 不负所托：扣到0后才兑现，溢出伤害不带进恢复；未阵亡就不走击杀。
+        if (hpBeforeDamage > 0 && remainingDamage > 0 && actualTarget.currentHp <= 0 &&
+            actualTarget.state === HeroState.ALIVE && actualTarget.position && isRealCharacterHero(actualTarget)) {
+            const team = actualTarget.owner === 'player1' ? gameState.player1Heroes : gameState.player2Heroes;
+            const keeper = team.find(hero => hero.passiveId === QIYUAN_PASSIVE && hero.state === HeroState.ALIVE &&
+                hero.position && gameState.board[hero.position[0]]?.[hero.position[1]] === hero &&
+                (hero.counters[QIYUAN_RESERVE] ?? 0) > 0);
+            if (keeper) {
+                const reserve = keeper.counters[QIYUAN_RESERVE];
+                keeper.counters[QIYUAN_RESERVE] = 0;
+                const healed = this.applyHeal(actualTarget, reserve, gameState, keeper, true);
+                if (healed > 0) requestRecoveryFx(keeper, actualTarget, 'qiyuan_rescue', gameState);
+                this.addBattleLog(gameState, { type: 'passive', player: keeper.owner,
+                    message: `${keeper.name}的「不负所托」消耗${reserve}点存量，为${actualTarget.name}恢复${healed}点生命` });
+            }
+        }
+
         // 5. 检查是否击杀（在被动技能触发之后）
         if (actualTarget.currentHp <= 0 && actualTarget.state === HeroState.ALIVE) {
             // 戴尔「时空停滞」的复活口径：回到挨这致命一击之前的生命
@@ -3056,7 +3074,7 @@ export class DamageCalculator {
     /**
      * 应用治疗。传入 gameState 时会写入带位置信息的治疗日志，供 UI 飘字使用。
      */
-    static applyHeal(target: Hero, healAmount: number, gameState?: GameState, healer?: Hero): number {
+    static applyHeal(target: Hero, healAmount: number, gameState?: GameState, healer?: Hero, skipQiyuanOverflow = false): number {
         // 夺岁的「禁血」：收口在这里，一次性掐掉所有治疗来源（吸血、潮汐、和声、奶妈技能…），
         // 免得每个治疗点都要各自记得问一句"今天禁不禁"。
         if (healAmount > 0 && EffectManager.hasEffect(target, JINXUE_EFFECT)) {
@@ -3082,6 +3100,15 @@ export class DamageCalculator {
         const oldHp = target.currentHp;
         target.currentHp = Math.min(target.maxHp, target.currentHp + healAmount);
         const healed = target.currentHp - oldHp; // 实际治疗量
+        if (!skipQiyuanOverflow && gameState && healer?.passiveId === QIYUAN_PASSIVE &&
+            healer.owner === target.owner && healer.state === HeroState.ALIVE && target.state === HeroState.ALIVE && healAmount > 0) {
+            const overflow = Math.max(0, healAmount - Math.max(0, healed));
+            if (overflow > 0) {
+                healer.counters[QIYUAN_RESERVE] = (healer.counters[QIYUAN_RESERVE] ?? 0) + overflow;
+                this.addBattleLog(gameState, { type: 'passive', player: healer.owner,
+                    message: `${healer.name}将${overflow}点溢出治疗存入「不负所托」（共${healer.counters[QIYUAN_RESERVE]}点）` });
+            }
+        }
 
         if (gameState && healed > 0) {
             recordBattleHealing(gameState, healer ?? target, healed);

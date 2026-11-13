@@ -1,4 +1,5 @@
 import type { AiDifficulty, GameState, Hero, Player, Position, Skill } from '../types/game';
+import { qiyuanCross, qiyuanPlan, qiyuanSkillKind } from './qiyuan';
 import { HeroState } from '../types/game';
 import { zhizhiValue } from './hero-zhizhi';
 import { AVAILABLE_HERO_IDS, getHeroInfo, getZhenxiaoDamageBonus } from '../data/heroes';
@@ -2185,6 +2186,20 @@ function simulateSkillSample(
         // 单步模拟一律读不到，于是被 score>0 的出手闸门长期压死（60 局体检：
         // 风铃「沙丘猎场」采纳 1.30 次/局、施法 0.00；赏金「猎杀令」施法 0.13）。
         let zoneMarkBonus = 0;
+        const wishKind = qiyuanSkillKind(skill.id);
+        if (wishKind && !qiyuanPlan(state, caster, wishKind)) {
+            const pending = qiyuanPlan(simulated, simulatedCaster, wishKind);
+            if (pending && simulatedCaster.position) {
+                const nearby = wishKind === 'wish'
+                    ? allHeroes(simulated).filter(unit => unit.id === pending.targetHeroId)
+                    : qiyuanCross(simulatedCaster.position).map(([r,c]) => simulated.board[r][c]);
+                zoneMarkBonus += nearby.reduce((sum, unit) => {
+                    if (!unit || unit.owner !== caster.owner || unit.state !== HeroState.ALIVE) return sum;
+                    const missing = Math.max(0, unit.maxHp - unit.currentHp);
+                    return sum + Math.min(pending.heal, missing) * 0.8 + Math.max(0, pending.heal - missing) * 0.5;
+                }, 0);
+            }
+        }
         if (skill.id === 'fengling_skill2' && simulatedCaster.position) {
             // 沙丘：她自己站在场中输出 +30% 增伤、暴伤 +20%，每次受伤累积 20% 闪避（最多 5 层）
             const foesInDune = enemiesFor(simulated, caster.owner).filter(enemy =>

@@ -76,9 +76,12 @@ export const EXTENDED_HERO_IDS = [
     'xiangyu',
     'flower_fog',
     'canglan',
+    'qiyuan',
 ] as const;
 
 export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
+    qiyuan: { name: '祈愿', class: '素问', maxHp: 55, moveRange: 2,
+        skill1Id: 'qiyuan_skill1', skill2Id: 'qiyuan_skill2', passiveId: 'qiyuan_passive' },
     wangshu: {
         name: '望舒', class: '素问', maxHp: 50, moveRange: 2, baseAttack: 0,
         skill1Id: 'wangshu_skill1', skill2Id: 'wangshu_skill2',
@@ -597,6 +600,7 @@ export const EXTENDED_HERO_TEMPLATES: Record<string, ExtendedHeroTemplate> = {
 export const EXTENDED_HERO_INFO: Record<string, { name: string; class: string; description: string }> = {
     flower_fog: { name:'雾里看花', class:'武曲', description:'移花惑敌，铺雾刺杀，击杀后隐入新雾。生命50，移动力2' },
     canglan: { name: '沧澜剑客·顾行舟', class: '武曲', description: '截潮蓄锋，回澜凝水，幻化时爆发与吸血。生命50，移动力2' },
+    qiyuan: { name: '祈愿', class: '素问', description: '两档延迟治疗，溢出治疗存下救命。生命55，移动力2' },
     wangshu: { name: '望舒', class: '素问', description: '月相盈亏，朔望转化伤害与恢复。生命50，移动力2' },
     skeletonking: { name: '骸骨君王·厄瑞波斯', class: '武曲', description: '死亡计数、护盾与复活。生命48，移动力2' },
     jetzmi: { name: '亡灵城主·杰茨米', class: '武曲', description: '暂时死亡切换形态。生命45，移动力2' },
@@ -711,6 +715,9 @@ export function initializeExtendedHero(hero: Hero): void {
             break;
         case 'xubai_passive':
             hero.counters['黑白球'] = 0;
+            break;
+        case 'qiyuan_passive':
+            hero.counters['不负所托'] = 0;
             break;
         case 'lingxi_passive':
             hero.counters['lingxi_echo1_round'] = 0;   // 技能1延迟段：武装于哪一轮

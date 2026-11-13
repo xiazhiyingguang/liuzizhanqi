@@ -4,6 +4,7 @@ import { BOARD_SIZE, Hero, Skill, Position, GameState, SkillExecuteResult, HeroS
 import { MovementSystem } from './movement-system';
 import { DamageCalculator } from './damage-calculator';
 import { canglanTargetPositions, isCanglanSkill } from './canglan';
+import { qiyuanSkillKind, qiyuanTargets } from './qiyuan';
 import { EffectManager } from './effect-manager';
 import { zhizhiValue } from './hero-zhizhi';
 import { recordBattleSkillUse } from './battle-statistics';
@@ -70,6 +71,8 @@ export class SkillSystem {
         gameState?: GameState
     ): Position[] {
         if (!caster.position) return [];
+        const qiyuan = qiyuanSkillKind(skill.id);
+        if (qiyuan) return qiyuanTargets(caster, qiyuan, gameState);
         if (skill.id===FLOWER_SKILL1) return gameState ? flowerPlacementCells(gameState,caster) : [];
         if (skill.id===FLOWER_SKILL2) return flowerArea(caster.position);
         if (isCanglanSkill(skill.id)) return canglanTargetPositions(caster, skill.id, gameState);

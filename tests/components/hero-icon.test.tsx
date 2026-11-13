@@ -37,13 +37,15 @@ describe('英雄选将线性图标', () => {
         expect(dedicated).not.toContain(fallback);
     });
 
-    it.each(['canglan', 'flower_fog'])('%s 暂无正式图片时，战斗头像和花影沿用专属线性图标', id => {
+    it('祈愿在点将中保留专属图标，战斗头像与花影使用同一张正式头像', () => {
+        const id = 'qiyuan';
         const deployedId = `${id}-player1-123`;
         const decoyId = `flower-decoy|flower_fog-player1-456|${deployedId}`;
-        const icon = renderToStaticMarkup(<HeroIcon heroId={id} size={23} />);
-        expect(getHeroAvatarUrl(deployedId)).toBeUndefined();
-        expect(getHeroFullBodyUrl(id)).toBeUndefined();
-        expect(renderToStaticMarkup(<HeroAvatar heroId={deployedId} />)).toBe(icon);
-        expect(renderToStaticMarkup(<HeroAvatar heroId={decoyId} />)).toBe(icon);
+        const avatar = '/hero-images/avatars/祈愿.png';
+        expect(getHeroAvatarUrl(deployedId)).toBe(avatar);
+        expect(getHeroFullBodyUrl(id)).toBe('/hero-images/full-body/祈愿.png');
+        expect(renderToStaticMarkup(<HeroIcon heroId={deployedId} />)).toBe(renderToStaticMarkup(<HeroIcon heroId={id} />));
+        expect(renderToStaticMarkup(<HeroAvatar heroId={deployedId} />)).toContain(`src="${avatar}"`);
+        expect(renderToStaticMarkup(<HeroAvatar heroId={decoyId} />)).toContain(`src="${avatar}"`);
     });
 });

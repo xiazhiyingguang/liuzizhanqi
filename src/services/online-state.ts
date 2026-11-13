@@ -128,6 +128,7 @@ export function normalizeGameState(gameState: any) {
  * 应用快照时必须显式补回缺失的 key，清理信号才能生效。
  */
 const CLEAR_WHEN_MISSING_KEYS = [
+    'qiyuanWishes',
     'libaiChainState',
     'shangguanDashState',
     'wukongSkill2State',

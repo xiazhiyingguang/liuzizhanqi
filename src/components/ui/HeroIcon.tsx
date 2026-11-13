@@ -883,6 +883,10 @@ const iconMap: Record<string, () => JSX.Element> = {
     dilan: () => <DilanIcon />,
     flower_fog: () => <FlowerFogIcon />,
     canglan: () => <CanglanIcon />,
+    qiyuan: () => <Stroke>
+        <path d="M16 4v4m-6 2h12l2 4-2 10H10L8 14Z M11 13h10m-10 8h10M16 24v4" strokeWidth="1.6" />
+        <path d="M16 14c-4 3-2 6 0 6s4-3 0-6Z M5 7l2 2m20-2-2 2" strokeWidth="1.2" />
+    </Stroke>,
     nanfeng: () => <NanfengIcon />,
     shangguan: () => <ShangguanIcon />,
     // 这三名的键沿用立绘资产命名（resolveHeroTemplateId 会把 youjun/chenyuan/dai 归一化成它们）

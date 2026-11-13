@@ -28,6 +28,7 @@ import {
     triggerHookBite,
 } from '../core/water-marsh';
 import { DamageCalculator } from '../core/damage-calculator';
+import { castQiyuanGuard, castQiyuanWish } from './qiyuan-skills';
 import { executeFlowerDecoy, executeFlowerFog } from './flower-fog-skills';
 import { executeCanglanSlash, executeCanglanSweep } from './canglan-skills';
 import { EffectManager } from '../core/effect-manager';
@@ -7360,6 +7361,18 @@ export const xiangyuSkill2: Skill = {
 };
 
 export const EXTENDED_SKILLS: Record<string, Skill> = {
+    qiyuan_skill1: {
+        id: 'qiyuan_skill1', name: '许愿', type: 'heal', rangeType: 'area', range: 2, areaSize: 5,
+        targetType: 'any', targetCount: 1,
+        description: '选5×5内一名友方：等一轮回12，等两轮回24。已有许愿时可点自己提前兑现，治疗减半。',
+        execute: castQiyuanWish,
+    },
+    qiyuan_skill2: {
+        id: 'qiyuan_skill2', name: '守愿', type: 'heal', rangeType: 'area', range: 2, areaSize: 5,
+        targetType: 'self', targetCount: 1,
+        description: '点自己开始蓄力：等一轮回5，等两轮回10。按结算时自己的位置治疗两格十字内友方；提前释放治疗减半。',
+        execute: castQiyuanGuard,
+    },
     flower_fog_skill1: {
         id: 'flower_fog_skill1', name: '移花', type: 'summon',
         rangeType: 'single', range: 2, targetType: 'any', targetCount: 1,

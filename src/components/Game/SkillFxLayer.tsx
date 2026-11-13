@@ -29,6 +29,7 @@ import { LingxiTideCastFx, LingxiTideImpactFx } from './LingxiTideFx';
 import { MechanismSkillFx } from './MechanismSkillFx';
 import { HuanongyingSceneFx } from './HuanongyingSceneFx';
 import { TideFlowerSceneFx } from './TideFlowerSceneFx';
+import { QiyuanSceneFx } from './QiyuanSceneFx';
 import { isHnyFx } from '../../core/huanongying-fx';
 import '../../styles/wukong-skill-fx.css';
 import '../../styles/zhiyuan-skill-fx.css';
@@ -2318,7 +2319,7 @@ export const SkillFxVisual = memo(function SkillFxVisual({
         const elapsed = Math.max(0, Date.now() - event.bornAt);
         const startTime = performance.now() - elapsed;
         for (const animation of clockRoot.current.getAnimations({ subtree: true })) animation.startTime = startTime;
-    }, [event.id, event.bornAt, event.profile.kind, started]);
+    }, [event.id, event.bornAt, event.skillId, event.profile.kind, event.profile.stance, event.profile.arrival, event.profile.choreography, started]);
     if (!started && Date.now() < event.bornAt) return null;
     // 兼容旧快照中的夜枭潜行演出：仅保留状态，不再显示墨影/羽片。
     if (event.skillId === 'nightowl_tianwei') return null;
@@ -2884,6 +2885,8 @@ function AreaLightPathFx({ event }: { event: SkillFxEvent }) {
 
 /** AOE 整体特效渲染入口：渲染在棋盘网格层（跨格子绝对定位），每个事件一张 */
 export function SkillAreaFx({ event }: { event: SkillFxEvent }) {
+    const scene = event.profile.inkScene;
+    if (scene?.startsWith('wish-') || scene?.startsWith('guard-')) return <QiyuanSceneFx event={event} />;
     if (event.profile.inkScene) return <TideFlowerSceneFx event={event} />;
     if (isHnyFx(event.profile.kind)) return null;
     if (event.profile.crafted || event.profile.spectral || event.profile.mechanism) return null;

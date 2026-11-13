@@ -38,6 +38,8 @@ const INK_SCENE_NAMES = {
     'tide-cut': '截潮 · 青墨开锋', 'tide-cut-phantom': '幻化 · 剑分两浪',
     'tide-sweep': '回澜 · 潮卷一周', 'tide-sweep-phantom': '幻化 · 双潮回卷',
     'flower-decoy': '移花 · 花影凝形', 'flower-mist': '藏刃 · 花雾铺开', 'flower-stab': '藏刃 · 雾中一刺',
+    'wish-cast': '许愿 · 递福灯', 'wish-arrive': '许愿 · 红包开封', 'guard-cast': '守愿 · 铺窗花',
+    'guard-arrive': '守愿 · 梅花报春', 'wish-rescue': '不负所托 · 重燃福灯',
 };
 
 /** 特效舞台本体：演示棋盘 + 档案行 + 重播（图鉴卡内不直接展示，只在浮层里出现） */
