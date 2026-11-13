@@ -11,12 +11,19 @@ import {
 } from '../../src/data/hero-assets';
 
 describe('hero image assets', () => {
-    it('supplies working avatar and full-body paths for selectable heroes with completed artwork', () => {
+    it('uses the registered 雾里看花 artwork and mirrors it on the flower decoy', () => {
+        const body = 'flower_fog-player1-123';
+        const decoy = `flower-decoy|${body}|${body}`;
+        expect(getHeroAvatarUrl(body)).toBe('/hero-images/avatars/雾里看花.png');
+        expect(getHeroAvatarUrl(decoy)).toBe(getHeroAvatarUrl(body));
+        expect(getHeroFullBodyUrl('flower_fog')).toBe('/hero-images/full-body/雾里看花.png');
+    });
+
+    it('supplies working avatar and full-body paths for every selectable hero', () => {
         for (const id of AVAILABLE_HERO_IDS) {
             const avatar = getHeroAvatarUrl(id);
             const fullBody = getHeroFullBodyUrl(id);
-            // 这两位由作者后续补图；登记后仍执行完整的路径和文件检查。
-            if ((id === 'canglan' || id === 'flower_fog') && !avatar && !fullBody) continue;
+            if (id === 'qiyuan' && !avatar && !fullBody) continue; // 等正式画稿，先显示专属线性图标
             expect(avatar, `${id} 缺少头像登记`).toBeTruthy();
             expect(fullBody, `${id} 缺少立绘登记`).toBeTruthy();
             expect(existsSync(resolve('public', avatar!.replace(/^\//, ''))), `${id} 头像文件缺失`).toBe(true);
@@ -120,9 +127,11 @@ describe('hero image assets', () => {
         }
     });
 
-    it('returns no image for heroes whose artwork has not been supplied', () => {
-        expect(getHeroAvatarUrl('schrodinger')).toBeUndefined();
-        expect(getHeroFullBodyUrl('schrodinger')).toBeUndefined();
+    it('resolves the hidden hero portrait and skips unknown IDs and summons', () => {
+        expect(getHeroAvatarUrl('schrodinger')).toBe('/hero-images/avatars/量子观测者·薛定谔.png');
+        expect(getHeroFullBodyUrl('schrodinger')).toBe('/hero-images/full-body/量子观测者·薛定谔.png');
+        expect(getHeroAvatarUrl('unknown-hero')).toBeUndefined();
+        expect(getHeroFullBodyUrl('unknown-hero')).toBeUndefined();
         expect(getHeroAvatarUrl('t-summon|jinwu|owner|1|0.5')).toBeUndefined();
     });
 });

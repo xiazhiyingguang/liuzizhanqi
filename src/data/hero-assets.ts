@@ -5,7 +5,6 @@ import { AVAILABLE_HERO_IDS, HIDDEN_HERO_IDS, getHeroInfo } from './heroes';
  * tests/heroes/hero-assets.test.ts 会逐个 existsSync 校验，指向空气的条目过不了测试。
  */
 export const HERO_ASSET_IDS = [
-    // 顾行舟、雾里看花等正式图片到位后，再按显示名 PNG 的惯例加入这里。
     'moran',
     'zhenxiao',
     'huifeng',
@@ -63,6 +62,13 @@ export const HERO_ASSET_IDS = [
     'xuanyuan',
     'xiyueci',
     'shuangfeiyan',
+    'daizong',
+    'wenren',
+    'damo',
+    'xiangyu',
+    'schrodinger',
+    'canglan',
+    'flower_fog',
 ] as const;
 
 export type HeroAssetId = typeof HERO_ASSET_IDS[number];
