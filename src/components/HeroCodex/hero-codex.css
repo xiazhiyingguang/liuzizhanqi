@@ -310,7 +310,7 @@
     }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (pointer: coarse) and (max-width: 1023px) and (orientation: landscape) {
     .hero-codex-intro {
         min-height: 0;
         grid-template-columns: 1fr;
@@ -326,7 +326,9 @@
         min-height: 315px;
         margin-inline: auto;
     }
+}
 
+@media (max-width: 640px) {
     .hero-ability-panel {
         padding: 16px 12px;
     }

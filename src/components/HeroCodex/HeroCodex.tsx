@@ -204,7 +204,7 @@ function HeroDetail({ hero }: { hero: HeroCodexEntry }) {
                     </div>
                     <h2 className="font-title text-4xl leading-tight text-ink sm:text-5xl">{hero.name}</h2>
                     <p className="mt-2 text-sm font-medium text-ink-light">{hero.role}</p>
-                    <p className="mt-3 max-w-2xl text-sm leading-7 text-ink-faint">{hero.summary}</p>
+                    <p className="hero-codex-summary mt-3 max-w-2xl line-clamp-2 text-sm leading-7 text-ink-faint">{hero.summary}</p>
 
                     <div className="mt-6 flex flex-wrap gap-2">
                         <Stat label="生命" value={hero.maxHp} />
